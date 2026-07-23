@@ -1,0 +1,253 @@
+{
+  "scenarios": [
+    {
+      "name": "Direct DM question",
+      "isDM": true,
+      "hasMedia": false,
+      "transcript": [["User", "Hey bot, what's the weather like today?"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "DM always triggers speak short-circuit per engine design"
+    },
+    {
+      "name": "DM with media",
+      "isDM": true,
+      "hasMedia": true,
+      "transcript": [["User", ""]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "DM + media short-circuits to speak"
+    },
+    {
+      "name": "Group media share",
+      "isDM": false,
+      "hasMedia": true,
+      "transcript": [["Alice", "check this out"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "hasMedia short-circuits to speak regardless of group vs DM"
+    },
+    {
+      "name": "Direct @mention in group",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "OpenClaw, what do you think?",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "OpenClaw, what do you think?" }],
+      "transcript": [["Bob", "OpenClaw, what do you think?"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "Hard trigger (agent name) short-circuits to speak"
+    },
+    {
+      "name": "Side chatter between two others",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "yeah i had pizza for dinner",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "yeah i had pizza for dinner" }],
+      "transcript": [["Alice", "i had pizza for dinner"], ["Bob", "nice what toppings"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Side chatter not addressed to bot should stay silent"
+    },
+    {
+      "name": "Already answered question",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "i think bob already answered that",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "i think bob already answered that" }],
+      "transcript": [["Alice", "what time is the meeting"], ["Bob", "3pm"], ["Carol", "i think bob already answered that"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Already answered — no need to repeat"
+    },
+    {
+      "name": "Simple 'ok' reaction",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "ok",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "ok" }],
+      "transcript": [["Alice", "let's meet at 3"], ["Bob", "ok"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Minimal reaction from another member — bot should stay silent"
+    },
+    {
+      "name": "'lol' reaction",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "lol",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "lol" }],
+      "transcript": [["Alice", "that joke was terrible"], ["Bob", "lol"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Simple laugh reaction — bot should not chime in"
+    },
+    {
+      "name": "Question to another member",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "Bob, what do you think about this?",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "Bob, what do you think about this?" }],
+      "transcript": [["Alice", "Bob, what do you think about this?"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Question explicitly directed at Bob, not OpenClaw"
+    },
+    {
+      "name": "Off-topic banter",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "anyone watching the game tonight?",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "anyone watching the game tonight?" }],
+      "transcript": [["Alice", "so anyway"], ["Bob", "anyone watching the game tonight?"], ["Carol", "yeah i am"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Off-topic banter between group members — bot not needed"
+    },
+    {
+      "name": "Bot already spoke last turn",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "yeah that's a good point",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "yeah that's a good point" }],
+      "transcript": [["OpenClaw", "i think we should go with option a"], ["Alice", "yeah that's a good point"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Bot already spoke, Alice is acknowledging — no need to speak again"
+    },
+    {
+      "name": "Burst continuation from bot's last message",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "actually wait i have more to add",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "actually wait i have more to add" }],
+      "transcript": [["OpenClaw", "i think option a is best"], ["Alice", "why?"], ["OpenClaw", "actually wait i have more to add"]],
+      "expect": "speak",
+      "deterministic": false,
+      "rationale": "Bot is continuing its own thought — should speak"
+    },
+    {
+      "name": "Group garbage / noise",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "asdfghjkl",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "asdfghjkl" }],
+      "transcript": [["Bob", "asdfghjkl"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Keyboard mash noise — bot should stay silent"
+    },
+    {
+      "name": "Direct question to bot in group",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "OpenClaw can you help me with this?",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "OpenClaw can you help me with this?" }],
+      "transcript": [["Alice", "OpenClaw can you help me with this?"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "Direct mention triggers hard trigger short-circuit"
+    },
+    {
+      "name": "DM with simple question",
+      "isDM": true,
+      "hasMedia": false,
+      "transcript": [["User", "what's 2+2?"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "DM always short-circuits to speak"
+    },
+    {
+      "name": "Bot mentioned with @ in media caption",
+      "isDM": false,
+      "hasMedia": true,
+      "prompt": "OpenClaw look at this",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "OpenClaw look at this", "hasMedia": true }],
+      "transcript": [["Alice", "OpenClaw look at this"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "hasMedia short-circuits to speak"
+    },
+    {
+      "name": "Sensitive topic boundary (others talking politics)",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "i think the government should do more",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "i think the government should do more" }],
+      "transcript": [["Alice", "the new policy is terrible"], ["Bob", "i think the government should do more"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Sensitive discussion between members — bot stays silent unless directly addressed"
+    },
+    {
+      "name": "Someone answers the question bot was asked",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "i can help with that actually",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "i can help with that actually" }],
+      "transcript": [["Alice", "OpenClaw what time is it?"], ["Bob", "i can help with that actually"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Another member answered the question directed at bot — bot can stay silent"
+    },
+    {
+      "name": "Compliment to bot",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "that was a really good answer OpenClaw",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "that was a really good answer OpenClaw" }],
+      "transcript": [["Alice", "that was a really good answer OpenClaw"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "Direct mention triggers hard trigger short-circuit"
+    },
+    {
+      "name": "DM with no content (just media)",
+      "isDM": true,
+      "hasMedia": true,
+      "transcript": [["User", ""]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "DM + media always short-circuits to speak"
+    },
+    {
+      "name": "Multiple people chatting, bot never addressed",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "did you see the new movie?",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "did you see the new movie?" }],
+      "transcript": [["Alice", "hey guys"], ["Bob", "what's up"], ["Carol", "did you see the new movie?"]],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "Casual group conversation with no mention of bot"
+    },
+    {
+      "name": "Bot asked for opinion in group",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "OpenClaw what do you recommend?",
+      "agentName": "OpenClaw",
+      "messages": [{ "text": "OpenClaw what do you recommend?" }],
+      "transcript": [["Alice", "i'm looking for a good restaurant"], ["Bob", "OpenClaw what do you recommend?"]],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "Direct mention triggers hard trigger"
+    }
+  ]
+}

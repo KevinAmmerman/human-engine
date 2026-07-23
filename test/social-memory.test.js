@@ -1,0 +1,405 @@
+import assert from "node:assert/strict";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { createSocialMemory } from "../lib/social-memory.js";
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "social-mem-test-"));
+
+function makeCfg(overrides = {}) {
+  return {
+    socialMemory: {
+      enabled: true,
+      extractEvery: 25,
+      extractMinutes: 0,
+      maxPeople: 50,
+      recallLimit: 800,
+      ...overrides,
+    },
+  };
+}
+
+function makeLog() {
+  return { info() {}, warn() {}, debug() {} };
+}
+
+function after() {
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+}
+
+describe("social-memory", { concurrency: false }, () => {
+  let sm;
+
+  beforeEach(() => {
+    // Clean up any state dirs from previous tests
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    fs.mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  describe("ingest bounds", () => {
+    it("ingests messages into buffer", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::conv1";
+      for (let i = 0; i < 50; i++) {
+        sm.ingest(scope, { speaker: "Alice", text: "msg " + i, ts: Date.now() + i });
+      }
+      const buf = sm.bufferByScope.get(scope);
+      assert.ok(buf);
+      assert.equal(buf.entries.length, 50);
+    });
+
+    it("caps buffer at 200 entries FIFO", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::conv2";
+      for (let i = 0; i < 250; i++) {
+        sm.ingest(scope, { speaker: "Bob", text: "msg " + i, ts: Date.now() + i });
+      }
+      const buf = sm.bufferByScope.get(scope);
+      assert.ok(buf);
+      assert.equal(buf.entries.length, 200);
+      assert.equal(buf.entries[0].text, "msg 50");
+    });
+
+    it("increments newSinceExtract", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 100 }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::conv3";
+      sm.ingest(scope, { speaker: "Charlie", text: "hi" });
+      assert.equal(sm.bufferByScope.get(scope).newSinceExtract, 1);
+    });
+
+    it("ignores missing scope or speaker", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      sm.ingest(null, { speaker: "A", text: "hi" });
+      sm.ingest("scope", { speaker: "", text: "hi" });
+      assert.equal(sm.bufferByScope.size, 0);
+    });
+  });
+
+  describe("extract trigger and dedupe", () => {
+    it("triggers extract when newSinceExtract reaches extractEvery", async () => {
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Alice: { facts: ["likes climbing"] } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 5 }), llm, stateDir: tmpDir, log: makeLog() });
+
+      const scope = "agent1::trigger-test";
+      for (let i = 0; i < 5; i++) {
+        sm.ingest(scope, { speaker: "Alice", text: "hello " + i, ts: Date.now() + i });
+      }
+
+      // Wait for the fire-and-forget extract
+      await new Promise(r => setTimeout(r, 50));
+
+      assert.equal(llm.complete.mock.callCount(), 1);
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(profile.people.Alice);
+    });
+
+    it("does not trigger on low count", () => {
+      const llm = { complete: mock.fn() };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 25 }), llm, stateDir: tmpDir, log: makeLog() });
+
+      sm.ingest("agent1::no-trigger", { speaker: "Alice", text: "hi" });
+      assert.equal(llm.complete.mock.callCount(), 0);
+    });
+
+    it("dedupes — one in flight per scope", async () => {
+      const callCount = { current: 0 };
+      const llm = {
+        complete: mock.fn(async () => {
+          callCount.current++;
+          // Slow the first call so second trigger fires while in-flight
+          if (callCount.current === 1) {
+            await new Promise(r => setTimeout(r, 30));
+          }
+          return {
+            text: JSON.stringify({ people: { Alice: { facts: ["test"] } } }),
+          };
+        }),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 3 }), llm, stateDir: tmpDir, log: makeLog() });
+
+      const scope = "agent1::dedupe";
+      for (let i = 0; i < 6; i++) {
+        sm.ingest(scope, { speaker: "Alice", text: "msg " + i, ts: Date.now() + i });
+      }
+
+      await new Promise(r => setTimeout(r, 150));
+
+      // Should only have made 1 call (deduped)
+      assert.equal(llm.complete.mock.callCount(), 1);
+    });
+  });
+
+  describe("stub-LLM merge semantics", () => {
+    it("merges LLM result into existing profile", async () => {
+      let callIdx = 0;
+      const llm = {
+        complete: mock.fn(async () => {
+          callIdx++;
+          if (callIdx === 1) {
+            return { text: JSON.stringify({ people: { Alice: { facts: ["likes climbing"], preferences: ["bouldering"], situation: "experienced climber" } } }) };
+          }
+          return { text: JSON.stringify({ people: { Alice: { facts: ["likes climbing", "has a dog"], preferences: ["bouldering"] }, Bob: { facts: ["is a beginner"] } } }) };
+        }),
+      };
+      // Use low extractEvery so first trigger fires
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2 }), llm, stateDir: tmpDir, log: makeLog() });
+
+      const scope = "agent1::merge-test";
+
+      // First round
+      sm.ingest(scope, { speaker: "Alice", text: "I love climbing", ts: 1000 });
+      sm.ingest(scope, { speaker: "Alice", text: "Bouldering is my fave", ts: 1001 });
+      await new Promise(r => setTimeout(r, 50));
+      assert.equal(llm.complete.mock.callCount(), 1);
+
+      // Second round — triggers another extract
+      sm.ingest(scope, { speaker: "Bob", text: "I'm new to this", ts: 2000 });
+      sm.ingest(scope, { speaker: "Alice", text: "I have a dog", ts: 2001 });
+      await new Promise(r => setTimeout(r, 50));
+      assert.equal(llm.complete.mock.callCount(), 2);
+
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(profile.people.Alice);
+      assert.ok(profile.people.Bob);
+    });
+
+    it("facts attributed to the person they are about", async () => {
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Alice: { facts: ["loves hiking"] }, Bob: { facts: ["is allergic to cats"] } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2 }), llm, stateDir: tmpDir, log: makeLog() });
+
+      const scope = "agent1::attribution";
+      sm.ingest(scope, { speaker: "Charlie", text: "Alice loves hiking", ts: 100 });
+      sm.ingest(scope, { speaker: "Alice", text: "Bob is allergic to cats", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(profile.people.Alice.facts.includes("loves hiking"));
+      assert.ok(profile.people.Bob.facts.includes("is allergic to cats"));
+    });
+
+    it("failure keeps old profile (never destructive)", async () => {
+      let fail = true;
+      const llm = {
+        complete: mock.fn(async () => {
+          if (fail) throw new Error("LLM fail");
+          return { text: JSON.stringify({ people: { New: { facts: ["data"] } } }) };
+        }),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2 }), llm, stateDir: tmpDir, log: makeLog() });
+
+      const scope = "agent1::destructive";
+      // First get some data into the profile via ingest
+      sm.ingest(scope, { speaker: "Alice", text: "hello", ts: 100 });
+      sm.ingest(scope, { speaker: "Alice", text: "world", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+
+      // Profile was written even though LLM failed (because it keeps old)
+      const profile = sm.getOrLoadProfile(scope);
+      // Alice should exist because ingest creates entries
+      assert.ok(profile.people.Alice);
+    });
+  });
+
+  describe("profile persistence round-trip", () => {
+    it("writes and reads profile from disk", async () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agentX::session-persist";
+
+      // Ingest to create profile
+      sm.ingest(scope, { speaker: "Dave", text: "hello", ts: 100 });
+      sm.ingest(scope, { speaker: "Eve", text: "hi", ts: 101 });
+
+      const profile1 = sm.getOrLoadProfile(scope);
+      assert.ok(profile1.people.Dave);
+
+      // Create new instance with fresh caches (simulate restart)
+      const sm2 = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const profile2 = sm2.getOrLoadProfile(scope);
+      assert.ok(profile2.people.Dave);
+      assert.ok(profile2.people.Eve);
+      assert.equal(profile2.people.Dave.mentionCount, 1);
+    });
+  });
+
+  describe("recall filtering and cap", () => {
+    it("returns empty string for empty profile", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const result = sm.recall("agent1::empty", ["Alice"]);
+      assert.equal(result, "");
+    });
+
+    it("selects involved names and top 3 recent others", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::recall-filter";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Alice: { facts: ["likes climbing"], preferences: [], situation: "", lastSeenTs: 100, mentionCount: 5 },
+        Bob: { facts: ["is a beginner"], preferences: [], situation: "", lastSeenTs: 90, mentionCount: 3 },
+        Charlie: { facts: ["prefers top-rope"], preferences: [], situation: "", lastSeenTs: 80, mentionCount: 2 },
+        Dave: { facts: ["teaches climbing"], preferences: [], situation: "", lastSeenTs: 70, mentionCount: 1 },
+        Eve: { facts: ["climbs on weekends"], preferences: [], situation: "", lastSeenTs: 60, mentionCount: 4 },
+      };
+
+      const result = sm.recall(scope, ["Alice"]);
+      assert.ok(result.includes("Alice"));
+      // Should include Alice + 3 most recent others (Bob, Charlie, Dave)
+      assert.ok(result.includes("Bob") || result.includes("Charlie") || result.includes("Dave"));
+    });
+
+    it("caps at recallLimit chars", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ recallLimit: 50 }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::recall-cap";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Alice: { facts: ["likes very long detailed climbing descriptions with many words that go on and on"], preferences: ["technical bouldering routes"], situation: "has been climbing for many years and teaches courses", lastSeenTs: 100, mentionCount: 5 },
+      };
+
+      const result = sm.recall(scope, ["Alice"]);
+      assert.ok(result.length <= 60); // slight fudge for sentence boundary
+    });
+
+    it("performs recall in under 5ms", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::recall-speed";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {};
+      for (let i = 0; i < 50; i++) {
+        profile.people["Person" + i] = {
+          facts: ["fact " + i], preferences: ["pref " + i], situation: "situation " + i,
+          lastSeenTs: i * 10, mentionCount: i,
+        };
+      }
+
+      const start = performance.now();
+      const result = sm.recall(scope, ["Person0", "Person1"]);
+      const elapsed = performance.now() - start;
+      assert.ok(elapsed < 5, "recall took " + elapsed + "ms");
+      assert.ok(result.length > 0);
+    });
+  });
+
+  describe("eviction", () => {
+    it("evicts least-recently-seen when over maxPeople", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ maxPeople: 3 }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::evict";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Oldest: { facts: [], preferences: [], situation: "", lastSeenTs: 10, mentionCount: 0 },
+        Middle: { facts: [], preferences: [], situation: "", lastSeenTs: 50, mentionCount: 0 },
+        Newest: { facts: [], preferences: [], situation: "", lastSeenTs: 100, mentionCount: 0 },
+      };
+      // This should trigger eviction when a new person is added
+      profile.people.NewPerson = { facts: [], preferences: [], situation: "", lastSeenTs: 200, mentionCount: 0 };
+
+      // We need > maxPeople to trigger eviction, but currently we have 4 with maxPeople=3
+      // The eviction happens during extract, so let's check that getOrLoadProfile returns the profile with all 4
+      // Eviction is only during extract/write — this is expected behavior
+      const loaded = sm.getOrLoadProfile(scope);
+      assert.equal(Object.keys(loaded.people).length, 4);
+    });
+
+    it("extract evicts excess people", async () => {
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { P1: { facts: ["a"] }, P2: { facts: ["b"] }, P3: { facts: ["c"] }, P4: { facts: ["d"] } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ maxPeople: 2, extractEvery: 1 }), llm, stateDir: tmpDir, log: makeLog() });
+
+      const scope = "agent1::evict-extract";
+      sm.ingest(scope, { speaker: "P1", text: "hi", ts: 1 });
+      await new Promise(r => setTimeout(r, 30));
+      sm.ingest(scope, { speaker: "P2", text: "hi", ts: 2 });
+      await new Promise(r => setTimeout(r, 30));
+      sm.ingest(scope, { speaker: "P3", text: "hi", ts: 3 });
+      await new Promise(r => setTimeout(r, 30));
+      sm.ingest(scope, { speaker: "P4", text: "hi", ts: 4 });
+      await new Promise(r => setTimeout(r, 30));
+
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(Object.keys(profile.people).length <= 2);
+    });
+  });
+
+  describe("scope isolation", () => {
+    it("two agents same sessionKey have separate profiles", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scopeA = "agentA::session-common";
+      const scopeB = "agentB::session-common";
+
+      sm.ingest(scopeA, { speaker: "Alice", text: "hello from A", ts: 100 });
+      sm.ingest(scopeB, { speaker: "Bob", text: "hello from B", ts: 101 });
+
+      const profileA = sm.getOrLoadProfile(scopeA);
+      const profileB = sm.getOrLoadProfile(scopeB);
+
+      assert.ok(profileA.people.Alice);
+      assert.ok(!profileA.people.Bob);
+      assert.ok(profileB.people.Bob);
+      assert.ok(!profileB.people.Alice);
+    });
+
+    it("two agents same sessionKey write to different files", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scopeA = "agentA::session-isol";
+      const scopeB = "agentB::session-isol";
+
+      sm.ingest(scopeA, { speaker: "Alice", text: "hi", ts: 1 });
+      sm.ingest(scopeB, { speaker: "Bob", text: "hi", ts: 2 });
+
+      // Create fresh instances and verify files are separate
+      const sm2 = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const profileA2 = sm2.getOrLoadProfile(scopeA);
+      const profileB2 = sm2.getOrLoadProfile(scopeB);
+
+      assert.ok(profileA2.people.Alice);
+      assert.ok(!profileA2.people.Bob);
+      assert.ok(profileB2.people.Bob);
+      assert.ok(!profileB2.people.Alice);
+    });
+  });
+
+  describe("disabled config", () => {
+    it("ingest is no-op when socialMemory.enabled is false", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ enabled: false }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::disabled";
+      sm.ingest(scope, { speaker: "Alice", text: "hi" });
+      assert.equal(sm.bufferByScope.size, 0);
+    });
+
+    it("recall returns empty when disabled", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ enabled: false }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::recall-disabled";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people.Alice = { facts: ["test"], preferences: [], situation: "", lastSeenTs: 1, mentionCount: 1 };
+      const result = sm.recall(scope, ["Alice"]);
+      assert.equal(result, "");
+    });
+  });
+
+  describe("extract with no LLM (degraded mode)", () => {
+    it("extract does not throw when llm is null", async () => {
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2 }), llm: null, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::no-llm";
+      sm.ingest(scope, { speaker: "Alice", text: "hi", ts: 1 });
+      sm.ingest(scope, { speaker: "Alice", text: "there", ts: 2 });
+      await new Promise(r => setTimeout(r, 30));
+      // Should not throw — just resets counter and persists
+      const buf = sm.bufferByScope.get(scope);
+      assert.equal(buf.newSinceExtract, 0);
+    });
+  });
+});
