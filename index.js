@@ -33,13 +33,13 @@ export default definePluginEntry({
 
     const persona = { buildPersonaPrompt, buildPersonaPromptWithMemory };
 
-    const gate = createGate({ cfg, state, engine, persona, socialMemory, log });
-    const naturalize = createNaturalize({ cfg, state, engine, persona, socialMemory, log });
-
     const pluginDir = new URL(".", import.meta.url).pathname;
     const stateDir = pluginDir + "state";
 
     const socialMemory = createSocialMemory({ cfg, llm, stateDir, log });
+
+    const gate = createGate({ cfg, state, engine, persona, socialMemory, log });
+    const naturalize = createNaturalize({ cfg, state, engine, persona, socialMemory, log });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
 
