@@ -131,7 +131,7 @@ Decision: [APPROVED] / [REVISE]
 
 For the first 48 hours of live operation:
 
-- Monitor `humalike` log for unexpected stay_silent or spammy speak.
+- Monitor `human-engine:` logs for unexpected stay_silent or spammy speak.
 - Check that bubble timing feels natural to group members (no complaints).
 - Re-run tell detector on 50 random live bubbles after 24h.
 
