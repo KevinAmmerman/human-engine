@@ -14,6 +14,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults.
 | `soulAutoEnhance` | bool | `true` | Auto-enhance on startup |
 | `socialLearning.*` | object | — | Voice card learning config |
 | `socialMemory.*` | object | — | Social memory extraction config |
+| `gate.silentTtlMs` | number | `90000` | Max age of a stay_silent flag before it expires instead of silencing a reply |
 | `decide.model` | string | `""` | Model override for decide |
 | `decide.temperature` | number | `0.2` | Decide temperature |
 | `humanize.*` | object | — | Naturalization model config |
@@ -26,6 +27,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults.
 | Path | Purpose |
 |------|---------|
 | `state/social-learning-cache.json` | Voice card cache (disk-persisted) |
+| `state/social-memory/<agentId>/<sessionKey>.json` | Social memory profiles per agent × session |
 | `state/.soul_auto_enhanced` | Marker that auto-enhance has run |
 | `state/*.bak` | SOUL.md backup from `/soul enhance` |
 

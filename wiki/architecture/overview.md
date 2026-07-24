@@ -35,17 +35,24 @@ worker process.
 1. **`message_received`** hook: gate gathers transcript, ingests into social
    memory, records chat type (DM/group).
 2. **`before_agent_run`** hook: gate calls `engine.decide()` which queries the
-   local LLM with context (messages, persona, transcript). Returns
-   `speak`/`stay_silent`/`null`.
+   local LLM with context (messages, persona, transcript). The transcript comes
+   from the host's `event.transcript` if present, otherwise from the plugin's
+   own per-session transcript peek buffer (last 20 lines). Hard triggers
+   (DM, media, agent-name mention) short-circuit to `speak` with zero LLM
+   calls. Returns `speak`/`stay_silent`/`null`.
 3. If `speak`: gate records speak epoch, recalls social memory.
-4. If `stay_silent`: gate buffers the message as observed context, blocks
-   the agent run.
+4. If `stay_silent`: gate buffers the message as observed context and marks a
+   silent epoch flag (`{epoch, ts}`) — the agent run is NOT blocked (blocking
+   wedges sessions via pendingFinalDelivery recovery).
 5. If `null` (engine unavailable): DM fails open (agent runs normally), group
-   fails closed (silent block).
+   fails closed (silent flag set).
 6. **`before_prompt_build`** hook: gate injects observed context (if any
-   blocked). Voice card injects style profile into system context.
-7. **`before_agent_reply`** hook: naturalize receives the agent's reply text,
-   splits into bubbles.
+   silent turns). Voice card injects style profile into system context.
+7. **`before_agent_reply`** hook: a fresh silent flag (age ≤
+   `gate.silentTtlMs`, default 90s) is consumed and the reply suppressed
+   (`{handled: true}`). Stale flags (older than the TTL, e.g. from turns that
+   died before producing a reply) are dropped instead — they must not swallow
+   a later, legitimate speak reply. Otherwise naturalize captures the draft.
 8. **`reply_dispatch`** hook: naturalize dispatches bubbles with inter-bubble
    delays computed by timing engine (typing WPM, max wait, night mode).
 
@@ -69,5 +76,16 @@ No external npm packages — all logic is self-contained.
   breaks the gateway.
 - **Fail-open/fail-closed**: DMs default to fail-open (engine null → agent runs
   normally); groups default to fail-closed (engine null → silent block).
+- **Silent flags carry a TTL**: `silentEpochBySession` entries store
+  `{epoch, ts}` and expire after `gate.silentTtlMs` (default 90s). A reply for
+  a stay_silent turn fires within seconds; older flags are residue of dead
+  turns and are discarded, not consumed.
+- **Never block `before_agent_run`**: returning a block from that hook writes
+  a user-facing "blocked" text that wedges the session via
+  pendingFinalDelivery recovery on restart. Silence is enforced by
+  suppressing the reply in `before_agent_reply` instead; `message_sending`
+  cancels any residual block text as defense-in-depth.
+- **Scoping is uniform**: every handler (gate, naturalize, voice card)
+  checks `enabled` and `agents` before doing any work.
 - **Purpose strings**: Block reasons use `human-engine-*` prefix for
   traceability (`human-engine-stay-silent`, `human-engine-group-fail-closed`).

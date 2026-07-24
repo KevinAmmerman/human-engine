@@ -53,6 +53,14 @@ built-in LLM with no cloud dependencies.
 - State is in-memory only (Maps in `state.js`), except voice-card cache and
   soul marker, which persist to `state/` files.
 - Config resolves via `api.pluginConfig ?? api.config.plugins.entries["human-engine"].config`.
+- `silentEpochBySession` entries are `{epoch, ts}` objects with a 90s TTL
+  (`gate.silentTtlMs`) — never store bare epochs there; stale flags must
+  expire, not silence.
+- Never return a block from `before_agent_run` — it wedges sessions via
+  pendingFinalDelivery recovery. Silence is enforced in `before_agent_reply`.
+- The decide/respond LLM calls get conversation context from
+  `getTranscriptPeek(sk, n)` (state.js) — keep inbound messages flowing into
+  the peek buffer or decide quality degrades to single-message guesses.
 - Every test uses fake API objects from `test/helpers/fake-api.js`.
 - Parity matrix at `test/parity-matrix.mjs` is the behavioral contract — must
   stay 35/35 before any release.

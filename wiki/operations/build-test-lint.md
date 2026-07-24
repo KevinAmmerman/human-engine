@@ -5,7 +5,7 @@ All commands verified during wiki generation. Run from the project root.
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
 | Install | `npm install` | exit 0 |
-| Test | `npm test` | 392 pass, 0 fail |
+| Test | `npm test` | 411 pass, 0 fail |
 | Parity matrix | `node test/parity-matrix.mjs --check` | `35/35 covered` |
 | E2E test | `node test/e2e-local.test.js` | exit 0 |
 | Syntax check | `node --check index.js && for f in $(find . -name '*.js' -not -path './node_modules/*'); do node --check "$f"; done` | exit 0 |

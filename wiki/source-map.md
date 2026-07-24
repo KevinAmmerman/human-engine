@@ -7,7 +7,7 @@ human-engine/
   package.json              — npm package (name: human-engine, ES module)
   package-lock.json         — Dependency lock (no external deps)
   README.md                 — Project README (install, config, usage)
-  CHANGELOG.md              — Release history (0.2.0, 0.1.0)
+  CHANGELOG.md              — Release history (0.2.1, 0.2.0, 0.1.0)
   LICENSE                   — MIT with Humalike attribution
   .gitignore                — Ignored: node_modules/, state/, *.log, .DS_Store
   lib/
@@ -62,6 +62,6 @@ human-engine/
 
 ## Git evidence
 
-- Last commit: `f6426eb`
+- Last commit: `978a84c`
 - Active branch: `main`
-- Recent churn: initial commit (50 files)
+- Recent churn: 0.2.1 live-debug fixes (silentEpoch TTL, decide transcript context, voice-card scoping)
