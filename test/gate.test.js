@@ -161,7 +161,7 @@ describe("gate", () => {
       assert.equal(state.speakEpochBySession.get("session-test"), 42);
     });
 
-    it("handles stay_silent decision (returns block, persists observed)", async () => {
+    it("handles stay_silent decision (marks silent epoch, persists observed, no block)", async () => {
       const silentGate = createGate({
         cfg,
         state,
@@ -179,7 +179,8 @@ describe("gate", () => {
         makeDefaultEvent(),
         makeDefaultCtx({ isGroup: true, sessionKey: "agent:a:whatsapp:group:1@g.us" }),
       );
-      assert.deepEqual(result, { outcome: "block", reason: "stay_silent", category: "turn_taking" });
+      assert.equal(result, undefined);
+      assert.equal(state.silentEpochBySession.get("agent:a:whatsapp:group:1@g.us"), 1);
       assert.equal(state.observedBySession.get("agent:a:whatsapp:group:1@g.us").length, 1);
       assert.ok(state.observedBySession.get("agent:a:whatsapp:group:1@g.us")[0].includes("Hello bot"));
     });
@@ -202,7 +203,7 @@ describe("gate", () => {
       assert.equal(result, undefined);
     });
 
-    it("group fail-closed when decide returns null (returns block)", async () => {
+    it("group fail-closed when decide returns null (marks silent epoch, no block)", async () => {
       const nullGate = createGate({
         cfg,
         state,
@@ -220,7 +221,9 @@ describe("gate", () => {
         makeDefaultEvent(),
         makeDefaultCtx({ isGroup: true, sessionKey: "agent:a:whatsapp:group:2@g.us" }),
       );
-      assert.deepEqual(result, { outcome: "block", reason: "group_fail_closed", category: "turn_taking" });
+      assert.equal(result, undefined);
+      assert.ok(state.silentEpochBySession.has("agent:a:whatsapp:group:2@g.us"));
+      assert.equal(state.observedBySession.get("agent:a:whatsapp:group:2@g.us").length, 1);
     });
 
     it("stashes latest epoch on any decision", async () => {
