@@ -180,7 +180,7 @@ describe("voice-card", () => {
       fs.mkdirSync(cacheStateDir, { recursive: true });
 
       const vc2 = vc.createVoiceCard({
-        cfg: { socialLearning: {} },
+        cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
         stateDir: cacheStateDir,
         log: { info() {} },
@@ -213,7 +213,7 @@ describe("voice-card", () => {
 
     it("returns undefined when no card cached", () => {
       const { onBeforePromptBuild } = vc.createVoiceCard({
-        cfg: { socialLearning: {} },
+        cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
         stateDir,
         log: { info() {} },
@@ -228,7 +228,7 @@ describe("voice-card", () => {
     it("returns appendSystemContext when card is cached", () => {
       vc.cache["__global__"] = "# Voice Card";
       const { onBeforePromptBuild } = vc.createVoiceCard({
-        cfg: { socialLearning: {} },
+        cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
         stateDir,
         log: { info() {} },
@@ -242,7 +242,7 @@ describe("voice-card", () => {
 
     it("returns undefined without sessionKey", () => {
       const { onBeforePromptBuild } = vc.createVoiceCard({
-        cfg: { socialLearning: {} },
+        cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
         stateDir,
         log: { info() {} },
@@ -252,7 +252,7 @@ describe("voice-card", () => {
 
     it("returns undefined without event.messages", () => {
       const { onBeforePromptBuild } = vc.createVoiceCard({
-        cfg: { socialLearning: {} },
+        cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
         stateDir,
         log: { info() {} },
@@ -260,10 +260,43 @@ describe("voice-card", () => {
       assert.equal(onBeforePromptBuild({ prompt: "hi" }, { sessionKey: "s1" }), undefined);
     });
 
+    it("returns undefined and does not count when disabled", () => {
+      clearCounter();
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: false, socialLearning: {} },
+        engine: makeEngine(),
+        stateDir,
+        log: { info() {} },
+      });
+      const result = onBeforePromptBuild(
+        { messages: [{ role: "user", content: "hi" }] },
+        { sessionKey: "s-disabled" },
+      );
+      assert.equal(result, undefined);
+      assert.equal(vc.counter["s-disabled"], undefined);
+    });
+
+    it("returns undefined and does not count for unscoped agent", () => {
+      clearCounter();
+      vc.cache["__global__"] = "# Voice Card";
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, agents: ["agent-a"], socialLearning: {} },
+        engine: makeEngine(),
+        stateDir,
+        log: { info() {} },
+      });
+      const result = onBeforePromptBuild(
+        { messages: [{ role: "user", content: "hi" }] },
+        { sessionKey: "s-unscoped", agentId: "agent-b" },
+      );
+      assert.equal(result, undefined);
+      assert.equal(vc.counter["s-unscoped"], undefined);
+    });
+
     it("increments counter on each call", () => {
       clearCounter();
       const { onBeforePromptBuild } = vc.createVoiceCard({
-        cfg: { socialLearning: {} },
+        cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
         stateDir,
         log: { info() {} },

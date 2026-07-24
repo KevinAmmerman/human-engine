@@ -97,6 +97,7 @@ All keys under `plugins.entries["human-engine"].config`:
 | `socialMemory.maxPeople` | number | `50` | Max tracked people |
 | `socialMemory.recallLimit` | number | `800` | Max recall chars |
 | `autoconfig` | bool | `false` | Suggest config changes |
+| `gate.silentTtlMs` | number | `90000` | Max age of a stay_silent flag before it expires instead of silencing a reply |
 | `decide.model` | string | `""` | Model for decide engine |
 | `decide.temperature` | number | `0.2` | Decide temperature |
 | `humanize.model` | string | `""` | Model for naturalization |

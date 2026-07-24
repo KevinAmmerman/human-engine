@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach } from "node:test";
-import { capMap, pushObserved, observedBySession, pushTranscriptPeek, transcriptPeekBySession } from "../lib/state.js";
+import { capMap, pushObserved, observedBySession, pushTranscriptPeek, transcriptPeekBySession, getTranscriptPeek } from "../lib/state.js";
 
 describe("state", () => {
   beforeEach(() => {
@@ -84,6 +84,25 @@ describe("state", () => {
       for (let i = 0; i < 60; i++) pushTranscriptPeek("tp-session-3", `[User] msg ${i}`);
       assert.equal(transcriptPeekBySession.get("tp-session-3").length, 50);
       assert.equal(transcriptPeekBySession.get("tp-session-3")[0], "[User] msg 10");
+    });
+
+    it("getTranscriptPeek parses speaker and text", () => {
+      pushTranscriptPeek("tp-parse", "[Kevin] hey there");
+      pushTranscriptPeek("tp-parse", "plain line");
+      const out = getTranscriptPeek("tp-parse", 10);
+      assert.deepEqual(out[0], { speaker: "Kevin", text: "hey there" });
+      assert.deepEqual(out[1], { speaker: "", text: "plain line" });
+    });
+
+    it("getTranscriptPeek returns last N entries", () => {
+      for (let i = 0; i < 10; i++) pushTranscriptPeek("tp-last", `[U] m${i}`);
+      const out = getTranscriptPeek("tp-last", 3);
+      assert.equal(out.length, 3);
+      assert.equal(out[0].text, "m7");
+    });
+
+    it("getTranscriptPeek returns empty array for unknown session", () => {
+      assert.deepEqual(getTranscriptPeek("tp-unknown", 5), []);
     });
   });
 });

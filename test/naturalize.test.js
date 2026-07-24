@@ -66,6 +66,8 @@ describe("naturalize", () => {
 
   beforeEach(() => {
     state.speakEpochBySession.clear();
+    state.silentEpochBySession.clear();
+    state.transcriptPeekBySession.clear();
     state.draftBySession.clear();
     state.latestEpochByChat.clear();
     state.metaBySession.clear();
@@ -118,6 +120,49 @@ describe("naturalize", () => {
       });
       const result = scopedNat.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
       assert.equal(result, undefined);
+    });
+  });
+
+  describe("silentEpoch TTL", () => {
+    it("fresh silent flag silences the reply", () => {
+      state.silentEpochBySession.set("session-nat", { epoch: 1, ts: Date.now() });
+      const result = naturalize.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.deepEqual(result, { handled: true });
+      assert.equal(state.silentEpochBySession.has("session-nat"), false);
+    });
+
+    it("stale silent flag expires and does not silence the next speak turn", () => {
+      state.silentEpochBySession.set("session-nat", { epoch: 1, ts: Date.now() - 120000 });
+      state.speakEpochBySession.set("session-nat", 42);
+      const result = naturalize.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(result, undefined);
+      assert.equal(state.silentEpochBySession.has("session-nat"), false);
+      assert.equal(state.draftBySession.get("session-nat"), "This is the draft reply");
+    });
+
+    it("TTL is configurable via cfg.gate.silentTtlMs", () => {
+      const shortNat = createNaturalize({
+        cfg: { ...cfg, gate: { silentTtlMs: 1000 } },
+        state,
+        engine: makeEngine(),
+        persona: {
+          buildPersonaPrompt() { return "prompt"; },
+          buildPersonaPromptWithMemory() { return "prompt+mem"; },
+        },
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.silentEpochBySession.set("session-nat", { epoch: 1, ts: Date.now() - 5000 });
+      const result = shortNat.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(result, undefined);
+      assert.equal(state.silentEpochBySession.has("session-nat"), false);
+    });
+
+    it("legacy numeric silent flag (no timestamp) is treated as stale", () => {
+      state.silentEpochBySession.set("session-nat", 1);
+      const result = naturalize.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(result, undefined);
+      assert.equal(state.silentEpochBySession.has("session-nat"), false);
     });
   });
 
@@ -280,6 +325,39 @@ describe("naturalize", () => {
 
       const result = await badNat.onReplyDispatch(makeReplyEvent(), makeDefaultCtx());
       assert.equal(result, undefined);
+    });
+  });
+
+  describe("transcript context", () => {
+    it("respond receives transcript peek context", async () => {
+      state.transcriptPeekBySession.clear();
+      state.transcriptPeekBySession.set("session-nat", ["[Kevin] Hey Hori"]);
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine,
+        persona: {
+          buildPersonaPrompt() { return "prompt"; },
+          buildPersonaPromptWithMemory() { return "prompt+mem"; },
+        },
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      state.speakEpochBySession.set("session-nat", 42);
+      state.draftBySession.set("session-nat", "Draft");
+
+      const dispatcher = { sendBlockReply: mock.fn(() => true), markComplete: mock.fn() };
+      await capNat.onReplyDispatch(makeReplyEvent(), makeDefaultCtx({ dispatcher, abortSignal: undefined }));
+
+      const transcript = captured.transcript || [];
+      assert.ok(transcript.some((t) => t.speaker === "Kevin" && t.text.includes("Hey Hori")));
     });
   });
 

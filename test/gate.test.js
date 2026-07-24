@@ -78,6 +78,7 @@ describe("gate", () => {
   beforeEach(() => {
     state.observedBySession.clear();
     state.memoryBySession.clear();
+    state.transcriptPeekBySession.clear();
     state.speakEpochBySession.clear();
     state.latestEpochByChat.clear();
     state.chatTypeBySession.clear();
@@ -142,6 +143,45 @@ describe("gate", () => {
       assert.equal(result, undefined);
     });
 
+    it("does not duplicate transcript peek when message_received already pushed the line", async () => {
+      state.transcriptPeekBySession.clear();
+      const dupGate = createGate({
+        cfg,
+        state,
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+        persona,
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      dupGate.onMessageReceived({ text: "Was sagst du?" }, makeDefaultCtx());
+      await dupGate.onBeforeAgentRun(makeDefaultEvent({ prompt: "Was sagst du?" }), makeDefaultCtx());
+      const peek = state.transcriptPeekBySession.get("session-test") || [];
+      assert.equal(peek.filter((l) => l.endsWith("] Was sagst du?")).length, 1);
+    });
+
+    it("decide receives transcript peek context when event.transcript is missing", async () => {
+      state.transcriptPeekBySession.clear();
+      state.transcriptPeekBySession.set("session-test", ["[Kevin] Hey Hori", "[Hori] Ja?"]);
+      let captured;
+      const captureGate = createGate({
+        cfg,
+        state,
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
+        },
+        persona,
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      await captureGate.onBeforeAgentRun(makeDefaultEvent({ prompt: "Was sagst du?" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const hey = transcript.find((t) => t.text.includes("Hey Hori"));
+      assert.ok(hey, "transcript should include peek line");
+      assert.equal(hey.speaker, "Kevin");
+      assert.ok(transcript.some((t) => t.text.includes("Was sagst du?")), "transcript should include current prompt");
+    });
+
     it("handles speak decision (returns undefined, stashes epoch)", async () => {
       const speakGate = createGate({
         cfg,
@@ -180,7 +220,7 @@ describe("gate", () => {
         makeDefaultCtx({ isGroup: true, sessionKey: "agent:a:whatsapp:group:1@g.us" }),
       );
       assert.equal(result, undefined);
-      assert.equal(state.silentEpochBySession.get("agent:a:whatsapp:group:1@g.us"), 1);
+      assert.equal(state.silentEpochBySession.get("agent:a:whatsapp:group:1@g.us")?.epoch, 1);
       assert.equal(state.observedBySession.get("agent:a:whatsapp:group:1@g.us").length, 1);
       assert.ok(state.observedBySession.get("agent:a:whatsapp:group:1@g.us")[0].includes("Hello bot"));
     });

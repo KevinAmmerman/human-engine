@@ -173,7 +173,7 @@ describe("voice-card-local", () => {
     Object.keys(vc.counter).forEach((k) => delete vc.counter[k]);
 
     const { onBeforePromptBuild } = vc.createVoiceCard({
-      cfg: { socialLearning: {} },
+      cfg: { enabled: true, socialLearning: {} },
       engine,
       stateDir,
       log: { info() {} },
