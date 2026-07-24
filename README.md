@@ -36,7 +36,7 @@ before_agent_reply → reply_dispatch)
 
 ```bash
 # Clone anywhere (e.g. ~/human-engine)
-git clone https://github.com/your-org/human-engine ~/human-engine
+git clone https://github.com/KevinAmmerman/human-engine ~/human-engine
 cd ~/human-engine && npm install
 
 # Symlink for OpenClaw discovery
