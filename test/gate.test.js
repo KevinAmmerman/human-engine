@@ -58,6 +58,7 @@ function makeDefaultCtx(overrides = {}) {
     agentId: "test-agent",
     sessionKey: "session-test",
     senderId: "user-1",
+    senderName: "Kevin",
     channelId: "ch-1",
     ...overrides,
   };
@@ -67,6 +68,28 @@ function makeDefaultEvent(overrides = {}) {
   return {
     prompt: "Hello bot",
     messages: [],
+    ...overrides,
+  };
+}
+
+function makeInboundEvent(overrides = {}) {
+  return {
+    content: "Hello bot",
+    messageId: "m1",
+    senderId: "+123",
+    senderName: "Kevin",
+    ...overrides,
+  };
+}
+
+function makeInboundCtx(overrides = {}) {
+  return {
+    agentId: "test-agent",
+    sessionKey: "session-test",
+    isGroup: false,
+    senderId: "+123",
+    senderName: "Kevin",
+    channelId: "ch-1",
     ...overrides,
   };
 }
@@ -110,7 +133,7 @@ describe("gate", () => {
     });
   });
 
-  describe("onBeforeAgentRun", () => {
+  describe("onInboundClaim", () => {
     it("returns undefined for disabled config", async () => {
       const disabledGate = createGate({
         cfg: { ...cfg, enabled: false },
@@ -118,7 +141,7 @@ describe("gate", () => {
         socialMemory: makeSocialMemoryStub(),
         log: { info() {}, warn() {}, debug() {} },
       });
-      const result = await disabledGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
+      const result = await disabledGate.onInboundClaim(makeInboundEvent(), makeInboundCtx());
       assert.equal(result, undefined);
     });
 
@@ -129,14 +152,14 @@ describe("gate", () => {
         socialMemory: makeSocialMemoryStub(),
         log: { info() {}, warn() {}, debug() {} },
       });
-      const result = await scopedGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
+      const result = await scopedGate.onInboundClaim(makeInboundEvent(), makeInboundCtx());
       assert.equal(result, undefined);
     });
 
     it("returns undefined for command bypass", async () => {
-      const result = await gate.onBeforeAgentRun(
-        { ...makeDefaultEvent(), prompt: "/new" },
-        makeDefaultCtx(),
+      const result = await gate.onInboundClaim(
+        makeInboundEvent({ content: "/new" }),
+        makeInboundCtx(),
       );
       assert.equal(result, undefined);
     });
@@ -155,12 +178,12 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      const result = await speakGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
+      const result = await speakGate.onInboundClaim(makeInboundEvent(), makeInboundCtx());
       assert.equal(result, undefined);
       assert.equal(state.speakEpochBySession.get("session-test"), 42);
     });
 
-    it("handles stay_silent decision (returns block, persists observed)", async () => {
+    it("handles stay_silent decision (returns {handled:true}, persists observed)", async () => {
       const silentGate = createGate({
         cfg,
         state,
@@ -174,11 +197,13 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      state.chatTypeBySession.set("session-test", "group");
-      const result = await silentGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
-      assert.deepEqual(result, { outcome: "block", reason: "human-engine-stay-silent", message: "" });
-      assert.equal(state.observedBySession.get("session-test").length, 1);
-      assert.ok(state.observedBySession.get("session-test")[0].includes("Hello bot"));
+      const result = await silentGate.onInboundClaim(
+        makeInboundEvent(),
+        makeInboundCtx({ isGroup: true, sessionKey: "agent:a:whatsapp:group:1@g.us" }),
+      );
+      assert.deepEqual(result, { handled: true });
+      assert.equal(state.observedBySession.get("agent:a:whatsapp:group:1@g.us").length, 1);
+      assert.ok(state.observedBySession.get("agent:a:whatsapp:group:1@g.us")[0].includes("Hello bot"));
     });
 
     it("DM fail-open when decide returns null", async () => {
@@ -195,12 +220,11 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      state.chatTypeBySession.set("session-test", "dm");
-      const result = await nullGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
+      const result = await nullGate.onInboundClaim(makeInboundEvent(), makeInboundCtx());
       assert.equal(result, undefined);
     });
 
-    it("group fail-closed when decide returns null", async () => {
+    it("group fail-closed when decide returns null (returns handled:true)", async () => {
       const nullGate = createGate({
         cfg,
         state,
@@ -214,9 +238,11 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      state.chatTypeBySession.set("session-test", "group");
-      const result = await nullGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
-      assert.deepEqual(result, { outcome: "block", reason: "human-engine-group-fail-closed", message: "" });
+      const result = await nullGate.onInboundClaim(
+        makeInboundEvent(),
+        makeInboundCtx({ isGroup: true, sessionKey: "agent:a:whatsapp:group:2@g.us" }),
+      );
+      assert.deepEqual(result, { handled: true });
     });
 
     it("stashes latest epoch on any decision", async () => {
@@ -233,17 +259,17 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      await epGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
+      await epGate.onInboundClaim(makeInboundEvent(), makeInboundCtx({ isGroup: true }));
       assert.equal(state.latestEpochByChat.get("ch-1"), 7);
     });
 
-    it("returns undefined when no prompt or messages", async () => {
-      const result = await gate.onBeforeAgentRun({ prompt: "" }, makeDefaultCtx());
+    it("returns undefined when content is empty", async () => {
+      const result = await gate.onInboundClaim(makeInboundEvent({ content: "" }), makeInboundCtx());
       assert.equal(result, undefined);
     });
 
     it("returns undefined when no sessionKey", async () => {
-      const result = await gate.onBeforeAgentRun(makeDefaultEvent(), { agentId: "test" });
+      const result = await gate.onInboundClaim(makeInboundEvent(), { agentId: "test" });
       assert.equal(result, undefined);
     });
   });
@@ -300,7 +326,7 @@ describe("gate", () => {
       assert.equal(smStub._people["agent1::sk-ingest"][0].text, "hello");
     });
 
-    it("ingests on onBeforeAgentRun", async () => {
+    it("ingests on onInboundClaim", async () => {
       const smStub = makeSocialMemoryStub();
       const memGate = createGate({
         cfg, state, engine: makeEngine(), persona,
@@ -308,9 +334,9 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      await memGate.onBeforeAgentRun(
-        { prompt: "test message", messages: [] },
-        { sessionKey: "sk-before", agentId: "agent1", senderId: "Bob", channelId: "ch-1" },
+      await memGate.onInboundClaim(
+        makeInboundEvent({ content: "test message" }),
+        makeInboundCtx({ sessionKey: "sk-before", agentId: "agent1", senderId: "Bob", senderName: "Bob" }),
       );
 
       assert.ok(smStub._people["agent1::sk-before"]);
@@ -328,9 +354,9 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      await memGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        { ...makeDefaultCtx(), sessionKey: "sk-speak-turn", agentId: "agent1", senderId: "Alice", channelId: "ch-1" },
+      await memGate.onInboundClaim(
+        makeInboundEvent(),
+        makeInboundCtx({ sessionKey: "sk-speak-turn", agentId: "agent1", senderId: "Alice", senderName: "Alice" }),
       );
 
       const mem = state.memoryBySession.get("sk-speak-turn");
@@ -348,10 +374,9 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      state.chatTypeBySession.set("sk-silent", "group");
-      await memGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        { ...makeDefaultCtx(), sessionKey: "sk-silent", agentId: "agent1", senderId: "Alice", channelId: "ch-1" },
+      await memGate.onInboundClaim(
+        makeInboundEvent(),
+        makeInboundCtx({ sessionKey: "sk-silent", agentId: "agent1", senderId: "Alice", senderName: "Alice", isGroup: true }),
       );
 
       assert.equal(state.memoryBySession.has("sk-silent"), false);
@@ -365,9 +390,9 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      await memGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        makeDefaultCtx(),
+      await memGate.onInboundClaim(
+        makeInboundEvent(),
+        makeInboundCtx(),
       );
 
       // Ingest might have been called but socialMemory's own enabled check prevents recording

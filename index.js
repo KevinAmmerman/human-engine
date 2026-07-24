@@ -79,7 +79,7 @@ export default definePluginEntry({
     }
 
     api.on("message_received", wrap(gate.onMessageReceived));
-    api.on("before_agent_run", wrap(gate.onBeforeAgentRun));
+    api.on("inbound_claim", wrap(gate.onInboundClaim));
     api.on("before_prompt_build", wrap(gate.onBeforePromptBuild));
     api.on("before_prompt_build", wrap(voiceCard.onBeforePromptBuild));
     api.on("before_agent_reply", wrap(naturalize.onBeforeAgentReply));

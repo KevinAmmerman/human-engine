@@ -49,10 +49,10 @@ describe("harness — kill-switch enabled:false", () => {
     assert.equal(result, undefined);
   });
 
-  it("onBeforeAgentRun returns undefined", async () => {
-    const result = await gate.onBeforeAgentRun(
-      { prompt: "hi", messages: [] },
-      { agentId: "test", sessionKey: "sk", channelId: "ch", chatId: "ch", senderId: "u" },
+  it("onInboundClaim returns undefined", async () => {
+    const result = await gate.onInboundClaim(
+      { content: "hi" },
+      { agentId: "test", sessionKey: "sk", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
   });
@@ -101,18 +101,17 @@ describe("harness — agent scoping", () => {
   });
 
   it("unscoped agent (main) returns undefined", async () => {
-    const result = await gate.onBeforeAgentRun(
-      { prompt: "hi", messages: [] },
-      { agentId: "main", sessionKey: "sk-main", channelId: "ch", chatId: "ch", senderId: "u" },
+    const result = await gate.onInboundClaim(
+      { content: "hi" },
+      { agentId: "main", sessionKey: "sk-main", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
   });
 
   it("scoped agent (hori-wa) engages gate", async () => {
-    state.chatTypeBySession.set("sk-hori", "dm");
-    const result = await gate.onBeforeAgentRun(
-      { prompt: "hello", messages: [] },
-      { agentId: "hori-wa", sessionKey: "sk-hori", channelId: "ch", chatId: "ch", senderId: "u" },
+    const result = await gate.onInboundClaim(
+      { content: "hello" },
+      { agentId: "hori-wa", sessionKey: "sk-hori", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
     assert.equal(state.speakEpochBySession.get("sk-hori"), 1);
@@ -153,11 +152,10 @@ describe("harness — fail-open error injection", () => {
     state.sessions.clear();
   });
 
-  it("onBeforeAgentRun returns undefined on thrown error (engine.decide throws)", async () => {
-    state.chatTypeBySession.set("sk", "dm");
-    const result = await gate.onBeforeAgentRun(
-      { prompt: "hi", messages: [] },
-      { agentId: "test", sessionKey: "sk", channelId: "ch", chatId: "ch", senderId: "u" },
+  it("onInboundClaim returns undefined on thrown error (engine.decide throws)", async () => {
+    const result = await gate.onInboundClaim(
+      { content: "hi" },
+      { agentId: "test", sessionKey: "sk", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
   });
@@ -188,9 +186,9 @@ describe("harness — no-residue static proof", () => {
 
     assert.deepEqual(hooks, [
       "before_agent_reply",
-      "before_agent_run",
       "before_prompt_build",
       "before_prompt_build",
+      "inbound_claim",
       "message_received",
       "reply_dispatch",
     ], "hook snapshot mismatch");

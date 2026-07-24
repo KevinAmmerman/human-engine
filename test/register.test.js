@@ -54,7 +54,7 @@ describe("register() from index.js", () => {
     });
 
     assert.equal(hooks.message_received?.length, 1);
-    assert.equal(hooks.before_agent_run?.length, 1);
+    assert.equal(hooks.inbound_claim?.length, 1);
     assert.equal(hooks.before_prompt_build?.length, 2);
     assert.equal(hooks.before_agent_reply?.length, 1);
     assert.equal(hooks.reply_dispatch?.length, 1);
@@ -77,7 +77,7 @@ describe("register() from index.js", () => {
     assert.equal(warnings.filter((w) => /degraded mode/i.test(w)).length, 0);
 
     assert.equal(hooks.message_received?.length, 1);
-    assert.equal(hooks.before_agent_run?.length, 1);
+    assert.equal(hooks.inbound_claim?.length, 1);
     assert.equal(hooks.before_prompt_build?.length, 2);
     assert.equal(hooks.before_agent_reply?.length, 1);
     assert.equal(hooks.reply_dispatch?.length, 1);
@@ -111,7 +111,7 @@ describe("register() from index.js", () => {
     result = await hooks.message_received[0]({ text: "hello" }, ctx);
     assert.equal(result, undefined);
 
-    result = await hooks.before_agent_run[0]({ prompt: "hi" }, ctx);
+    result = await hooks.inbound_claim[0]({ content: "hi" }, ctx);
     assert.ok(result === undefined || result === null || typeof result === "object");
 
     result = await hooks.before_prompt_build[0]({ prompt: "hi" }, ctx);
