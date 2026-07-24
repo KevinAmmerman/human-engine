@@ -23,12 +23,15 @@ entirely on the host's built-in LLM.
 ## Architecture
 
 ```
-hooks (message_received → before_agent_run → before_prompt_build →
-before_agent_reply → reply_dispatch)
+hooks (message_received → before_agent_reply → before_agent_run →
+before_prompt_build → reply_dispatch → reply_payload_sending)
   │
-  ├── gate          ← decides speak/stay_silent (via local engine)
+  ├── gate          ← decides speak/stay_silent at before_agent_reply;
+  │                     stay_silent returns {handled:true} (turn silenced
+  │                     before the LLM call)
   ├── voice-card    ← persona context injected before prompt
-  ├── naturalize    ← timing engine splits & delays bubbles
+  ├── naturalize    ← captures the real reply at reply_payload_sending,
+  │                     re-delivers as timed bubbles
   └── social-memory ← ingest on message, recall on speak
 ```
 
@@ -98,7 +101,6 @@ All keys under `plugins.entries["human-engine"].config`:
 | `socialMemory.maxPeople` | number | `50` | Max tracked people |
 | `socialMemory.recallLimit` | number | `800` | Max recall chars |
 | `autoconfig` | bool | `false` | Suggest config changes |
-| `gate.silentTtlMs` | number | `90000` | Max age of a stay_silent flag before it expires instead of silencing a reply |
 | `decide.model` | string | `""` | Model for decide engine |
 | `decide.temperature` | number | `0.2` | Decide temperature |
 | `humanize.model` | string | `""` | Model for naturalization |

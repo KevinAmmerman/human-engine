@@ -1,7 +1,7 @@
 {
   "id": "human-engine",
   "name": "Human Engine",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Local human-like conversation engine for OpenClaw: turn-taking, naturalization, voice, persona, social memory \u2014 fully self-hosted.",
   "activation": {
     "onStartup": true
@@ -44,14 +44,6 @@
         "default": {}
       },
       "autoconfig": { "type": "boolean", "default": false },
-      "gate": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "silentTtlMs": { "type": "number", "default": 90000 }
-        },
-        "default": {}
-      },
       "decide": {
         "type": "object",
         "additionalProperties": false,

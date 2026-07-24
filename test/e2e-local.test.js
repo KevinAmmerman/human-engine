@@ -54,6 +54,7 @@ describe("e2e-local", () => {
 
   describe("speak → split → timed delivery → markComplete", () => {
     it("full speak pipeline delivers bubbles in order with increasing delays", async () => {
+      const sk = "agent:test:whatsapp:group:e2e@g.us";
       const engine = createLocalEngine({
         cfg: { humanize: { maxBubbles: 3 } },
         llm: {
@@ -73,31 +74,33 @@ describe("e2e-local", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      state.speakEpochBySession.set("e2e-speak", 42);
-      state.draftBySession.set("e2e-speak", "This is the draft reply");
-      state.chatTypeBySession.set("e2e-speak", "group");
+      state.speakEpochBySession.set(sk, { epoch: 42, ts: Date.now() });
+      state.chatTypeBySession.set(sk, "group");
 
       const dispatcher = {
         sendBlockReply: mock.fn(() => true),
         markComplete: mock.fn(),
       };
 
-      const result = await naturalize.onReplyDispatch(
-        { cleanedBody: "This is the draft reply", sendPolicy: "allow" },
-        { agentId: "test", sessionKey: "e2e-speak", channelId: "ch", chatId: "ch", senderId: "u", dispatcher, abortSignal: undefined },
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        { agentId: "test", sessionKey: sk, channelId: "ch", chatId: "ch", senderId: "u", dispatcher, abortSignal: undefined },
       );
 
-      assert.deepEqual(result, { handled: true });
-      assert.equal(state.speakEpochBySession.has("e2e-speak"), false);
-      assert.equal(state.draftBySession.has("e2e-speak"), false);
+      const payloadResult = naturalize.onReplyPayloadSending(
+        { sessionKey: sk, kind: "final", channel: "whatsapp", payload: { text: "This is the draft reply" } },
+        { agentId: "test", sessionKey: sk },
+      );
+      assert.deepEqual(payloadResult, { cancel: true });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 1500));
 
       assert.equal(dispatcher.sendBlockReply.mock.callCount(), 3);
       assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "First bubble");
       assert.equal(dispatcher.sendBlockReply.mock.calls[1].arguments[0].text, "Second bubble");
       assert.equal(dispatcher.sendBlockReply.mock.calls[2].arguments[0].text, "Third bubble");
       assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+      assert.equal(state.speakEpochBySession.has(sk), false);
     });
   });
 
@@ -145,23 +148,28 @@ describe("e2e-local", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      state.speakEpochBySession.set("e2e-sup", 1);
-      state.draftBySession.set("e2e-sup", "Draft");
-      state.chatTypeBySession.set("e2e-sup", "group");
+      const sk = "agent:test:whatsapp:group:e2e-sup@g.us";
+      state.speakEpochBySession.set(sk, { epoch: 1, ts: Date.now() });
+      state.chatTypeBySession.set(sk, "group");
 
       const dispatcher = {
         sendBlockReply: mock.fn(() => true),
         markComplete: mock.fn(),
       };
 
-      await naturalize.onReplyDispatch(
-        { cleanedBody: "Draft", sendPolicy: "allow" },
-        { agentId: "test", sessionKey: "e2e-sup", channelId: "ch", chatId: "ch", senderId: "u", dispatcher, abortSignal: undefined },
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        { agentId: "test", sessionKey: sk, channelId: "ch", chatId: "ch", senderId: "u", dispatcher, abortSignal: undefined },
       );
 
-      getState().epochs.set("e2e-sup", 5);
+      naturalize.onReplyPayloadSending(
+        { sessionKey: sk, kind: "final", payload: { text: "Draft" } },
+        { agentId: "test", sessionKey: sk },
+      );
 
-      await new Promise((r) => setTimeout(r, 60));
+      setTimeout(() => { getState().epochs.set(sk, 5); }, 1350);
+
+      await new Promise((r) => setTimeout(r, 1700));
 
       assert.ok(dispatcher.sendBlockReply.mock.callCount() <= 3,
         `expected at most 3 bubbles, got ${dispatcher.sendBlockReply.mock.callCount()}`);

@@ -79,12 +79,13 @@ export default definePluginEntry({
     }
 
     api.on("message_received", wrap(gate.onMessageReceived));
+    api.on("before_agent_reply", wrap(gate.onBeforeAgentReply));
     api.on("before_agent_run", wrap(gate.onBeforeAgentRun));
     api.on("before_prompt_build", wrap(gate.onBeforePromptBuild));
     api.on("message_sending", wrap(gate.onMessageSending));
     api.on("before_prompt_build", wrap(voiceCard.onBeforePromptBuild));
-    api.on("before_agent_reply", wrap(naturalize.onBeforeAgentReply));
     api.on("reply_dispatch", wrap(naturalize.onReplyDispatch));
+    api.on("reply_payload_sending", wrap(naturalize.onReplyPayloadSending));
 
     api.on("gateway_start", wrap(() => {
       maybeAutoEnhance(cfg, engine);

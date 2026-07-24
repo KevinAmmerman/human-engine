@@ -32,29 +32,39 @@ worker process.
 
 ## Execution flow
 
-1. **`message_received`** hook: gate gathers transcript, ingests into social
-   memory, records chat type (DM/group).
-2. **`before_agent_run`** hook: gate calls `engine.decide()` which queries the
-   local LLM with context (messages, persona, transcript). The transcript comes
-   from the host's `event.transcript` if present, otherwise from the plugin's
-   own per-session transcript peek buffer (last 20 lines). Hard triggers
-   (DM, media, agent-name mention) short-circuit to `speak` with zero LLM
-   calls. Returns `speak`/`stay_silent`/`null`.
-3. If `speak`: gate records speak epoch, recalls social memory.
-4. If `stay_silent`: gate buffers the message as observed context and marks a
-   silent epoch flag (`{epoch, ts}`) — the agent run is NOT blocked (blocking
-   wedges sessions via pendingFinalDelivery recovery).
-5. If `null` (engine unavailable): DM fails open (agent runs normally), group
-   fails closed (silent flag set).
-6. **`before_prompt_build`** hook: gate injects observed context (if any
-   silent turns). Voice card injects style profile into system context.
-7. **`before_agent_reply`** hook: a fresh silent flag (age ≤
-   `gate.silentTtlMs`, default 90s) is consumed and the reply suppressed
-   (`{handled: true}`). Stale flags (older than the TTL, e.g. from turns that
-   died before producing a reply) are dropped instead — they must not swallow
-   a later, legitimate speak reply. Otherwise naturalize captures the draft.
-8. **`reply_dispatch`** hook: naturalize dispatches bubbles with inter-bubble
-   delays computed by timing engine (typing WPM, max wait, night mode).
+Hook semantics verified against OpenClaw 2026.6.11: `before_agent_reply`
+fires **before the model run** with the cleaned inbound body; returning
+`{handled: true}` short-circuits the turn with `NO_REPLY`. `reply_dispatch`
+fires in the delivery pipeline with a dispatcher. `reply_payload_sending`
+fires per outbound payload with the real reply text and supports
+`{cancel: true}`.
+
+1. **`message_received`** hook: gate records chat type, caches the resolved
+   sender name, pushes the transcript peek line, ingests into social memory
+   (chat sessions only).
+2. **`before_agent_reply`** hook (gate): runs the turn-taking decide on the
+   cleaned inbound body. Hard triggers (DM, media, agent-name mention)
+   short-circuit to `speak` with zero LLM calls; otherwise the local LLM
+   decides with persona + transcript peek context (last 20 lines).
+   - `speak` → speak epoch `{epoch, ts}` recorded, social memory recalled.
+   - `stay_silent` → message buffered as observed context and
+     `{handled: true}` returned — the turn is silenced before the LLM call,
+     inside its own turn. No cross-turn state.
+   - `null` (engine unavailable) → DM fails open; group fails closed
+     (`{handled: true}`).
+3. **`before_agent_run`** hook: transcript/social-memory bookkeeping for
+   turns that actually run (silenced turns never reach this hook).
+4. **`before_prompt_build`** hook: gate injects observed context (drained
+   once). Voice card injects style profile into system context.
+5. **Agent run** produces a reply.
+6. **`reply_dispatch`** hook (naturalize): on speak turns, stashes the
+   dispatcher and lets payloads flow.
+7. **`reply_payload_sending`** hook (naturalize): captures the real reply
+   text (`{cancel: true}` suppresses the original payload), debounces
+   multiple payloads into one draft.
+8. **Flush**: the draft is humanized by the local LLM into 1–5 bubbles and
+   re-delivered via `dispatcher.sendBlockReply` with timing-engine delays
+   (typing WPM, night mode). Raw-draft fallback on LLM error or supersede.
 
 ## Key dependencies
 
@@ -76,15 +86,16 @@ No external npm packages — all logic is self-contained.
   breaks the gateway.
 - **Fail-open/fail-closed**: DMs default to fail-open (engine null → agent runs
   normally); groups default to fail-closed (engine null → silent block).
-- **Silent flags carry a TTL**: `silentEpochBySession` entries store
-  `{epoch, ts}` and expire after `gate.silentTtlMs` (default 90s). A reply for
-  a stay_silent turn fires within seconds; older flags are residue of dead
-  turns and are discarded, not consumed.
+- **Silence is synchronous**: stay_silent returns `{handled: true}` from
+  `before_agent_reply` — the same hook that ran the decide — so a stay_silent
+  turn never starts an LLM run and can never leak a reply. There is no
+  cross-turn silence state (the 0.2.x silentEpoch/TTL machinery is gone).
 - **Never block `before_agent_run`**: returning a block from that hook writes
   a user-facing "blocked" text that wedges the session via
-  pendingFinalDelivery recovery on restart. Silence is enforced by
-  suppressing the reply in `before_agent_reply` instead; `message_sending`
-  cancels any residual block text as defense-in-depth.
+  pendingFinalDelivery recovery on restart. `message_sending` cancels any
+  residual block text as defense-in-depth.
+- **Real reply text only**: bubbles are built from the actual agent reply
+  captured at `reply_payload_sending`, never from inbound text.
 - **Scoping is uniform**: every handler (gate, naturalize, voice card)
   checks `enabled` and `agents` before doing any work.
 - **Purpose strings**: Block reasons use `human-engine-*` prefix for

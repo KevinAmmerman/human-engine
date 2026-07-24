@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0 — architecture rebuilt on real hook semantics (leak fix)
+
+Live debugging against OpenClaw 2026.6.11 proved the plugin's core assumption
+wrong: `before_agent_reply` fires **before the model run with the cleaned
+inbound body** (`{handled:true}` short-circuits the turn with `NO_REPLY`),
+not with the agent's reply text. The old design's silence flag therefore
+always landed one turn late (silencing the *next* message while the current
+reply leaked), and the naturalize "draft" was the user's own message.
+
+- **Gate: decide + silence moved to `before_agent_reply`.** stay_silent now
+  returns `{handled:true}` in the same hook that ran the decide — the turn is
+  silenced before the LLM call, inside its own turn. No cross-turn flags at
+  all: the entire `silentEpoch`/TTL machinery is deleted (the whole bug class
+  with it). Group fail-closed works the same way.
+- **Naturalize: real reply capture via `reply_payload_sending`.** On speak
+  turns, `reply_dispatch` stashes the dispatcher; the final reply payload is
+  captured (`{cancel:true}` suppresses the original), debounced, humanized,
+  and re-delivered as timed bubbles via `dispatcher.sendBlockReply`. Raw-draft
+  fallback if the humanize LLM fails or the turn is superseded.
+- speak epochs carry timestamps (120s TTL) so a dead turn can never capture a
+  later turn's reply.
+- `before_agent_run` no longer decides; it only feeds transcript/social
+  memory for turns that actually run. Heartbeat triggers are skipped by the
+  gate.
+- Sender name cached from `message_received` so `before_agent_reply` (which
+  only carries senderId) resolves contacts correctly.
+
 ## 0.2.2 — sender attribution + social memory hygiene
 
 - **Contacts resolution**: new `contactsPath` config pointing at a

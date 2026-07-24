@@ -62,14 +62,22 @@ describe("harness — kill-switch enabled:false", () => {
     assert.equal(result, undefined);
   });
 
-  it("onBeforeAgentReply returns undefined", () => {
-    const result = naturalize.onBeforeAgentReply({ cleanedBody: "reply" }, { agentId: "test", sessionKey: "sk" });
+  it("onBeforeAgentReply returns undefined", async () => {
+    const result = await gate.onBeforeAgentReply({ cleanedBody: "reply" }, { agentId: "test", sessionKey: "sk" });
     assert.equal(result, undefined);
   });
 
   it("onReplyDispatch returns undefined", async () => {
     const result = await naturalize.onReplyDispatch(
       { cleanedBody: "reply", sendPolicy: "allow" },
+      { agentId: "test", sessionKey: "sk" },
+    );
+    assert.equal(result, undefined);
+  });
+
+  it("onReplyPayloadSending returns undefined", () => {
+    const result = naturalize.onReplyPayloadSending(
+      { sessionKey: "sk", kind: "final", payload: { text: "reply" } },
       { agentId: "test", sessionKey: "sk" },
     );
     assert.equal(result, undefined);
@@ -109,12 +117,12 @@ describe("harness — agent scoping", () => {
   });
 
   it("scoped agent (hori-wa) engages gate", async () => {
-    const result = await gate.onBeforeAgentRun(
-      { prompt: "hello", messages: [] },
+    const result = await gate.onBeforeAgentReply(
+      { cleanedBody: "hello" },
       { agentId: "hori-wa", sessionKey: "sk-hori", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
-    assert.equal(state.speakEpochBySession.get("sk-hori"), 1);
+    assert.equal(state.speakEpochBySession.get("sk-hori")?.epoch, 1);
   });
 });
 
@@ -192,6 +200,7 @@ describe("harness — no-residue static proof", () => {
       "message_received",
       "message_sending",
       "reply_dispatch",
+      "reply_payload_sending",
     ], "hook snapshot mismatch");
     assert.deepEqual(commands, ["soul"], "command snapshot mismatch (connect removed)");
     assert.equal(lifecycleMatches.length, 1, "gateway_start lifecycle hook registered");

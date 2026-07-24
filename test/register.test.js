@@ -59,8 +59,9 @@ describe("register() from index.js", () => {
     assert.equal(hooks.before_prompt_build?.length, 2);
     assert.equal(hooks.before_agent_reply?.length, 1);
     assert.equal(hooks.reply_dispatch?.length, 1);
+    assert.equal(hooks.reply_payload_sending?.length, 1);
     assert.equal(hooks.gateway_start?.length, 1);
-    assert.equal(Object.keys(hooks).length, 7);
+    assert.equal(Object.keys(hooks).length, 8);
 
     assert.equal(commands.length, 1);
     assert.equal(commands[0].name, "soul");
@@ -83,6 +84,7 @@ describe("register() from index.js", () => {
     assert.equal(hooks.before_prompt_build?.length, 2);
     assert.equal(hooks.before_agent_reply?.length, 1);
     assert.equal(hooks.reply_dispatch?.length, 1);
+    assert.equal(hooks.reply_payload_sending?.length, 1);
     assert.equal(hooks.gateway_start?.length, 1);
 
     assert.equal(commands.length, 1);
@@ -129,6 +131,9 @@ describe("register() from index.js", () => {
     assert.equal(result, undefined);
 
     result = await hooks.reply_dispatch[0]({ sendPolicy: "deny" }, ctx);
+    assert.equal(result, undefined);
+
+    result = await hooks.reply_payload_sending[0]({ sessionKey: "s", kind: "final", payload: { text: "hi" } }, ctx);
     assert.equal(result, undefined);
 
     result = await hooks.gateway_start[0]();

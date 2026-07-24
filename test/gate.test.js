@@ -10,6 +10,8 @@ const cfg = {
   socialMemory: { enabled: true, extractEvery: 100 },
 };
 
+const CHAT_SK = "agent:test-agent:whatsapp:group:123@g.us";
+
 function makeEngine() {
   return {
     async decide(opts) {
@@ -56,7 +58,7 @@ function makeSocialMemoryStub() {
 function makeDefaultCtx(overrides = {}) {
   return {
     agentId: "test-agent",
-    sessionKey: "session-test",
+    sessionKey: CHAT_SK,
     senderId: "user-1",
     senderName: "Kevin",
     channelId: "ch-1",
@@ -64,12 +66,23 @@ function makeDefaultCtx(overrides = {}) {
   };
 }
 
-function makeDefaultEvent(overrides = {}) {
+function makeReplyEvent(overrides = {}) {
   return {
-    prompt: "Hello bot",
-    messages: [],
+    cleanedBody: "Hello bot",
     ...overrides,
   };
+}
+
+function makeGate(overrides = {}) {
+  return createGate({
+    cfg,
+    state,
+    engine: makeEngine(),
+    persona,
+    socialMemory: makeSocialMemoryStub(),
+    log: { info() {}, warn() {}, debug() {} },
+    ...overrides,
+  });
 }
 
 describe("gate", () => {
@@ -84,15 +97,9 @@ describe("gate", () => {
     state.chatTypeBySession.clear();
     state.draftBySession.clear();
     state.metaBySession.clear();
+    state.senderBySession.clear();
     state.sessions.clear();
-    gate = createGate({
-      cfg,
-      state,
-      engine: makeEngine(),
-      persona,
-      socialMemory: makeSocialMemoryStub(),
-      log: { info() {}, warn() {}, debug() {} },
-    });
+    gate = makeGate();
   });
 
   describe("onMessageReceived", () => {
@@ -110,87 +117,121 @@ describe("gate", () => {
       gate.onMessageReceived({}, { isGroup: true });
       assert.ok(true);
     });
+
+    it("caches sender name per session", () => {
+      gate.onMessageReceived({ text: "hi" }, makeDefaultCtx());
+      assert.equal(state.senderBySession.get(CHAT_SK), "Kevin");
+    });
   });
 
-  describe("onBeforeAgentRun", () => {
+  describe("onBeforeAgentReply (gate decide + silence)", () => {
     it("returns undefined for disabled config", async () => {
-      const disabledGate = createGate({
-        cfg: { ...cfg, enabled: false },
-        state, engine: makeEngine(), persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
-      });
-      const result = await disabledGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
+      const disabledGate = makeGate({ cfg: { ...cfg, enabled: false } });
+      const result = await disabledGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
       assert.equal(result, undefined);
     });
 
     it("returns undefined for unscoped agent", async () => {
-      const scopedGate = createGate({
-        cfg: { ...cfg, agents: ["other-agent"] },
-        state, engine: makeEngine(), persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
-      });
-      const result = await scopedGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
+      const scopedGate = makeGate({ cfg: { ...cfg, agents: ["other-agent"] } });
+      const result = await scopedGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
       assert.equal(result, undefined);
+    });
+
+    it("returns undefined for heartbeat trigger", async () => {
+      let decideCalled = false;
+      const g = makeGate({
+        engine: { async decide() { decideCalled = true; return { decision: "speak", epoch: 1 }; } },
+      });
+      const result = await g.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx({ trigger: "heartbeat" }));
+      assert.equal(result, undefined);
+      assert.equal(decideCalled, false);
     });
 
     it("returns undefined for command bypass", async () => {
-      const result = await gate.onBeforeAgentRun(
-        { ...makeDefaultEvent(), prompt: "/new" },
-        makeDefaultCtx(),
-      );
+      const result = await gate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "/new" }), makeDefaultCtx());
       assert.equal(result, undefined);
     });
 
+    it("returns undefined for empty body", async () => {
+      const result = await gate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "" }), makeDefaultCtx());
+      assert.equal(result, undefined);
+    });
+
+    it("handles speak decision (returns undefined, stashes epoch with timestamp)", async () => {
+      const speakGate = makeGate({
+        engine: { async decide() { return { decision: "speak", epoch: 42 }; } },
+      });
+
+      const result = await speakGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(result, undefined);
+      assert.equal(state.speakEpochBySession.get(CHAT_SK)?.epoch, 42);
+      assert.ok(typeof state.speakEpochBySession.get(CHAT_SK)?.ts === "number");
+    });
+
+    it("handles stay_silent decision (handled:true silences the turn, observed buffered)", async () => {
+      const silentGate = makeGate({
+        engine: { async decide() { return { decision: "stay_silent", epoch: 1 }; } },
+      });
+
+      const result = await silentGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.deepEqual(result, { handled: true });
+      assert.equal(state.observedBySession.get(CHAT_SK).length, 1);
+      assert.ok(state.observedBySession.get(CHAT_SK)[0].includes("Hello bot"));
+    });
+
+    it("DM fail-open when decide returns null", async () => {
+      const nullGate = makeGate({
+        engine: { async decide() { return null; } },
+      });
+
+      const result = await nullGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx({ sessionKey: "agent:test-agent:telegram:direct:123" }));
+      assert.equal(result, undefined);
+    });
+
+    it("group fail-closed when decide returns null (handled:true)", async () => {
+      const nullGate = makeGate({
+        engine: { async decide() { return null; } },
+      });
+
+      const result = await nullGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.deepEqual(result, { handled: true });
+      assert.equal(state.observedBySession.get(CHAT_SK).length, 1);
+    });
+
+    it("stashes latest epoch on any decision", async () => {
+      const epGate = makeGate({
+        engine: { async decide() { return { decision: "stay_silent", epoch: 7 }; } },
+      });
+
+      await epGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx({ chatId: "chat-x" }));
+      assert.equal(state.latestEpochByChat.get("chat-x"), 7);
+    });
+
+    it("decide receives transcript peek context", async () => {
+      state.transcriptPeekBySession.set(CHAT_SK, ["[Kevin] Hey Hori", "[Hori] Ja?"]);
+      let captured;
+      const captureGate = makeGate({
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
+        },
+      });
+
+      await captureGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "Was sagst du?" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const hey = transcript.find((t) => t.text.includes("Hey Hori"));
+      assert.ok(hey, "transcript should include peek line");
+      assert.equal(hey.speaker, "Kevin");
+      assert.ok(transcript.some((t) => t.text.includes("Was sagst du?")), "transcript should include current prompt");
+    });
+
     it("does not duplicate transcript peek when message_received already pushed the line", async () => {
-      state.transcriptPeekBySession.clear();
-      const dupGate = createGate({
-        cfg,
-        state,
+      const dupGate = makeGate({
         engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
-        persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
       });
       dupGate.onMessageReceived({ text: "Was sagst du?" }, makeDefaultCtx());
-      await dupGate.onBeforeAgentRun(makeDefaultEvent({ prompt: "Was sagst du?" }), makeDefaultCtx());
-      const peek = state.transcriptPeekBySession.get("session-test") || [];
+      await dupGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "Was sagst du?" }), makeDefaultCtx());
+      const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
       assert.equal(peek.filter((l) => l.endsWith("] Was sagst du?")).length, 1);
-    });
-
-    it("skips social memory ingest for non-chat sessions (cron/commitments)", async () => {
-      const sm = makeSocialMemoryStub();
-      const cronGate = createGate({
-        cfg,
-        state,
-        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
-        persona,
-        socialMemory: sm,
-        log: { info() {}, warn() {}, debug() {} },
-      });
-      await cronGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        makeDefaultCtx({ sessionKey: "agent:test-agent:cron:abc-123:run:def-456" }),
-      );
-      assert.deepEqual(sm._people, {});
-    });
-
-    it("ingests social memory for real chat sessions", async () => {
-      const sm = makeSocialMemoryStub();
-      const chatGate = createGate({
-        cfg,
-        state,
-        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
-        persona,
-        socialMemory: sm,
-        log: { info() {}, warn() {}, debug() {} },
-      });
-      await chatGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:123@g.us" }),
-      );
-      assert.ok(sm._people["test-agent::agent:test-agent:whatsapp:group:123@g.us"]);
     });
 
     it("resolves sender name via contactsPath", async () => {
@@ -201,228 +242,131 @@ describe("gate", () => {
       const cFile = path.join(tmpDir, "contacts.md");
       fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 111 | +4915000000010 | Kevin | |\n");
 
-      const sm = makeSocialMemoryStub();
       let captured;
-      const contactGate = createGate({
+      const contactGate = makeGate({
         cfg: { ...cfg, contactsPath: cFile },
-        state,
         engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
-        persona,
-        socialMemory: sm,
-        log: { info() {}, warn() {}, debug() {} },
       });
-      await contactGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:123@g.us", senderName: undefined, senderId: "+4915000000010" }),
+      await contactGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "servus" }),
+        makeDefaultCtx({ senderName: undefined, senderId: "+4915000000010" }),
       );
-      const entries = sm._people["test-agent::agent:test-agent:whatsapp:group:123@g.us"];
-      assert.equal(entries[entries.length - 1].speaker, "Kevin");
-      const peek = state.transcriptPeekBySession.get("agent:test-agent:whatsapp:group:123@g.us") || [];
+      const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
       assert.ok(peek[peek.length - 1].startsWith("[Kevin] "));
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it("decide receives transcript peek context when event.transcript is missing", async () => {
-      state.transcriptPeekBySession.clear();
-      state.transcriptPeekBySession.set("session-test", ["[Kevin] Hey Hori", "[Hori] Ja?"]);
-      let captured;
-      const captureGate = createGate({
-        cfg,
-        state,
-        engine: {
-          async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
-        },
-        persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
+    it("speak turn populates memoryBySession from recall", async () => {
+      const memGate = makeGate({
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
       });
 
-      await captureGate.onBeforeAgentRun(makeDefaultEvent({ prompt: "Was sagst du?" }), makeDefaultCtx());
-      const transcript = captured.transcript || [];
-      const hey = transcript.find((t) => t.text.includes("Hey Hori"));
-      assert.ok(hey, "transcript should include peek line");
-      assert.equal(hey.speaker, "Kevin");
-      assert.ok(transcript.some((t) => t.text.includes("Was sagst du?")), "transcript should include current prompt");
-    });
-
-    it("handles speak decision (returns undefined, stashes epoch)", async () => {
-      const speakGate = createGate({
-        cfg,
-        state,
-        engine: {
-          async decide(opts) {
-            return { decision: "speak", epoch: 42 };
-          },
-        },
-        persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
-      });
-
-      const result = await speakGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
-      assert.equal(result, undefined);
-      assert.equal(state.speakEpochBySession.get("session-test"), 42);
-    });
-
-    it("handles stay_silent decision (marks silent epoch, persists observed, no block)", async () => {
-      const silentGate = createGate({
-        cfg,
-        state,
-        engine: {
-          async decide(opts) {
-            return { decision: "stay_silent", epoch: 1 };
-          },
-        },
-        persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
-      });
-
-      const result = await silentGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        makeDefaultCtx({ isGroup: true, sessionKey: "agent:a:whatsapp:group:1@g.us" }),
+      await memGate.onBeforeAgentReply(
+        makeReplyEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:speak-turn@g.us" }),
       );
-      assert.equal(result, undefined);
-      assert.equal(state.silentEpochBySession.get("agent:a:whatsapp:group:1@g.us")?.epoch, 1);
-      assert.equal(state.observedBySession.get("agent:a:whatsapp:group:1@g.us").length, 1);
-      assert.ok(state.observedBySession.get("agent:a:whatsapp:group:1@g.us")[0].includes("Hello bot"));
+
+      const mem = state.memoryBySession.get("agent:test-agent:whatsapp:group:speak-turn@g.us");
+      assert.ok(mem);
+      assert.ok(mem.includes("Alice"));
     });
 
-    it("DM fail-open when decide returns null", async () => {
-      const nullGate = createGate({
-        cfg,
-        state,
-        engine: {
-          async decide(opts) {
-            return null;
-          },
-        },
-        persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
+    it("silent turn does not set memoryBySession", async () => {
+      const memGate = makeGate({
+        engine: { async decide() { return { decision: "stay_silent", epoch: 1 }; } },
       });
 
-      const result = await nullGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx());
-      assert.equal(result, undefined);
+      await memGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(state.memoryBySession.has(CHAT_SK), false);
     });
 
-    it("group fail-closed when decide returns null (marks silent epoch, no block)", async () => {
-      const nullGate = createGate({
-        cfg,
-        state,
-        engine: {
-          async decide(opts) {
-            return null;
-          },
-        },
-        persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
+    it("errors fail open (returns undefined)", async () => {
+      const badGate = makeGate({
+        engine: { async decide() { throw new Error("boom"); } },
       });
-
-      const result = await nullGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        makeDefaultCtx({ isGroup: true, sessionKey: "agent:a:whatsapp:group:2@g.us" }),
-      );
-      assert.equal(result, undefined);
-      assert.ok(state.silentEpochBySession.has("agent:a:whatsapp:group:2@g.us"));
-      assert.equal(state.observedBySession.get("agent:a:whatsapp:group:2@g.us").length, 1);
-    });
-
-    it("stashes latest epoch on any decision", async () => {
-      const epGate = createGate({
-        cfg,
-        state,
-        engine: {
-          async decide(opts) {
-            return { decision: "stay_silent", epoch: 7 };
-          },
-        },
-        persona,
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
-      });
-
-      await epGate.onBeforeAgentRun(makeDefaultEvent(), makeDefaultCtx({ isGroup: true }));
-      assert.equal(state.latestEpochByChat.get("ch-1"), 7);
-    });
-
-    it("returns undefined when prompt is empty", async () => {
-      const result = await gate.onBeforeAgentRun({ prompt: "" }, makeDefaultCtx());
-      assert.equal(result, undefined);
-    });
-
-    it("returns undefined when no sessionKey", async () => {
-      const result = await gate.onBeforeAgentRun(makeDefaultEvent(), { agentId: "test" });
+      const result = await badGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
       assert.equal(result, undefined);
     });
   });
 
-  describe("onMessageSending", () => {
-    it("cancels block text matching human-engine pattern", () => {
-      const result = gate.onMessageSending(
-        { content: "Your message could not be sent because it was blocked by human-engine." },
-        { sessionKey: "sk" },
-      );
-      assert.deepEqual(result, { cancel: true });
+  describe("onBeforeAgentRun", () => {
+    it("does not call engine.decide (decide lives in before_agent_reply)", async () => {
+      let decideCalled = false;
+      const g = makeGate({
+        engine: { async decide() { decideCalled = true; return { decision: "speak", epoch: 1 }; } },
+      });
+      await g.onBeforeAgentRun({ prompt: "hi" }, makeDefaultCtx());
+      assert.equal(decideCalled, false);
     });
 
-    it("returns undefined for normal text", () => {
-      const result = gate.onMessageSending({ content: "Hello there" }, { sessionKey: "sk" });
-      assert.equal(result, undefined);
+    it("pushes transcript peek for run turns", async () => {
+      const g = makeGate();
+      await g.onBeforeAgentRun({ prompt: "run turn text" }, makeDefaultCtx());
+      const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
+      assert.ok(peek.some((l) => l.endsWith("] run turn text")));
     });
 
-    it("returns undefined for empty content", () => {
-      const result = gate.onMessageSending({ content: "" }, { sessionKey: "sk" });
+    it("returns undefined for disabled config", async () => {
+      const g = makeGate({ cfg: { ...cfg, enabled: false } });
+      const result = await g.onBeforeAgentRun({ prompt: "hi" }, makeDefaultCtx());
       assert.equal(result, undefined);
     });
   });
 
   describe("onBeforePromptBuild", () => {
-    it("returns undefined when no observed or memory", () => {
-      const result = gate.onBeforePromptBuild({ prompt: "hi" }, makeDefaultCtx());
+    it("injects observed context once (drained)", async () => {
+      const silentGate = makeGate({
+        engine: { async decide() { return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      await silentGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+
+      const result = gate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.ok(result.appendContext.includes("[Observed group context"));
+      assert.ok(result.appendContext.includes("Hello bot"));
+
+      const second = gate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.equal(second, undefined);
+    });
+
+    it("injects memory into system context when present", () => {
+      state.memoryBySession.set(CHAT_SK, "Alice: likes climbing");
+      const result = gate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.ok(result.appendSystemContext.includes("What you know about the people here"));
+      assert.ok(result.appendSystemContext.includes("Alice"));
+    });
+
+    it("returns undefined when nothing to inject", () => {
+      const result = gate.onBeforePromptBuild({}, makeDefaultCtx());
       assert.equal(result, undefined);
     });
 
-    it("returns appendContext with observed lines and clears buffer", () => {
-      state.observedBySession.set("session-test", ["[user-1] msg1", "[user-2] msg2"]);
-      const result = gate.onBeforePromptBuild({ prompt: "hi" }, makeDefaultCtx());
-      assert.ok(result.appendContext);
-      assert.ok(result.appendContext.includes("[Observed group context"));
-      assert.ok(result.appendContext.includes("[user-1] msg1"));
-      assert.equal(state.observedBySession.has("session-test"), false);
+    it("returns undefined for unscoped agent", () => {
+      state.memoryBySession.set(CHAT_SK, "mem");
+      const scopedGate = makeGate({ cfg: { ...cfg, agents: ["other"] } });
+      const result = scopedGate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.equal(result, undefined);
+    });
+  });
+
+  describe("onMessageSending", () => {
+    it("cancels block text", () => {
+      const result = gate.onMessageSending(
+        { content: "Your message could not be sent: blocked by human-engine (stay silent)" },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
     });
 
-    it("returns appendSystemContext with memory", () => {
-      state.memoryBySession.set("session-test", "mem content");
-      const result = gate.onBeforePromptBuild({ prompt: "hi" }, makeDefaultCtx());
-      assert.ok(result.appendSystemContext);
-      assert.ok(result.appendSystemContext.includes("What you know about the people here (from memory):"));
-      assert.ok(result.appendSystemContext.includes("mem content"));
-    });
-
-    it("returns both observed and memory when both present", () => {
-      state.observedBySession.set("session-test", ["[user] observed"]);
-      state.memoryBySession.set("session-test", "mem data");
-      const result = gate.onBeforePromptBuild({ prompt: "hi" }, makeDefaultCtx());
-      assert.ok(result.appendContext);
-      assert.ok(result.appendSystemContext);
+    it("passes normal content", () => {
+      const result = gate.onMessageSending({ content: "Hallo!" }, makeDefaultCtx());
+      assert.equal(result, undefined);
     });
   });
 
   describe("socialMemory integration", () => {
-    beforeEach(() => {
-      state.observedBySession.clear();
-      state.memoryBySession.clear();
-    });
-
-    it("ingests on onMessageReceived", () => {
+    it("ingests on onMessageReceived for chat sessions", () => {
       const smStub = makeSocialMemoryStub();
-      const memGate = createGate({
-        cfg, state, engine: makeEngine(), persona,
-        socialMemory: smStub,
-        log: { info() {}, warn() {}, debug() {} },
-      });
+      const memGate = makeGate({ socialMemory: smStub });
 
       memGate.onMessageReceived({ text: "hello" }, { sessionKey: "agent:agent1:whatsapp:group:123@g.us", agentId: "agent1", senderId: "Alice", isGroup: true });
       assert.ok(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"]);
@@ -430,79 +374,27 @@ describe("gate", () => {
       assert.equal(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"][0].text, "hello");
     });
 
-    it("ingests on onBeforeAgentRun", async () => {
-      const smStub = makeSocialMemoryStub();
-      const memGate = createGate({
-        cfg, state, engine: makeEngine(), persona,
-        socialMemory: smStub,
-        log: { info() {}, warn() {}, debug() {} },
+    it("skips social memory ingest for non-chat sessions (cron/commitments)", async () => {
+      const sm = makeSocialMemoryStub();
+      const cronGate = makeGate({
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+        socialMemory: sm,
       });
-
-      await memGate.onBeforeAgentRun(
-        { prompt: "test message", messages: [] },
-        { sessionKey: "agent:agent1:whatsapp:group:123@g.us", agentId: "agent1", senderId: "Bob", senderName: "Bob", channelId: "ch-1" },
+      await cronGate.onBeforeAgentReply(
+        makeReplyEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:cron:abc-123:run:def-456" }),
       );
-
-      assert.ok(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"]);
-      assert.equal(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"][0].speaker, "Bob");
-      assert.equal(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"][0].text, "test message");
+      assert.deepEqual(sm._people, {});
     });
 
-    it("speak turn populates memoryBySession from recall", async () => {
-      const smStub = makeSocialMemoryStub();
-      const memGate = createGate({
-        cfg, state, engine: {
-          async decide(opts) { return { decision: "speak", epoch: 1 }; },
-        }, persona,
-        socialMemory: smStub,
-        log: { info() {}, warn() {}, debug() {} },
+    it("ingests social memory for real chat sessions on before_agent_reply", async () => {
+      const sm = makeSocialMemoryStub();
+      const chatGate = makeGate({
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+        socialMemory: sm,
       });
-
-      await memGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        { ...makeDefaultCtx(), sessionKey: "sk-speak-turn", agentId: "agent1", senderId: "Alice", senderName: "Alice" },
-      );
-
-      const mem = state.memoryBySession.get("sk-speak-turn");
-      assert.ok(mem);
-      assert.ok(mem.includes("Alice"));
-    });
-
-    it("silent turn does not set memoryBySession", async () => {
-      const smStub = makeSocialMemoryStub();
-      const memGate = createGate({
-        cfg, state, engine: {
-          async decide(opts) { return { decision: "stay_silent", epoch: 1 }; },
-        }, persona,
-        socialMemory: smStub,
-        log: { info() {}, warn() {}, debug() {} },
-      });
-
-      await memGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        { ...makeDefaultCtx(), sessionKey: "sk-silent", agentId: "agent1", senderId: "Alice", senderName: "Alice", isGroup: true },
-      );
-
-      assert.equal(state.memoryBySession.has("sk-silent"), false);
-    });
-
-    it("disabled socialMemory → no ingest calls remembered", async () => {
-      const smStub = makeSocialMemoryStub();
-      const memGate = createGate({
-        cfg: { ...cfg, socialMemory: { enabled: false } }, state, engine: makeEngine(), persona,
-        socialMemory: smStub,
-        log: { info() {}, warn() {}, debug() {} },
-      });
-
-      await memGate.onBeforeAgentRun(
-        makeDefaultEvent(),
-        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:123@g.us" }),
-      );
-
-      // Ingest might have been called but socialMemory's own enabled check prevents recording
-      // The stub doesn't check enabled, so we verify gate guard via cfg.socialMemory
-      // The stub records calls but the gate passes them through.
-      assert.ok(smStub._people["test-agent::agent:test-agent:whatsapp:group:123@g.us"]);
+      await chatGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.ok(sm._people["test-agent::" + CHAT_SK]);
     });
   });
 });
