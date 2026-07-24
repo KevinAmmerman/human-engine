@@ -38,7 +38,32 @@ export default definePluginEntry({
 
     const socialMemory = createSocialMemory({ cfg, llm, stateDir, log });
 
-    const gate = createGate({ cfg, state, engine, persona, socialMemory, log });
+    const transcriptApiPromise = import("openclaw/plugin-sdk/session-transcript-runtime")
+      .then((m) => m)
+      .catch((err) => {
+        log.warn(`human-engine: session-transcript-runtime unavailable, observed stays plugin-local: ${err?.message || err}`);
+        return null;
+      });
+
+    function persistObserved(sessionKey, senderName, text) {
+      transcriptApiPromise.then((m) => {
+        if (!m?.appendSessionTranscriptMessageByIdentity) return;
+        const agentId = typeof sessionKey === "string" && sessionKey.startsWith("agent:")
+          ? sessionKey.split(":")[1]
+          : undefined;
+        const content = `[${senderName}] ${text}`;
+        return m
+          .appendSessionTranscriptMessageByIdentity({
+            agentId,
+            sessionKey,
+            config: api.config,
+            message: { role: "user", content, observed: true },
+          })
+          .catch(() => {});
+      }).catch(() => {});
+    }
+
+    const gate = createGate({ cfg, state, engine, persona, socialMemory, persistObserved, log });
     const naturalize = createNaturalize({ cfg, state, engine, persona, socialMemory, log });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
