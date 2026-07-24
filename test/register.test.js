@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+process.env.HUMAN_ENGINE_STATE_DIR = mkdtempSync(join(tmpdir(), "he-test-state-"));
 
 await import("./helpers/ensure-plugin-sdk-shim.mjs");
 const { default: pluginEntry } = await import("../index.js");

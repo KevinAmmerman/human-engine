@@ -34,7 +34,7 @@ export default definePluginEntry({
     const persona = { buildPersonaPrompt, buildPersonaPromptWithMemory };
 
     const pluginDir = new URL(".", import.meta.url).pathname;
-    const stateDir = pluginDir + "state";
+    const stateDir = process.env.HUMAN_ENGINE_STATE_DIR || pluginDir + "state";
 
     const socialMemory = createSocialMemory({ cfg, llm, stateDir, log });
 
