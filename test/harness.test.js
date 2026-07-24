@@ -49,9 +49,9 @@ describe("harness — kill-switch enabled:false", () => {
     assert.equal(result, undefined);
   });
 
-  it("onInboundClaim returns undefined", async () => {
-    const result = await gate.onInboundClaim(
-      { content: "hi" },
+  it("onBeforeAgentRun returns undefined", async () => {
+    const result = await gate.onBeforeAgentRun(
+      { prompt: "hi", messages: [] },
       { agentId: "test", sessionKey: "sk", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
@@ -101,16 +101,16 @@ describe("harness — agent scoping", () => {
   });
 
   it("unscoped agent (main) returns undefined", async () => {
-    const result = await gate.onInboundClaim(
-      { content: "hi" },
+    const result = await gate.onBeforeAgentRun(
+      { prompt: "hi", messages: [] },
       { agentId: "main", sessionKey: "sk-main", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
   });
 
   it("scoped agent (hori-wa) engages gate", async () => {
-    const result = await gate.onInboundClaim(
-      { content: "hello" },
+    const result = await gate.onBeforeAgentRun(
+      { prompt: "hello", messages: [] },
       { agentId: "hori-wa", sessionKey: "sk-hori", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
@@ -152,9 +152,9 @@ describe("harness — fail-open error injection", () => {
     state.sessions.clear();
   });
 
-  it("onInboundClaim returns undefined on thrown error (engine.decide throws)", async () => {
-    const result = await gate.onInboundClaim(
-      { content: "hi" },
+  it("onBeforeAgentRun returns undefined on thrown error (engine.decide throws)", async () => {
+    const result = await gate.onBeforeAgentRun(
+      { prompt: "hi", messages: [] },
       { agentId: "test", sessionKey: "sk", channelId: "ch", chatId: "ch", senderId: "u", senderName: "User" },
     );
     assert.equal(result, undefined);
@@ -186,10 +186,11 @@ describe("harness — no-residue static proof", () => {
 
     assert.deepEqual(hooks, [
       "before_agent_reply",
+      "before_agent_run",
       "before_prompt_build",
       "before_prompt_build",
-      "inbound_claim",
       "message_received",
+      "message_sending",
       "reply_dispatch",
     ], "hook snapshot mismatch");
     assert.deepEqual(commands, ["soul"], "command snapshot mismatch (connect removed)");
