@@ -1,7 +1,7 @@
 {
   "id": "human-engine",
   "name": "Human Engine",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Local human-like conversation engine for OpenClaw: turn-taking, naturalization, voice, persona, social memory \u2014 fully self-hosted.",
   "activation": {
     "onStartup": true
@@ -14,6 +14,7 @@
       "agents": { "type": "array", "items": { "type": "string" }, "default": [] },
       "agentName": { "type": "string", "default": "OpenClaw" },
       "soulPath": { "type": "string", "default": "" },
+      "contactsPath": { "type": "string", "default": "" },
       "soulAutoEnhance": { "type": "boolean", "default": true },
       "antiTell": { "type": "boolean", "default": true },
       "styleStats": { "type": "boolean", "default": true },

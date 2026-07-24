@@ -10,6 +10,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults.
 | `enabled` | bool | `true` | Master switch |
 | `agents` | string[] | `[]` | Allowed agent IDs (empty = all) |
 | `agentName` | string | `"OpenClaw"` | Agent display name |
+| `contactsPath` | string | `""` | contacts.md table for sender-ID → name resolution |
 | `soulPath` | string | `""` | Custom SOUL.md path |
 | `soulAutoEnhance` | bool | `true` | Auto-enhance on startup |
 | `socialLearning.*` | object | — | Voice card learning config |

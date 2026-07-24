@@ -363,6 +363,7 @@ describe("naturalize", () => {
 
   describe("socialMemory integration", () => {
     it("ingests own bubbles on reply dispatch", async () => {
+      const chatSk = "agent:test-agent:whatsapp:group:123@g.us";
       const smStub = makeSocialMemoryStub();
       const memNat = createNaturalize({
         cfg, state, engine: makeEngine(),
@@ -374,8 +375,8 @@ describe("naturalize", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      state.speakEpochBySession.set("session-nat", 42);
-      state.draftBySession.set("session-nat", "Agent's draft reply");
+      state.speakEpochBySession.set(chatSk, 42);
+      state.draftBySession.set(chatSk, "Agent's draft reply");
 
       const dispatcher = {
         sendBlockReply: mock.fn(() => true),
@@ -384,12 +385,12 @@ describe("naturalize", () => {
 
       await memNat.onReplyDispatch(
         makeReplyEvent(),
-        makeDefaultCtx({ dispatcher, abortSignal: undefined }),
+        makeDefaultCtx({ sessionKey: chatSk, dispatcher, abortSignal: undefined }),
       );
 
       await new Promise((r) => setTimeout(r, 60));
 
-      const ingested = smStub._people["test-agent::session-nat"];
+      const ingested = smStub._people["test-agent::" + chatSk];
       assert.ok(ingested);
       assert.equal(ingested[0].speaker, "OpenClaw");
       assert.ok(ingested[0].text.includes("Agent's draft reply"));

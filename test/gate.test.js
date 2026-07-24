@@ -159,6 +159,69 @@ describe("gate", () => {
       assert.equal(peek.filter((l) => l.endsWith("] Was sagst du?")).length, 1);
     });
 
+    it("skips social memory ingest for non-chat sessions (cron/commitments)", async () => {
+      const sm = makeSocialMemoryStub();
+      const cronGate = createGate({
+        cfg,
+        state,
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+        persona,
+        socialMemory: sm,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      await cronGate.onBeforeAgentRun(
+        makeDefaultEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:cron:abc-123:run:def-456" }),
+      );
+      assert.deepEqual(sm._people, {});
+    });
+
+    it("ingests social memory for real chat sessions", async () => {
+      const sm = makeSocialMemoryStub();
+      const chatGate = createGate({
+        cfg,
+        state,
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+        persona,
+        socialMemory: sm,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      await chatGate.onBeforeAgentRun(
+        makeDefaultEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:123@g.us" }),
+      );
+      assert.ok(sm._people["test-agent::agent:test-agent:whatsapp:group:123@g.us"]);
+    });
+
+    it("resolves sender name via contactsPath", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-contacts-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 111 | +4915000000010 | Kevin | |\n");
+
+      const sm = makeSocialMemoryStub();
+      let captured;
+      const contactGate = createGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        state,
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        persona,
+        socialMemory: sm,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      await contactGate.onBeforeAgentRun(
+        makeDefaultEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:123@g.us", senderName: undefined, senderId: "+4915000000010" }),
+      );
+      const entries = sm._people["test-agent::agent:test-agent:whatsapp:group:123@g.us"];
+      assert.equal(entries[entries.length - 1].speaker, "Kevin");
+      const peek = state.transcriptPeekBySession.get("agent:test-agent:whatsapp:group:123@g.us") || [];
+      assert.ok(peek[peek.length - 1].startsWith("[Kevin] "));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
     it("decide receives transcript peek context when event.transcript is missing", async () => {
       state.transcriptPeekBySession.clear();
       state.transcriptPeekBySession.set("session-test", ["[Kevin] Hey Hori", "[Hori] Ja?"]);
@@ -361,10 +424,10 @@ describe("gate", () => {
         log: { info() {}, warn() {}, debug() {} },
       });
 
-      memGate.onMessageReceived({ text: "hello" }, { sessionKey: "sk-ingest", agentId: "agent1", senderId: "Alice", isGroup: true });
-      assert.ok(smStub._people["agent1::sk-ingest"]);
-      assert.equal(smStub._people["agent1::sk-ingest"][0].speaker, "Alice");
-      assert.equal(smStub._people["agent1::sk-ingest"][0].text, "hello");
+      memGate.onMessageReceived({ text: "hello" }, { sessionKey: "agent:agent1:whatsapp:group:123@g.us", agentId: "agent1", senderId: "Alice", isGroup: true });
+      assert.ok(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"]);
+      assert.equal(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"][0].speaker, "Alice");
+      assert.equal(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"][0].text, "hello");
     });
 
     it("ingests on onBeforeAgentRun", async () => {
@@ -377,12 +440,12 @@ describe("gate", () => {
 
       await memGate.onBeforeAgentRun(
         { prompt: "test message", messages: [] },
-        { sessionKey: "sk-before", agentId: "agent1", senderId: "Bob", senderName: "Bob", channelId: "ch-1" },
+        { sessionKey: "agent:agent1:whatsapp:group:123@g.us", agentId: "agent1", senderId: "Bob", senderName: "Bob", channelId: "ch-1" },
       );
 
-      assert.ok(smStub._people["agent1::sk-before"]);
-      assert.equal(smStub._people["agent1::sk-before"][0].speaker, "Bob");
-      assert.equal(smStub._people["agent1::sk-before"][0].text, "test message");
+      assert.ok(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"]);
+      assert.equal(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"][0].speaker, "Bob");
+      assert.equal(smStub._people["agent1::agent:agent1:whatsapp:group:123@g.us"][0].text, "test message");
     });
 
     it("speak turn populates memoryBySession from recall", async () => {
@@ -433,13 +496,13 @@ describe("gate", () => {
 
       await memGate.onBeforeAgentRun(
         makeDefaultEvent(),
-        makeDefaultCtx(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:123@g.us" }),
       );
 
       // Ingest might have been called but socialMemory's own enabled check prevents recording
       // The stub doesn't check enabled, so we verify gate guard via cfg.socialMemory
       // The stub records calls but the gate passes them through.
-      assert.ok(smStub._people["test-agent::session-test"]);
+      assert.ok(smStub._people["test-agent::agent:test-agent:whatsapp:group:123@g.us"]);
     });
   });
 });

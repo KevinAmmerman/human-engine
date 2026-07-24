@@ -83,6 +83,7 @@ All keys under `plugins.entries["human-engine"].config`:
 | `agents` | string[] | `[]` | Allowed agent IDs (empty = all) |
 | `agentName` | string | `"OpenClaw"` | Agent display name |
 | `soulPath` | string | `""` | Custom SOUL.md path |
+| `contactsPath` | string | `""` | contacts.md-style table for sender-ID → name resolution |
 | `soulAutoEnhance` | bool | `true` | Auto-enhance on startup |
 | `antiTell` | bool | `true` | Suppress tell-like phrases |
 | `styleStats` | bool | `true` | Log style stats |
@@ -106,6 +107,20 @@ All keys under `plugins.entries["human-engine"].config`:
 | `timing.typingWpm` | number | `40` | Typing speed for delay calc |
 | `timing.maxTypingMs` | number | `60000` | Max delay per dispatch |
 | `timing.nightMode` | bool | `true` | Longer delays at night |
+
+### Sender name resolution (optional)
+
+Group channels often deliver sender IDs (phone numbers, `@lid`) instead of
+display names. Point `contactsPath` at a markdown table and IDs resolve to
+names everywhere (transcript, decide context, social memory):
+
+```
+| @lid | phone | name | notes |
+|------|-------|------|-------|
+| 81000000000004 | +4915000000010 | Kevin | |
+```
+
+The file is re-read when it changes; a missing file is ignored.
 
 ## State Files
 

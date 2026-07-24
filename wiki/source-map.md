@@ -7,7 +7,7 @@ human-engine/
   package.json              — npm package (name: human-engine, ES module)
   package-lock.json         — Dependency lock (no external deps)
   README.md                 — Project README (install, config, usage)
-  CHANGELOG.md              — Release history (0.2.1, 0.2.0, 0.1.0)
+  CHANGELOG.md              — Release history (0.2.2–0.1.0)
   LICENSE                   — MIT with Humalike attribution
   .gitignore                — Ignored: node_modules/, state/, *.log, .DS_Store
   lib/
@@ -25,6 +25,7 @@ human-engine/
     state.js                — In-memory ephemeral state (capped Maps)
     autoconfig.js           — Plan config changes for operator
     messages.js             — Message conversion + validation utils
+    contacts.js             — contacts.md parsing + sender-ID → name resolution
     local-prompts.js        — System prompts for LLM calls
   test/
     gate.test.js            — Gate unit tests

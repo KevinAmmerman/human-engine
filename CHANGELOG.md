@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.2 — sender attribution + social memory hygiene
+
+- **Contacts resolution**: new `contactsPath` config pointing at a
+  contacts.md-style table (`| @lid | phone | name | notes |`). Sender IDs
+  (phone numbers, @lid) resolve to display names in transcript peek, observed
+  context, decide prompts, and social memory profiles. mtime-cached, tolerant
+  of missing files.
+- **Social memory ingest restricted to real chat sessions**: cron,
+  commitments, and heartbeat session keys no longer create junk person
+  profiles (previously one throwaway file per cron run, speaker "User").
+- Social memory recall and own-reply ingest follow the same chat-session
+  filter.
+
 ## 0.2.1 — live-debug fixes (turn-taking reliability)
 
 - **silentEpoch TTL**: stay_silent flags now carry a timestamp and expire after
