@@ -152,6 +152,45 @@ describe("gate", () => {
       assert.equal(result, undefined);
     });
 
+    it("hydrates decide transcript from session reader when peek is thin", async () => {
+      let captured;
+      const hydGate = makeGate({
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
+        },
+        readTranscript: async () => [
+          { speaker: "User", text: "Hey Hori, was sagst du zu nassen Felsen?" },
+          { speaker: "Hori", text: "nasser Klettersteig ist ein No-Go" },
+        ],
+      });
+
+      await hydGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "und was ist mit morgen?" }),
+        makeDefaultCtx({ sessionId: "sess-1" }),
+      );
+      const texts = (captured.transcript || []).map((t) => t.text);
+      assert.ok(texts.some((t) => t.includes("No-Go")), "hydrated assistant line present");
+      assert.ok(texts.some((t) => t.includes("und was ist mit morgen?")), "current prompt appended");
+      const hori = (captured.transcript || []).find((t) => t.text.includes("No-Go"));
+      assert.equal(hori.speaker, "Hori");
+    });
+
+    it("prefers peek over session reader when peek has enough entries", async () => {
+      for (let i = 0; i < 8; i++) state.pushTranscriptPeek(CHAT_SK, `[Kevin] m${i}`);
+      let readerCalled = false;
+      let captured;
+      const pkGate = makeGate({
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
+        },
+        readTranscript: async () => { readerCalled = true; return []; },
+      });
+
+      await pkGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(readerCalled, false);
+      assert.ok((captured.transcript || []).some((t) => t.text === "m7"));
+    });
+
     it("returns undefined for empty body", async () => {
       const result = await gate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "" }), makeDefaultCtx());
       assert.equal(result, undefined);

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2 — session-transcript hydration for decide
+
+- **Decide context survives restarts**: when the in-memory transcript peek is
+  thin (<6 entries, e.g. right after a gateway restart), the gate hydrates
+  the decide transcript from the persisted session transcript via the
+  official `session-transcript-runtime` SDK (`readSessionTranscriptEvents`,
+  user + assistant roles, last 20 messages). Fixes stay_silent on the first
+  turns after every restart — the decide previously saw only the single
+  inbound message.
+- Current message is appended to the hydrated transcript if not yet persisted.
+
 ## 0.3.1 — two-sided decide context (reply-to-agent fix)
 
 - **Agent's own replies now land in the transcript peek**: `reply_payload_sending`

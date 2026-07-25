@@ -45,6 +45,38 @@ export default definePluginEntry({
         return null;
       });
 
+    async function readSessionTranscript(sessionKey, sessionId, limit = 20) {
+      try {
+        const m = await transcriptApiPromise;
+        if (!m?.readSessionTranscriptEvents) return [];
+        const agentId = typeof sessionKey === "string" && sessionKey.startsWith("agent:")
+          ? sessionKey.split(":")[1]
+          : undefined;
+        if (!agentId || !sessionId) return [];
+        const events = await m.readSessionTranscriptEvents({ agentId, sessionKey, sessionId });
+        const out = [];
+        for (const e of events || []) {
+          if (e?.type !== "message") continue;
+          const msg = e.message || {};
+          const role = msg.role;
+          if (role !== "user" && role !== "assistant") continue;
+          let text = "";
+          const c = msg.content;
+          if (typeof c === "string") text = c;
+          else if (Array.isArray(c)) {
+            text = c.filter((p) => p && p.type === "text").map((p) => p.text || "").join("\n");
+          }
+          text = text.trim();
+          if (!text) continue;
+          const speaker = role === "assistant" ? (cfg.agentName || "Agent") : "User";
+          out.push({ speaker, text: text.slice(0, 300) });
+        }
+        return out.slice(-limit);
+      } catch {
+        return [];
+      }
+    }
+
     function persistObserved(sessionKey, senderName, text) {
       transcriptApiPromise.then((m) => {
         if (!m?.appendSessionTranscriptMessageByIdentity) return;
@@ -63,7 +95,7 @@ export default definePluginEntry({
       }).catch(() => {});
     }
 
-    const gate = createGate({ cfg, state, engine, persona, socialMemory, persistObserved, log });
+    const gate = createGate({ cfg, state, engine, persona, socialMemory, persistObserved, readTranscript: readSessionTranscript, log });
     const naturalize = createNaturalize({ cfg, state, engine, persona, socialMemory, log });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
