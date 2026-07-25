@@ -1,7 +1,7 @@
 {
   "id": "human-engine",
   "name": "Human Engine",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local human-like conversation engine for OpenClaw: turn-taking, naturalization, voice, persona, social memory \u2014 fully self-hosted.",
   "activation": {
     "onStartup": true

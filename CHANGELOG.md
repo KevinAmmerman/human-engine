@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — two-sided decide context (reply-to-agent fix)
+
+- **Agent's own replies now land in the transcript peek**: `reply_payload_sending`
+  pushes captured reply text as `[agentName] …` so the decide LLM sees both
+  sides of the conversation. Fixes stay_silent on direct follow-ups/replies
+  to the agent's own messages (previously the decide only saw the user side
+  and judged follow-ups as noise).
+- **Decide prompt**: explicit rule that a follow-up to the agent's own recent
+  message leans SPEAK.
+- New decide scenarios for reply-to-agent follow-ups (24 total).
+
 ## 0.3.0 — architecture rebuilt on real hook semantics (leak fix)
 
 Live debugging against OpenClaw 2026.6.11 proved the plugin's core assumption

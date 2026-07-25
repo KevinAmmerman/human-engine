@@ -158,6 +158,26 @@ describe("naturalize", () => {
       assert.equal(result, undefined);
     });
 
+    it("pushes own reply text into transcript peek for two-sided decide context", () => {
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() });
+      naturalize.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "Klare Antwort: nasser Fels ist ein No-Go" } },
+        makeDefaultCtx(),
+      );
+      const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
+      assert.ok(peek.some((l) => l === "[OpenClaw] Klare Antwort: nasser Fels ist ein No-Go"));
+    });
+
+    it("does not push NO_REPLY payloads into transcript peek", () => {
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() });
+      naturalize.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "NO_REPLY" } },
+        makeDefaultCtx(),
+      );
+      const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
+      assert.equal(peek.filter((l) => l.includes("NO_REPLY")).length, 0);
+    });
+
     it("passes through NO_REPLY payloads", () => {
       state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() });
       const result = naturalize.onReplyPayloadSending(
