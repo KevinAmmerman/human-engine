@@ -10,6 +10,7 @@ import { planConfigChanges, formatReport } from "./lib/autoconfig.js";
 import { createLocalEngine } from "./lib/local-engine.js";
 import { createSocialMemory } from "./lib/social-memory.js";
 import { createObservedStore } from "./lib/observed-store.js";
+import { createProactive } from "./lib/proactive.js";
 import * as timing from "./lib/timing-engine.js";
 
 const runtime = { api: null, cfg: null };
@@ -40,6 +41,8 @@ export default definePluginEntry({
     const socialMemory = createSocialMemory({ cfg, llm, stateDir, log });
 
     const observedStore = createObservedStore({ stateDir, log });
+
+    const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log });
 
     const transcriptApiPromise = import("openclaw/plugin-sdk/session-transcript-runtime")
       .then((m) => m)
@@ -80,7 +83,7 @@ export default definePluginEntry({
       }
     }
 
-    const gate = createGate({ cfg, state, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log });
+    const gate = createGate({ cfg, state, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive });
     const naturalize = createNaturalize({ cfg, state, engine, persona, socialMemory, log });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
@@ -112,6 +115,17 @@ export default definePluginEntry({
         const report = formatReport(plan);
         log.info(`human-engine autoconfig:\n${report}`);
       }
+    }));
+
+    const proactiveTick = setInterval(() => {
+      proactive.tick().catch((err) => log.warn(`human-engine: proactive tick error: ${err?.message || err}`));
+    }, 30 * 60 * 1000);
+    if (typeof proactiveTick.unref === "function") proactiveTick.unref();
+
+    api.on("gateway_stop", wrap(() => {
+      clearInterval(proactiveTick);
+      proactive.stop();
+      log.info("human-engine: proactive tick stopped (gateway_stop)");
     }));
 
     api.registerCommand({

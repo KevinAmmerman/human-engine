@@ -187,9 +187,8 @@ describe("harness — no-residue static proof", () => {
 
     const hookMatches = [...content.matchAll(/\.on\s*\(\s*["'`](.+?)["'`]\s*,/g)];
     const commandMatches = [...content.matchAll(/registerCommand\s*\(\s*\{[^}]*?name\s*:\s*["'`](.+?)["'`]/gs)];
-    const lifecycleMatches = hookMatches.filter((m) => m[1] === "gateway_start");
 
-    const hooks = hookMatches.filter((m) => m[1] !== "gateway_start").map((m) => m[1]).sort();
+    const hooks = hookMatches.filter((m) => m[1] !== "gateway_start" && m[1] !== "gateway_stop").map((m) => m[1]).sort();
     const commands = commandMatches.map((m) => m[1]).sort();
 
     assert.deepEqual(hooks, [
@@ -203,7 +202,8 @@ describe("harness — no-residue static proof", () => {
       "reply_payload_sending",
     ], "hook snapshot mismatch");
     assert.deepEqual(commands, ["soul"], "command snapshot mismatch (connect removed)");
-    assert.equal(lifecycleMatches.length, 1, "gateway_start lifecycle hook registered");
+    assert.equal(hookMatches.filter((m) => m[1] === "gateway_start").length, 1, "gateway_start lifecycle hook registered");
+    assert.equal(hookMatches.filter((m) => m[1] === "gateway_stop").length, 1, "gateway_stop lifecycle hook registered");
   });
 
   it("no references to openclaw/dist in lib/ or index.js", () => {

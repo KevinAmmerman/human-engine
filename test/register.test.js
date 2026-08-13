@@ -61,7 +61,8 @@ describe("register() from index.js", () => {
     assert.equal(hooks.reply_dispatch?.length, 1);
     assert.equal(hooks.reply_payload_sending?.length, 1);
     assert.equal(hooks.gateway_start?.length, 1);
-    assert.equal(Object.keys(hooks).length, 8);
+    assert.equal(hooks.gateway_stop?.length, 1);
+    assert.equal(Object.keys(hooks).length, 9);
 
     assert.equal(commands.length, 1);
     assert.equal(commands[0].name, "soul");
