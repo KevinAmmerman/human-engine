@@ -8,19 +8,19 @@ import { parseContacts, loadContacts, resolveContactName, findAgentContactIds } 
 const SAMPLE = `# Kletter-Gruppe Kontakte
 | @lid | Telefonnummer | Name | Notizen |
 |------|--------------|------|---------|
-| 81000000000004 | +4915000000010 | Kevin | Admin |
-| 81000000000001 | +4915000000013 | Hori (Bot) | Bot |
-| 81000000000002 | +4915000000012 | Lukas | |
-| 81000000000003 | +4915000000011 | Basti | |
+| 81000000000004 | +4915000000001 | Ada Example | Admin |
+| 81000000000001 | +4915000000002 | AgentBot | Bot |
+| 81000000000002 | +4915000000004 | Test Person | |
+| 81000000000003 | +4915000000005 | Test Person B | |
 `;
 
 describe("contacts", () => {
   it("parseContacts maps lid and phone to name", () => {
     const map = parseContacts(SAMPLE);
-    assert.equal(map.get("81000000000004"), "Kevin");
-    assert.equal(map.get("+4915000000010"), "Kevin");
-    assert.equal(map.get("+4915000000012"), "Lukas");
-    assert.equal(map.get("+4915000000011"), "Basti");
+    assert.equal(map.get("81000000000004"), "Ada Example");
+    assert.equal(map.get("+4915000000001"), "Ada Example");
+    assert.equal(map.get("+4915000000004"), "Test Person");
+    assert.equal(map.get("+4915000000005"), "Test Person B");
   });
 
   it("parseContacts skips headers and separators", () => {
@@ -37,11 +37,11 @@ describe("contacts", () => {
 
   it("resolveContactName resolves via phone or lid", () => {
     const map = parseContacts(SAMPLE);
-    assert.equal(resolveContactName(map, "+4915000000010"), "Kevin");
-    assert.equal(resolveContactName(map, "81000000000002"), "Lukas");
-    assert.equal(resolveContactName(map, undefined, "+4915000000011"), "Basti");
+    assert.equal(resolveContactName(map, "+4915000000001"), "Ada Example");
+    assert.equal(resolveContactName(map, "81000000000002"), "Test Person");
+    assert.equal(resolveContactName(map, undefined, "+4915000000005"), "Test Person B");
     assert.equal(resolveContactName(map, "+4900000"), null);
-    assert.equal(resolveContactName(null, "+4915000000010"), null);
+    assert.equal(resolveContactName(null, "+4915000000001"), null);
   });
 
   it("loadContacts caches by mtime and tolerates missing file", () => {
@@ -49,7 +49,7 @@ describe("contacts", () => {
     const file = path.join(tmpDir, "contacts.md");
     fs.writeFileSync(file, SAMPLE);
     const map = loadContacts(file);
-    assert.equal(map.get("+4915000000010"), "Kevin");
+    assert.equal(map.get("+4915000000001"), "Ada Example");
     assert.equal(loadContacts(path.join(tmpDir, "missing.md")), null);
     assert.equal(loadContacts(""), null);
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -57,16 +57,16 @@ describe("contacts", () => {
 
   it("findAgentContactIds matches the agent's own lid by name prefix", () => {
     const map = parseContacts(SAMPLE);
-    const ids = findAgentContactIds(map, "Hori");
+    const ids = findAgentContactIds(map, "AgentBot");
     assert.equal(ids.has("81000000000001"), true, "agent's lid should be in the set");
   });
 
   it("findAgentContactIds ignores other members", () => {
     const map = parseContacts(SAMPLE);
-    const ids = findAgentContactIds(map, "Hori");
-    assert.equal(ids.has("81000000000004"), false, "Kevin's lid must not be in the set");
-    assert.equal(ids.has("+4915000000010"), false, "Kevin's phone must not be in the set");
-    assert.equal(ids.has("81000000000002"), false, "Lukas's lid must not be in the set");
+    const ids = findAgentContactIds(map, "AgentBot");
+    assert.equal(ids.has("81000000000004"), false, "Ada Example's lid must not be in the set");
+    assert.equal(ids.has("+4915000000001"), false, "Ada Example's phone must not be in the set");
+    assert.equal(ids.has("81000000000002"), false, "Test Person's lid must not be in the set");
   });
 
   it("findAgentContactIds is safe for empty map or missing agent name", () => {

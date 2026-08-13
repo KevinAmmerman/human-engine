@@ -54,9 +54,6 @@ openclaw config set plugins.entries["human-engine"].config.agents '["my-agent"]'
 # (Optional) scoped groups — agent reads all messages there
 openclaw config set channels.telegram.groups.'"<chatId>"'.requireMention false
 
-# (Optional) decide model override
-openclaw config set plugins.entries["human-engine"].config.decide.model gpt-4o
-
 # Timing defaults (40 wpm, 60s max)
 openclaw config set plugins.entries["human-engine"].config.timing.typingWpm 60
 ```
@@ -90,25 +87,34 @@ All keys under `plugins.entries["human-engine"].config`:
 | `soulAutoEnhance` | bool | `true` | Auto-enhance on startup |
 | `antiTell` | bool | `true` | Suppress tell-like phrases |
 | `styleStats` | bool | `true` | Log style stats |
-| `socialLearning.enabled` | bool | `true` | Voice card learning |
-| `socialLearning.perSessionCard` | bool | `false` | Per-session voice card |
+| `socialLearning.enabled` | bool | `true` | Voice card learning (gates the whole prompt-build handler) |
+| `socialLearning.perSessionCard` | bool | `true` | Per-session voice card |
 | `socialLearning.refreshEvery` | number | `5` | Message count between refreshes |
 | `socialLearning.refreshMinutes` | number | `0` | Time-based refresh |
 | `socialLearning.window` | number | `100` | Context window |
+| `socialLearning.logRequests` | bool | `false` | Log voice-card LLM requests to `logs/` |
 | `socialMemory.enabled` | bool | `true` | Social memory |
 | `socialMemory.extractEvery` | number | `25` | Extraction cadence (messages) |
 | `socialMemory.extractMinutes` | number | `0` | Time-based extraction |
 | `socialMemory.maxPeople` | number | `50` | Max tracked people |
 | `socialMemory.recallLimit` | number | `800` | Max recall chars |
-| `autoconfig` | bool | `false` | Suggest config changes |
-| `decide.model` | string | `""` | Model for decide engine |
+| `autoconfig` | bool | `false` | Log advisory config warnings on startup |
 | `decide.temperature` | number | `0.2` | Decide temperature |
-| `humanize.model` | string | `""` | Model for naturalization |
 | `humanize.maxBubbles` | number | `5` | Max reply bubbles |
 | `humanize.temperature` | number | `0.9` | Naturalization temperature |
+| `naturalize.speakEpochTtlMs` | number | `300000` | Speak-epoch expiry before a captured reply is dropped |
 | `timing.typingWpm` | number | `40` | Typing speed for delay calc |
-| `timing.maxTypingMs` | number | `60000` | Max delay per dispatch |
+| `timing.maxTypingMs` | number | `60000` | Max typing delay per bubble |
+| `timing.maxBubbleGapMs` | number | `3000` | Max gap between bubbles |
 | `timing.nightMode` | bool | `true` | Longer delays at night |
+| `proactive.enabled` | bool | `false` | Enable the proactive turn-taking funnel |
+| `proactive.shadow` | bool | `true` | Log would-be sends without delivering |
+| `proactive.budgetPerDay` | number | `2` | Max proactive messages per day |
+| `proactive.minGapMinutes` | number | `180` | Min gap between proactive sends |
+| `proactive.quietStart` / `proactive.quietEnd` | string | `"23:00"` / `"07:00"` | Quiet hours window |
+| `proactive.probability` | number | `0.5` | Seeded probability floor |
+| `proactive.cooldownBaseMinutes` | number | `180` | Base cooldown after a send |
+| `proactive.triggers.*` | bool | `true` | Candidate triggers (unanswered_question, stalled_exchange, context_match, follow_up_commitment) |
 
 ### Sender name resolution (optional)
 
@@ -119,20 +125,35 @@ names everywhere (transcript, decide context, social memory):
 ```
 | @lid | phone | name | notes |
 |------|-------|------|-------|
-| 81000000000004 | +4915000000010 | Kevin | |
+| 81000000000004 | +4915000000000 | Ada Example | |
 ```
 
 The file is re-read when it changes; a missing file is ignored.
 
 ## State Files
 
+All under `<plugin-dir>/state/`, created at runtime and never committed
+(0600/0700 file/dir modes):
+
 | Path | Purpose |
 |------|---------|
 | `state/social-learning-cache.json` | Voice card cache (disk-persisted) |
-| `state/.soul_auto_enhanced` | Marker that auto-enhance has run |
-| `state/*.bak` | SOUL.md backup from `/soul enhance` |
+| `state/social-memory/<agentId>/<sessionKey>.json` | Person-centric memory profiles per agent × session |
+| `state/observed/<sessionKey>.jsonl` | Silenced-message observation log (plugin-local) |
+| `state/proactive.json` | Proactive budgets/cooldowns (persisted) |
+| `<soul-dir>/.soul_auto_enhanced` | Marker that auto-enhance has run (next to SOUL.md) |
+| `<soul-dir>/SOUL.md.bak` | SOUL.md backup from `/soul enhance` (next to SOUL.md) |
 
 To reset: delete the relevant file and restart.
+
+## Auto-enhance & operator content
+
+`/soul enhance` (and startup auto-enhance) never overwrites your SOUL.md
+wholesale: the enhanced persona is written inside a marked section,
+`<!-- human-engine:persona:start --> … <!-- human-engine:persona:end -->`,
+appended if missing and replaced in place on re-enhance. Any operator content
+outside the section survives untouched. A `.bak` of the pre-enhance file is
+kept next to SOUL.md.
 
 ## Live Smoke Test
 
