@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0 — proactive turn-taking (shadow-first)
+
+- **Hori can now initiate**. A three-stage funnel runs in addition to the
+  reactive decide gate: (1) candidate triggers — `unanswered_question`,
+  `stalled_exchange`, `context_match`, `follow_up_commitment`; (2) an
+  anti-annoyance gate — daily budget, min gap, adaptive cooldown, no-double-text,
+  quiet hours, side-conversation velocity, seeded probability; (3) generation +
+  delivery via `api.runtime.subagent.run({ deliver: true, idempotencyKey })`.
+- **Shadow-first by default**: `proactive.enabled` defaults to `false` and
+  `proactive.shadow` to `true`, so every would-be send is logged
+  (`human-engine: proactive SHADOW …`) and nothing is delivered until the
+  operator flips `shadow:false`. The decide bar is stricter
+  (`buildProactiveDecidePrompt`: default answer NO).
+- **Adaptive cooldown**: after a sent proactive message the session is watched
+  for 15 min; engagement resets the cooldown, silence doubles it (×2, cap 48 h).
+  Budgets/cooldowns persist to `state/proactive.json` (0600, tmp+rename).
+- **No gate loop**: proactive sends run through `subagent.run`, which does not
+  re-enter `before_agent_reply`, so a proactive turn never feeds back into the
+  reactive decide gate. The 30-min tick is unref'd and cleaned up on
+  `gateway_stop`.
+
 ## 0.3.2 — session-transcript hydration for decide
 
 - **Decide context survives restarts**: when the in-memory transcript peek is

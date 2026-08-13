@@ -76,6 +76,8 @@ const MATRIX = [
     tags: ["facts attributed to the person they are about", "merge semantics"] },
   { id: 35, behavior: "Recall on speak only, ≤800 chars, scope-isolated per agent × conversation",
     tags: ["caps at recalllimit chars", "two agents same sessionkey", "speak turn populates memory"] },
+  { id: 36, behavior: "Proactive: 3-stage funnel, shadow default, budget/cooldown/quiet-hours, subagent.run deliver, no gate loop",
+    tags: ["proactive", "shadow sends nothing but logs", "budget enforcement", "cooldown", "quiet hours", "deliver:true", "idempotencykey", "subagent.run"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
@@ -141,7 +143,7 @@ function check() {
     }
   }
 
-  const total = 35;
+  const total = 36;
   console.log(`\nParity matrix: ${covered + skipped}/${total} covered (${covered} tested, ${skipped} skipped)`);
   console.log(results.join("\n") + "\n");
 
