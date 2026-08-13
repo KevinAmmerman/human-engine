@@ -393,7 +393,7 @@ describe("gate", () => {
     it("resolves unresolvable lids to member-XXXX (last 4 digits)", async () => {
       const anonGate = makeGate();
       anonGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "@81000000000001" }));
-      assert.equal(state.senderBySession.get(CHAT_SK), "member-9239");
+      assert.equal(state.senderBySession.get(CHAT_SK), "member-0001");
     });
 
     it("keeps real names from contacts for resolvable numbers", async () => {
