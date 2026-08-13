@@ -557,6 +557,104 @@ describe("naturalize", () => {
     });
   });
 
+  describe("pure-commentary regen barrier (plan 347)", () => {
+    const INCIDENT_PURE = [
+      'Kevin is playfully blessing/worshipping me here. He\'s clearly joking,',
+      "playing into the bit after the last exchange. I should match the mood",
+      "with a single light, witty one-liner. Keep it short and warm, one clean",
+      "line, nothing defensive.",
+    ].join(" ");
+    const REGEN = "Haha, danke! Fels ist trocken genug für uns beide.";
+
+    function makeRegenEngine({ regenResult }) {
+      return {
+        currentEpoch() { return 0; },
+        regenerateReply: mock.fn(async () => regenResult),
+        async respond(opts) {
+          return { scheduled: [{ content: opts.draft, position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+    }
+
+    it("calls engine.regenerateReply once and passes its text to engine.respond", async () => {
+      const regenEngine = makeRegenEngine({ regenResult: { text: REGEN } });
+      let capturedDraft;
+      regenEngine.respond = async (opts) => {
+        capturedDraft = opts.draft;
+        return { scheduled: [{ content: "ok", position: 0, delayMs: 5 }], superseded: false };
+      };
+      const nat = createNaturalize({
+        cfg, state, engine: regenEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: INCIDENT_PURE } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(regenEngine.regenerateReply.mock.callCount(), 1);
+      assert.equal(capturedDraft, REGEN);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "ok");
+    });
+
+    it("suppresses delivery when regeneration fails (REPLY SUPPRESSED warn, no send)", async () => {
+      const logs = [];
+      const regenEngine = makeRegenEngine({ regenResult: null });
+      const nat = createNaturalize({
+        cfg, state, engine: regenEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: INCIDENT_PURE } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(regenEngine.regenerateReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 0);
+      assert.ok(logs.some((l) => l.includes("REPLY SUPPRESSED")));
+    });
+
+    it("logs regenerated reply when regeneration succeeds", async () => {
+      const logs = [];
+      const regenEngine = makeRegenEngine({ regenResult: { text: REGEN } });
+      const nat = createNaturalize({
+        cfg, state, engine: regenEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: INCIDENT_PURE } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(logs.some((l) => l.includes("regenerated reply after pure-commentary")));
+    });
+
+    it("does not regenerate when engine lacks regenerateReply", async () => {
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          return { scheduled: [{ content: opts.draft, position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const nat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: INCIDENT_PURE } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+    });
+  });
+
   describe("socialMemory integration", () => {
     it("ingests own reply on flush", async () => {
       const smStub = makeSocialMemoryStub();

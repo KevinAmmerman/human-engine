@@ -396,4 +396,56 @@ describe("local-engine", () => {
       assert.ok(res.scheduled[0].delayMs !== undefined);
     });
   });
+
+  describe("regenerateReply (plan 347)", () => {
+    it("returns { text } when llm produces a reply", async () => {
+      let captured;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: {
+          complete: async (opts) => {
+            captured = opts;
+            return { text: "Der Fels ist nass, also lass uns morgen gehen." };
+          },
+        },
+        timing: makeTiming(),
+      });
+      const res = await engine.regenerateReply({
+        sessionKey: "s30",
+        reasoning: "Kevin is playfully blessing/worshipping me…",
+        transcript: [{ speaker: "Kevin", text: "Gepriesen seist du Hori" }],
+        agentName: "Hori",
+      });
+      assert.deepEqual(res, { text: "Der Fels ist nass, also lass uns morgen gehen." });
+      assert.equal(captured.messages[0].role, "system");
+      assert.equal(captured.messages[1].role, "user");
+      assert.equal(captured.purpose, "human-engine-regen");
+    });
+
+    it("returns null when no llm", async () => {
+      const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
+      const res = await engine.regenerateReply({ sessionKey: "s31", reasoning: "x" });
+      assert.equal(res, null);
+    });
+
+    it("returns null when llm returns empty text", async () => {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: "   " }) },
+        timing: makeTiming(),
+      });
+      const res = await engine.regenerateReply({ sessionKey: "s32", reasoning: "x" });
+      assert.equal(res, null);
+    });
+
+    it("returns null on llm error", async () => {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => { throw new Error("LLM down"); } },
+        timing: makeTiming(),
+      });
+      const res = await engine.regenerateReply({ sessionKey: "s33", reasoning: "x" });
+      assert.equal(res, null);
+    });
+  });
 });

@@ -157,9 +157,50 @@ describe("anti-tell", () => {
       assert.equal(result.text, text);
     });
 
+    describe("commentary flag (plan 347)", () => {
+      const INCIDENT_PURE = [
+        'Kevin is playfully blessing/worshipping me here. He\'s clearly joking,',
+        "playing into the bit after the last exchange. I should match the mood",
+        "with a single light, witty one-liner. Keep it short and warm, one clean",
+        "line, nothing defensive.",
+      ].join(" ");
+
+      it("classifies the pure-commentary incident as commentary:true, stripped:false", () => {
+        const result = stripMetaCommentary(INCIDENT_PURE, ["Kevin"]);
+        assert.equal(result.commentary, true);
+        assert.equal(result.stripped, false);
+        assert.equal(result.text, INCIDENT_PURE);
+      });
+
+      it("flags commentary even without member names (narrator phrases)", () => {
+        const result = stripMetaCommentary(INCIDENT_PURE, []);
+        assert.equal(result.commentary, true);
+        assert.equal(result.stripped, false);
+      });
+
+      it("leaves a normal German reply as commentary:false", () => {
+        const text = "Per Assistenten-Definition müsste ich dir dann auch helfen.";
+        const result = stripMetaCommentary(text, ["Kevin"]);
+        assert.equal(result.commentary, false);
+        assert.equal(result.stripped, false);
+      });
+
+      it("reports the 345 mixed case as stripped:true, commentary:true", () => {
+        const result = stripMetaCommentary(INCIDENT, ["Kevin", "Ada"]);
+        assert.equal(result.stripped, true);
+        assert.equal(result.commentary, true);
+      });
+
+      it("reports a German reply quoting English text as commentary:false", () => {
+        const text = 'Haha, Kevin meinte "I think the route is doable" und ich bin dabei.';
+        const result = stripMetaCommentary(text, ["Kevin"]);
+        assert.equal(result.commentary, false);
+      });
+    });
+
     it("returns unchanged for empty or non-string input", () => {
-      assert.deepEqual(stripMetaCommentary("", ["Kevin"]), { text: "", stripped: false });
-      assert.deepEqual(stripMetaCommentary(null, ["Kevin"]), { text: null, stripped: false });
+      assert.deepEqual(stripMetaCommentary("", ["Kevin"]), { text: "", stripped: false, commentary: false });
+      assert.deepEqual(stripMetaCommentary(null, ["Kevin"]), { text: null, stripped: false, commentary: false });
     });
   });
 });
