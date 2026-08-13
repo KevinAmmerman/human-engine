@@ -175,20 +175,25 @@ describe("gate", () => {
       assert.equal(hori.speaker, "Hori");
     });
 
-    it("prefers peek over session reader when peek has enough entries", async () => {
+    it("merges hydrated assistant line even when peek has 6+ entries", async () => {
       for (let i = 0; i < 8; i++) state.pushTranscriptPeek(CHAT_SK, `[Kevin] m${i}`);
-      let readerCalled = false;
       let captured;
       const pkGate = makeGate({
         engine: {
           async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
         },
-        readTranscript: async () => { readerCalled = true; return []; },
+        readTranscript: async () => [
+          { speaker: "User", text: "Hey Hori, wie ist das Wetter?" },
+          { speaker: "Hori", text: "klar und sonnig" },
+          { speaker: "Kevin", text: "m7" },
+        ],
       });
 
       await pkGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
-      assert.equal(readerCalled, false);
-      assert.ok((captured.transcript || []).some((t) => t.text === "m7"));
+      const texts = (captured.transcript || []).map((t) => t.text);
+      assert.ok(texts.includes("klar und sonnig"), "hydrated assistant line present despite full peek");
+      assert.ok(texts.includes("m7"), "peek line present");
+      assert.equal(texts.filter((t) => t === "m7").length, 1, "identical text in both layers appears once");
     });
 
     it("returns undefined for empty body", async () => {
@@ -261,6 +266,46 @@ describe("gate", () => {
       assert.ok(hey, "transcript should include peek line");
       assert.equal(hey.speaker, "Kevin");
       assert.ok(transcript.some((t) => t.text.includes("Was sagst du?")), "transcript should include current prompt");
+    });
+
+    it("decide gets a lean persona (soul only, no anti-tell block)", async () => {
+      let captured;
+      const leanGate = makeGate({
+        persona: {
+          buildPersonaPrompt() { return "full persona with ANTI_TELL and Writing constraints"; },
+          buildSoulPrompt() { return "lean soul prompt"; },
+        },
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 2 }; },
+        },
+      });
+      await leanGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(captured.persona, "lean soul prompt");
+      assert.ok(!captured.persona.includes("ANTI_TELL"), "decide persona must not carry anti-tell block");
+      assert.ok(!captured.persona.includes("Writing constraints"), "decide persona must not carry writing constraints");
+    });
+
+    it("decide receives agentContactIds derived from contacts for the agent name", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-contacts-agents-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(
+        cFile,
+        "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000013 | Hori (Bot) | |\n| 81000000000004 | +4915000000010 | Kevin | |\n",
+      );
+
+      let captured;
+      const contactGate = makeGate({
+        cfg: { ...cfg, agentName: "Hori", contactsPath: cFile },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      await contactGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.ok(captured.agentContactIds instanceof Set);
+      assert.equal(captured.agentContactIds.has("81000000000001"), true);
+      assert.equal(captured.agentContactIds.has("81000000000004"), false);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
     it("does not duplicate transcript peek when message_received already pushed the line", async () => {

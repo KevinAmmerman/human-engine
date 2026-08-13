@@ -2,7 +2,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { resolveConfig } from "./lib/config.js";
 import { createGate } from "./lib/gate.js";
 import { createNaturalize } from "./lib/naturalize.js";
-import { buildPersonaPrompt, buildPersonaPromptWithMemory } from "./lib/persona.js";
+import { buildPersonaPrompt, buildPersonaPromptWithMemory, buildSoulPrompt } from "./lib/persona.js";
 import * as state from "./lib/state.js";
 import { createVoiceCard } from "./lib/voice-card.js";
 import { enhanceAndWrite, maybeAutoEnhance } from "./lib/soul.js";
@@ -31,7 +31,7 @@ export default definePluginEntry({
 
     const engine = createLocalEngine({ cfg, llm, timing, log });
 
-    const persona = { buildPersonaPrompt, buildPersonaPromptWithMemory };
+    const persona = { buildPersonaPrompt, buildPersonaPromptWithMemory, buildSoulPrompt };
 
     const pluginDir = new URL(".", import.meta.url).pathname;
     const stateDir = process.env.HUMAN_ENGINE_STATE_DIR || pluginDir + "state";

@@ -108,9 +108,9 @@ describe("hook-context contract (SDK-true ctx shapes)", () => {
   });
 
   describe("message_received (ctx has no isGroup)", () => {
-    it("labels a group session as dm today (pins mislabel; plan 336 flips this)", () => {
+    it("labels a group session as group from the session key (plan 336 flip)", () => {
       gate.onMessageReceived({ text: "hi" }, makeMessageReceivedCtx({ sessionKey: GROUP_SK, senderId: "u1" }));
-      assert.equal(state.chatTypeBySession.get(GROUP_SK), "dm");
+      assert.equal(state.chatTypeBySession.get(GROUP_SK), "group");
     });
   });
 });
