@@ -23,7 +23,7 @@
         "additionalProperties": false,
         "properties": {
           "enabled": { "type": "boolean", "default": true },
-          "perSessionCard": { "type": "boolean", "default": false },
+          "perSessionCard": { "type": "boolean", "default": true },
           "refreshEvery": { "type": "number", "default": 5 },
           "refreshMinutes": { "type": "number", "default": 0 },
           "window": { "type": "number", "default": 100 },

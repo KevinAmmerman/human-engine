@@ -388,6 +388,38 @@ describe("gate", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
+    it("resolves unresolvable phone numbers to member-XXXX (last 4 digits)", async () => {
+      const anonGate = makeGate();
+      const result = anonGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "+4915000000014" }));
+      assert.equal(state.senderBySession.get(CHAT_SK), "member-4567");
+    });
+
+    it("resolves unresolvable lids to member-XXXX (last 4 digits)", async () => {
+      const anonGate = makeGate();
+      anonGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "@81000000000001" }));
+      assert.equal(state.senderBySession.get(CHAT_SK), "member-9239");
+    });
+
+    it("keeps real names from contacts for resolvable numbers", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-anon-contacts-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 111 | +4915000000010 | Kevin | |\n");
+
+      const namedGate = makeGate({ cfg: { ...cfg, contactsPath: cFile } });
+      namedGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "+4915000000010" }));
+      assert.equal(state.senderBySession.get(CHAT_SK), "Kevin");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("passes through non-identifier display names", async () => {
+      const anonGate = makeGate();
+      anonGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "Gruppen-Bot" }));
+      assert.equal(state.senderBySession.get(CHAT_SK), "Gruppen-Bot");
+    });
+
     it("speak turn populates memoryBySession from recall", async () => {
       const memGate = makeGate({
         engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
@@ -503,6 +535,30 @@ describe("gate", () => {
         makeDefaultCtx(),
       );
       assert.deepEqual(result, { cancel: true });
+    });
+
+    it("cancels lowercase block text variant", () => {
+      const result = gate.onMessageSending(
+        { content: "your message could not be sent: blocked by human-engine (stay silent)" },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+    });
+
+    it("cancels 'human engine' spacing variant", () => {
+      const result = gate.onMessageSending(
+        { content: "Your message could not be sent and was blocked by human engine." },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+    });
+
+    it("does not match unrelated 'your message was sent' text", () => {
+      const result = gate.onMessageSending(
+        { content: "your message was sent to the group." },
+        makeDefaultCtx(),
+      );
+      assert.equal(result, undefined);
     });
 
     it("passes normal content", () => {

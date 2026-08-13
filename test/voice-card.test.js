@@ -6,6 +6,9 @@ import os from "node:os";
 
 import { buildPersonaPrompt, setVoiceCardGetter } from "../lib/persona.js";
 
+const CHAT_SK = "agent:test-agent:whatsapp:group:123@g.us";
+const HEARTBEAT_SK = "agent:a:telegram:direct:1:heartbeat-v3:heartbeat";
+
 function makeEngine() {
   return {
     extractVoiceCard: async () => null,
@@ -94,6 +97,19 @@ describe("voice-card", () => {
     it("drops [The user sent markers", () => {
       const result = vc.parseMessages("[The user sent an image]\n[User] caption");
       assert.equal(result.length, 1);
+    });
+
+    it("does not treat media placeholders as authors", () => {
+      const result = vc.parseMessages("[Marti] here is a photo\n[image]\n[voice message]\n[Marti] still talking");
+      assert.equal(result.length, 4);
+      assert.equal(result[0].author, "Marti");
+      assert.equal(result[0].text, "here is a photo");
+      assert.equal(result[1].author, "Marti");
+      assert.equal(result[1].text, "[image]");
+      assert.equal(result[2].author, "Marti");
+      assert.equal(result[2].text, "[voice message]");
+      assert.equal(result[3].author, "Marti");
+      assert.equal(result[3].text, "still talking");
     });
   });
 
@@ -220,13 +236,13 @@ describe("voice-card", () => {
       });
       const result = onBeforePromptBuild(
         { messages: [{ role: "user", content: "hi" }] },
-        { sessionKey: "s1" },
+        { sessionKey: CHAT_SK },
       );
       assert.equal(result, undefined);
     });
 
     it("returns appendSystemContext when card is cached", () => {
-      vc.cache["__global__"] = "# Voice Card";
+      vc.cache[CHAT_SK] = "# Voice Card";
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
@@ -235,7 +251,7 @@ describe("voice-card", () => {
       });
       const result = onBeforePromptBuild(
         { messages: [{ role: "user", content: "hi" }] },
-        { sessionKey: "s1" },
+        { sessionKey: CHAT_SK },
       );
       assert.deepEqual(result, { appendSystemContext: "# Voice Card" });
     });
@@ -257,7 +273,7 @@ describe("voice-card", () => {
         stateDir,
         log: { info() {} },
       });
-      assert.equal(onBeforePromptBuild({ prompt: "hi" }, { sessionKey: "s1" }), undefined);
+      assert.equal(onBeforePromptBuild({ prompt: "hi" }, { sessionKey: CHAT_SK }), undefined);
     });
 
     it("returns undefined and does not count when disabled", () => {
@@ -303,14 +319,67 @@ describe("voice-card", () => {
       });
       onBeforePromptBuild(
         { messages: [{ role: "user", content: "a" }] },
-        { sessionKey: "cnt-test" },
+        { sessionKey: CHAT_SK },
       );
-      assert.equal(vc.counter["cnt-test"], 1);
+      assert.equal(vc.counter[CHAT_SK], 1);
       onBeforePromptBuild(
         { messages: [{ role: "user", content: "b" }] },
-        { sessionKey: "cnt-test" },
+        { sessionKey: CHAT_SK },
       );
-      assert.equal(vc.counter["cnt-test"], 2);
+      assert.equal(vc.counter[CHAT_SK], 2);
+    });
+
+    it("does not count or return a card for heartbeat sessions", () => {
+      clearCounter();
+      vc.cache[HEARTBEAT_SK] = "# Heartbeat Card";
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: {} },
+        engine: makeEngine(),
+        stateDir,
+        log: { info() {} },
+      });
+      const result = onBeforePromptBuild(
+        { messages: [{ role: "user", content: "hi" }] },
+        { sessionKey: HEARTBEAT_SK },
+      );
+      assert.equal(result, undefined);
+      assert.equal(vc.counter[HEARTBEAT_SK], undefined);
+    });
+
+    it("uses per-session cards by default (distinct cache keys per group sk)", () => {
+      clearCache();
+      clearCounter();
+      const skA = "agent:test-agent:whatsapp:group:aaa@g.us";
+      const skB = "agent:test-agent:whatsapp:group:bbb@g.us";
+      vc.cache[skA] = "# Card A";
+      vc.cache[skB] = "# Card B";
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: {} },
+        engine: makeEngine(),
+        stateDir,
+        log: { info() {} },
+      });
+      const rA = onBeforePromptBuild({ messages: [{ role: "user", content: "hi" }] }, { sessionKey: skA });
+      const rB = onBeforePromptBuild({ messages: [{ role: "user", content: "hi" }] }, { sessionKey: skB });
+      assert.deepEqual(rA, { appendSystemContext: "# Card A" });
+      assert.deepEqual(rB, { appendSystemContext: "# Card B" });
+    });
+
+    it("uses the global card when perSessionCard is explicitly false", () => {
+      clearCache();
+      clearCounter();
+      vc.cache["__global__"] = "# Global Card";
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { perSessionCard: false } },
+        engine: makeEngine(),
+        stateDir,
+        log: { info() {} },
+      });
+      const result = onBeforePromptBuild(
+        { messages: [{ role: "user", content: "hi" }] },
+        { sessionKey: CHAT_SK },
+      );
+      assert.deepEqual(result, { appendSystemContext: "# Global Card" });
     });
   });
 

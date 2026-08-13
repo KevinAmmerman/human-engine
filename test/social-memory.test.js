@@ -213,6 +213,22 @@ describe("social-memory", { concurrency: false }, () => {
     });
   });
 
+  describe("profile file modes", () => {
+    it("writes profile file with 0600 and dir with 0700", async () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agentX::file-mode";
+      sm.ingest(scope, { speaker: "Dave", text: "hello", ts: 100 });
+
+      const profileFile = path.join(tmpDir, "social-memory", "agentX", "file-mode.json");
+      assert.ok(fs.existsSync(profileFile));
+      const fileMode = fs.statSync(profileFile).mode & 0o777;
+      assert.equal(fileMode, 0o600, "profile file must be 0600");
+
+      const dirMode = fs.statSync(path.join(tmpDir, "social-memory")).mode & 0o777;
+      assert.equal(dirMode, 0o700, "state dir must be 0700");
+    });
+  });
+
   describe("profile persistence round-trip", () => {
     it("writes and reads profile from disk", async () => {
       sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });

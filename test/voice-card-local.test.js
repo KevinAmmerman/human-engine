@@ -180,7 +180,7 @@ describe("voice-card-local", () => {
     });
 
     const event = { messages: [{ role: "user", content: "[A] moin" }] };
-    const ctx = { sessionKey: "sk-test" };
+    const ctx = { sessionKey: "agent:test-agent:whatsapp:group:123@g.us" };
 
     onBeforePromptBuild(event, ctx);
 
