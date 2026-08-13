@@ -127,6 +127,53 @@ describe("local-engine", () => {
     });
   });
 
+  describe("decide — reply-to-agent hard trigger", () => {
+    it("replyToAgent:true speaks with zero LLM calls and path=reply", async () => {
+      let llmCalled = false;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => { llmCalled = true; return { text: "STAY_SILENT" }; } },
+        timing: makeTiming(),
+      });
+      const res = await engine.decide({
+        sessionKey: "r1",
+        prompt: "unrelated text",
+        agentName: "OpenClaw",
+        replyToAgent: true,
+      });
+      assert.deepEqual(res.decision, "speak");
+      assert.equal(res.path, "reply");
+      assert.ok(res.epoch > 0, "reply speak bumps the epoch");
+      assert.equal(llmCalled, false);
+    });
+
+    it("replyToAgent false/absent leaves the LLM path unchanged", async () => {
+      let llmCalled = false;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => { llmCalled = true; return { text: "STAY_SILENT" }; } },
+        timing: makeTiming(),
+      });
+      const res = await engine.decide({
+        sessionKey: "r2",
+        prompt: "unrelated text",
+        agentName: "OpenClaw",
+        replyToAgent: false,
+      });
+      assert.equal(llmCalled, true);
+      assert.deepEqual(res.decision, "stay_silent");
+
+      llmCalled = false;
+      const resAbsent = await engine.decide({
+        sessionKey: "r3",
+        prompt: "unrelated text",
+        agentName: "OpenClaw",
+      });
+      assert.equal(llmCalled, true);
+      assert.deepEqual(resAbsent.decision, "stay_silent");
+    });
+  });
+
   describe("decide — LLM path", () => {
     it("SPEAK from LLM returns speak decision", async () => {
       const engine = createLocalEngine({

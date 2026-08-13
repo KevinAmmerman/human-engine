@@ -95,6 +95,7 @@ describe("gate", () => {
     state.speakEpochBySession.clear();
     state.chatTypeBySession.clear();
     state.senderBySession.clear();
+    state.replyContextBySession.clear();
     gate = makeGate();
   });
 
@@ -350,6 +351,82 @@ describe("gate", () => {
       assert.equal(captured.agentContactIds.has("81000000000001"), true);
       assert.equal(captured.agentContactIds.has("81000000000004"), false);
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("passes replyToAgent=true when a quote-reply names the agent via contacts", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-reply-contacts-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(
+        cFile,
+        "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n",
+      );
+
+      let captured;
+      const replyGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      replyGate.onMessageReceived({ text: "Ja, gut" }, makeDefaultCtx({ replyToSender: "81000000000001" }));
+      await replyGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx());
+      assert.equal(captured.replyToAgent, true);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("clears stored reply context on a plain message (no replyTo*)", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-reply-clear-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
+
+      const replyGate = makeGate({ cfg: { ...cfg, contactsPath: cFile } });
+      replyGate.onMessageReceived({ text: "Ja" }, makeDefaultCtx({ replyToSender: "81000000000001" }));
+      assert.ok(state.replyContextBySession.get(CHAT_SK));
+
+      let captured;
+      const clearGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      clearGate.onMessageReceived({ text: "ganz normaler text" }, makeDefaultCtx());
+      assert.equal(state.replyContextBySession.has(CHAT_SK), false);
+      await clearGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "weiter im text" }), makeDefaultCtx());
+      assert.equal(captured.replyToAgent, false);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("passes replyToAgent=true via body-match when peek holds the quoted agent line", async () => {
+      state.transcriptPeekBySession.set(CHAT_SK, ["[Hori] klar und sonnig am Berg, perfekt fuer den Klettersteig"]);
+      let captured;
+      const bodyGate = makeGate({
+        cfg: { ...cfg, agentName: "Hori" },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      bodyGate.onMessageReceived(
+        { text: "danke" },
+        makeDefaultCtx({ replyToBody: "klar und sonnig am Berg, perfekt fuer den Klettersteig" }),
+      );
+      await bodyGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx());
+      assert.equal(captured.replyToAgent, true);
+    });
+
+    it("does not apply a stale reply context older than 5 minutes", async () => {
+      state.replyContextBySession.set(CHAT_SK, {
+        sender: "81000000000001",
+        body: "klar und sonnig am Berg",
+        ts: Date.now() - 6 * 60 * 1000,
+      });
+      state.transcriptPeekBySession.set(CHAT_SK, ["[OpenClaw] klar und sonnig am Berg"]);
+      let captured;
+      const staleGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      await staleGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx());
+      assert.equal(captured.replyToAgent, false);
     });
 
     it("does not duplicate transcript peek when message_received already pushed the line", async () => {
