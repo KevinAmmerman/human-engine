@@ -93,7 +93,7 @@ describe("soul", () => {
       }
     });
 
-    it("enhances, creates backup, writes new content", async () => {
+    it("enhances, creates backup, appends a marked section, preserves operator content", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "soul-"));
       const soulPath = path.join(tmpDir, "SOUL.md");
       fs.writeFileSync(soulPath, REAL);
@@ -106,7 +106,33 @@ describe("soul", () => {
         assert.ok(reply.includes(".bak"));
         assert.ok(fs.existsSync(soulPath + ".bak"));
         assert.equal(fs.readFileSync(soulPath + ".bak", "utf8"), REAL);
-        assert.equal(fs.readFileSync(soulPath, "utf8"), "Enhanced persona text.\n");
+
+        const written = fs.readFileSync(soulPath, "utf8");
+        assert.ok(written.includes("concise technical expert"), "operator persona content survives");
+        assert.ok(written.includes("<!-- human-engine:persona:start -->"));
+        assert.ok(written.includes("Enhanced persona text."));
+        assert.ok(written.includes("<!-- human-engine:persona:end -->"));
+        assert.ok(written.endsWith("\n"));
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("re-enhance replaces only the marked section", async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "soul-"));
+      const soulPath = path.join(tmpDir, "SOUL.md");
+      fs.writeFileSync(soulPath, REAL);
+      try {
+        const cfg = { soulPath };
+        await enhanceAndWrite(cfg, makeEngine({ system_prompt: "First enhance." }));
+        await enhanceAndWrite(cfg, makeEngine({ system_prompt: "Second enhance." }));
+
+        const written = fs.readFileSync(soulPath, "utf8");
+        assert.ok(written.includes("concise technical expert"), "operator content survives re-enhance");
+        assert.ok(written.includes("Second enhance."));
+        assert.ok(!written.includes("First enhance."), "old section content replaced");
+        assert.equal((written.match(/human-engine:persona:start/g) || []).length, 1, "single start marker");
+        assert.equal((written.match(/human-engine:persona:end/g) || []).length, 1, "single end marker");
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }

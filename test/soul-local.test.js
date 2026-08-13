@@ -51,7 +51,12 @@ describe("soul-local", () => {
       assert.ok(reply.includes(".bak"));
       assert.ok(fs.existsSync(soulPath + ".bak"));
       assert.equal(fs.readFileSync(soulPath + ".bak", "utf8"), REAL);
-      assert.equal(fs.readFileSync(soulPath, "utf8"), "Enhanced persona text.\n");
+
+      const written = fs.readFileSync(soulPath, "utf8");
+      assert.ok(written.includes("concise technical expert"), "operator content survives");
+      assert.ok(written.includes("Enhanced persona text."));
+      assert.ok(written.includes("<!-- human-engine:persona:start -->"));
+      assert.ok(written.includes("<!-- human-engine:persona:end -->"));
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
