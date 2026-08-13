@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ANTI_TELL_BLOCK, detectTells } from "../lib/anti-tell.js";
+import { ANTI_TELL_BLOCK, detectTells, stripMetaCommentary } from "../lib/anti-tell.js";
 
 describe("anti-tell", () => {
   describe("ANTI_TELL_BLOCK", () => {
@@ -97,6 +97,69 @@ describe("anti-tell", () => {
       assert.ok(tells.includes("banned-word:delve"));
       assert.ok(tells.includes("banned-word:leverage"));
       assert.ok(tells.includes("summary-closing"));
+    });
+  });
+
+  describe("stripMetaCommentary", () => {
+    const INCIDENT = [
+      'Kevin claims I\'m "his assistant." Light banter after my roast. He\'s',
+      "asserting ownership/role in a playful way. I should respond with",
+      "personality - not capitulate … Keep it one sharp clean line. Not",
+      "defensive, just deadpan. … Warm underneath.Per Assistenten-Definition",
+      "müsste ich dir dann auch …",
+    ].join("\n");
+    const GERMAN_REPLY = "Per Assistenten-Definition\nmüsste ich dir dann auch …";
+
+    it("strips the verbatim incident text down to the German reply (inline seam)", () => {
+      const result = stripMetaCommentary(INCIDENT, ["Kevin", "Ada"]);
+      assert.equal(result.stripped, true);
+      assert.equal(result.text, GERMAN_REPLY);
+    });
+
+    it("strips the incident even without member names (narrator phrases only)", () => {
+      const result = stripMetaCommentary(INCIDENT, []);
+      assert.equal(result.stripped, true);
+      assert.equal(result.text, GERMAN_REPLY);
+    });
+
+    it("strips a paragraph-joined commentary/reply variant", () => {
+      const text = 'Kevin claims I\'m "his assistant." Light banter after my roast.\n\nPer Assistenten-Definition müsste ich dir dann auch helfen.';
+      const result = stripMetaCommentary(text, ["Kevin"]);
+      assert.equal(result.stripped, true);
+      assert.equal(result.text, "Per Assistenten-Definition müsste ich dir dann auch helfen.");
+    });
+
+    it("strips a name+English-verb meta sentence with a German reply", () => {
+      const text = "Kevin claims the climb is too hard. Wir klettern trotzdem morgen.";
+      const result = stripMetaCommentary(text, ["Kevin"]);
+      assert.equal(result.stripped, true);
+      assert.equal(result.text, "Wir klettern trotzdem morgen.");
+    });
+
+    it("leaves a normal German reply mentioning a member unchanged", () => {
+      const text = "Kevin, ich schau morgen";
+      const result = stripMetaCommentary(text, ["Kevin"]);
+      assert.equal(result.stripped, false);
+      assert.equal(result.text, text);
+    });
+
+    it("leaves a German reply quoting English text with a name unchanged", () => {
+      const text = 'Haha, Kevin meinte "I think the route is doable" und ich bin dabei.';
+      const result = stripMetaCommentary(text, ["Kevin"]);
+      assert.equal(result.stripped, false);
+      assert.equal(result.text, text);
+    });
+
+    it("fails open (unchanged) when no clean split point exists", () => {
+      const text = 'Kevin joked "I should just go" aber das war nur Spaß.';
+      const result = stripMetaCommentary(text, ["Kevin"]);
+      assert.equal(result.stripped, false);
+      assert.equal(result.text, text);
+    });
+
+    it("returns unchanged for empty or non-string input", () => {
+      assert.deepEqual(stripMetaCommentary("", ["Kevin"]), { text: "", stripped: false });
+      assert.deepEqual(stripMetaCommentary(null, ["Kevin"]), { text: null, stripped: false });
     });
   });
 });

@@ -505,6 +505,58 @@ describe("naturalize", () => {
     });
   });
 
+  describe("meta-commentary strip (plan 345)", () => {
+    const INCIDENT = [
+      'Kevin claims I\'m "his assistant." Light banter after my roast. He\'s',
+      "asserting ownership/role in a playful way. I should respond with",
+      "personality - not capitulate … Keep it one sharp clean line. Not",
+      "defensive, just deadpan. … Warm underneath.Per Assistenten-Definition",
+      "müsste ich dir dann auch …",
+    ].join("\n");
+    const GERMAN_REPLY = "Per Assistenten-Definition\nmüsste ich dir dann auch …";
+
+    it("engine.respond receives the meta-commentary-cleaned draft", async () => {
+      let capturedDraft;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          capturedDraft = opts.draft;
+          return { scheduled: [{ content: "ok", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(capNat, dispatcher);
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: INCIDENT } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(capturedDraft, GERMAN_REPLY);
+    });
+
+    it("raw fallback delivers the meta-commentary-cleaned draft", async () => {
+      const supEngine = {
+        currentEpoch() { return 0; },
+        async respond() { return { superseded: true }; },
+      };
+      const supNat = createNaturalize({
+        cfg, state, engine: supEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(supNat, dispatcher);
+      supNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: INCIDENT } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, GERMAN_REPLY);
+    });
+  });
+
   describe("socialMemory integration", () => {
     it("ingests own reply on flush", async () => {
       const smStub = makeSocialMemoryStub();

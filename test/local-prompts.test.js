@@ -52,6 +52,13 @@ describe("local-prompts", () => {
       assert.ok(p.systemPrompt.includes("ENCOURAGED"));
     });
 
+    it("bans leaked planning notes / meta-commentary (plan 345)", () => {
+      const p = buildSplitPrompt({ draft: "hi" });
+      assert.ok(p.systemPrompt.includes("leaked planning notes or meta-commentary"));
+      assert.ok(p.systemPrompt.includes('"X claims"'));
+      assert.ok(p.systemPrompt.includes("output only the actual reply"));
+    });
+
     it("includes persona and voice card when provided", () => {
       const p = buildSplitPrompt({
         draft: "hi", persona: "You are a cat.", voiceCard: "# Cat Card",
