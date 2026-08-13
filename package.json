@@ -3,7 +3,7 @@
   "version": "0.3.2",
   "type": "module",
   "scripts": {
-    "test": "node --test test/**/*.test.js"
+    "test": "node --test test/**/*.test.js && node test/parity-matrix.mjs --check"
   },
   "description": "Local human-like conversation engine for OpenClaw: turn-taking, naturalization, voice, persona, social memory",
   "license": "MIT",
