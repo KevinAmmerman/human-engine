@@ -26,6 +26,9 @@ built-in LLM with no cloud dependencies.
   message (`path=reply`).
 - Strips leaked model monologue (meta-commentary) before delivery
   (`stripMetaCommentary`) on both the humanize and raw-fallback paths.
+- Detects pure-commentary output (model returned only reasoning, no reply)
+  and regenerates a real reply once; suppresses instead of leaking commentary
+  if regeneration fails.
 - Runs an opt-in proactive turn-taking funnel (shadow-first).
 - Supports DM fail-open and group fail-closed safety modes.
 - Provides a parity-matrix contract for all behavioral capabilities.
