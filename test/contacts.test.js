@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { parseContacts, loadContacts, resolveContactName } from "../lib/contacts.js";
+import { parseContacts, loadContacts, resolveContactName, findAgentContactIds } from "../lib/contacts.js";
 
 const SAMPLE = `# Kletter-Gruppe Kontakte
 | @lid | Telefonnummer | Name | Notizen |
@@ -53,5 +53,25 @@ describe("contacts", () => {
     assert.equal(loadContacts(path.join(tmpDir, "missing.md")), null);
     assert.equal(loadContacts(""), null);
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("findAgentContactIds matches the agent's own lid by name prefix", () => {
+    const map = parseContacts(SAMPLE);
+    const ids = findAgentContactIds(map, "Hori");
+    assert.equal(ids.has("81000000000001"), true, "agent's lid should be in the set");
+  });
+
+  it("findAgentContactIds ignores other members", () => {
+    const map = parseContacts(SAMPLE);
+    const ids = findAgentContactIds(map, "Hori");
+    assert.equal(ids.has("81000000000004"), false, "Kevin's lid must not be in the set");
+    assert.equal(ids.has("+4915000000010"), false, "Kevin's phone must not be in the set");
+    assert.equal(ids.has("81000000000002"), false, "Lukas's lid must not be in the set");
+  });
+
+  it("findAgentContactIds is safe for empty map or missing agent name", () => {
+    assert.equal(findAgentContactIds(new Map(), "Hori").size, 0);
+    assert.equal(findAgentContactIds(null, "Hori").size, 0);
+    assert.equal(findAgentContactIds(parseContacts(SAMPLE), null).size, 0);
   });
 });

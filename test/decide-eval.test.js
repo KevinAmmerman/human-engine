@@ -43,6 +43,7 @@ describe("decide-eval", () => {
           agentName: scenario.agentName || "OpenClaw",
           messages: scenario.messages || [],
           transcript: (scenario.transcript || []).map(function (t) { return { speaker: t[0], text: t[1] }; }),
+          agentContactIds: scenario.agentContactIds ? new Set(scenario.agentContactIds) : undefined,
         });
 
         if (scenario.deterministic) {
@@ -88,6 +89,21 @@ describe("decide-eval", () => {
         }
       });
     }
+
+    it("follow-up to the agent's own line is SPEAK-leaning and includes the agent line", () => {
+      const transcript = [
+        { speaker: "Kevin", text: "was sagst du sollte ich mir eine Rastschlinge ausleihen?" },
+        { speaker: "Hori", text: "ja auf jeden fall, bei C/D-Passagen hilft sie dir" },
+        { speaker: "Kevin", text: "und wo bekomm ich die her?" },
+      ];
+      const prompt = buildDecidePrompt({ transcript, persona: null, voiceCard: null, agentName: "Hori" });
+      assert.ok(prompt.systemPrompt.includes("follow-up"),
+        "systemPrompt should carry the follow-up SPEAK-lean rule");
+      assert.ok(prompt.userMessage.includes("Rastschlinge"),
+        "userMessage should include the agent's own previous line");
+      assert.ok(prompt.userMessage.includes("bekomm ich die her"),
+        "userMessage should include the follow-up question");
+    });
   });
 
   describe("scenario contract", () => {

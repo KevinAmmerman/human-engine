@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, mock } from "node:test";
-import { createLocalEngine, getState } from "../lib/local-engine.js";
+import { createLocalEngine, getState, hasHardTrigger } from "../lib/local-engine.js";
 
 function makeTiming() {
   return {
@@ -78,6 +78,55 @@ describe("local-engine", () => {
     });
   });
 
+  describe("decide — hard trigger semantics", () => {
+    it("lid @mention mapped to the agent triggers with zero LLM calls", async () => {
+      let llmCalled = false;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => { llmCalled = true; return { text: "STAY_SILENT" }; } },
+        timing: makeTiming(),
+      });
+      const res = await engine.decide({
+        sessionKey: "s20",
+        prompt: "@81000000000001 wie lang brauchen wir zum einstieg?",
+        agentName: "Hori",
+        agentContactIds: new Set(["81000000000001"]),
+      });
+      assert.deepEqual(res.decision, "speak");
+      assert.equal(res.path, "hard");
+      assert.equal(llmCalled, false);
+    });
+
+    it("URL with agent name in hostname does NOT hard-trigger", async () => {
+      let llmCalled = false;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => { llmCalled = true; return { text: "STAY_SILENT" }; } },
+        timing: makeTiming(),
+      });
+      const res = await engine.decide({
+        sessionKey: "s21",
+        prompt: "route plan on https://openclawhori.tail24194c.ts.net/route",
+        agentName: "Hori",
+      });
+      assert.equal(llmCalled, true, "URL false-positive must not short-circuit");
+      assert.deepEqual(res.decision, "stay_silent");
+    });
+
+    it("mid-word name substring does NOT hard-trigger", async () => {
+      assert.equal(hasHardTrigger("Der Horizont ist toll", [], "Hori"), false);
+    });
+
+    it("word-boundary name match DOES hard-trigger", async () => {
+      assert.equal(hasHardTrigger("Hori, was meinst du?", [], "Hori"), true);
+      assert.equal(hasHardTrigger("OpenClaw, was denkst du?", [], "OpenClaw"), true);
+    });
+
+    it("lid mention with unmapped id does not trigger", async () => {
+      assert.equal(hasHardTrigger("@81000000000002 hallo", [], "Hori", new Set(["81000000000001"])), false);
+    });
+  });
+
   describe("decide — LLM path", () => {
     it("SPEAK from LLM returns speak decision", async () => {
       const engine = createLocalEngine({
@@ -126,6 +175,42 @@ describe("local-engine", () => {
         timing: makeTiming(),
       });
       const res = await engine.decide({ sessionKey: "s9", prompt: "Hello" });
+      assert.equal(res, null);
+    });
+  });
+
+  describe("decide — path field", () => {
+    it("returns path=dm for DM short-circuit", async () => {
+      const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
+      const res = await engine.decide({ sessionKey: "p1", isDM: true });
+      assert.equal(res.path, "dm");
+    });
+
+    it("returns path=media for media short-circuit", async () => {
+      const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
+      const res = await engine.decide({ sessionKey: "p2", hasMedia: true });
+      assert.equal(res.path, "media");
+    });
+
+    it("returns path=hard for hard trigger", async () => {
+      const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
+      const res = await engine.decide({ sessionKey: "p3", prompt: "OpenClaw?", agentName: "OpenClaw" });
+      assert.equal(res.path, "hard");
+    });
+
+    it("returns path=llm when the LLM decides", async () => {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: "SPEAK" }) },
+        timing: makeTiming(),
+      });
+      const res = await engine.decide({ sessionKey: "p4", prompt: "Hello" });
+      assert.equal(res.path, "llm");
+    });
+
+    it("returns null (no path) when LLM is absent", async () => {
+      const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
+      const res = await engine.decide({ sessionKey: "p5", prompt: "Hello" });
       assert.equal(res, null);
     });
   });

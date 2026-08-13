@@ -531,6 +531,51 @@
       "expect": "stay_silent",
       "deterministic": false,
       "rationale": "Pure short ack after the agent already closed the topic — socially fine to stay silent (a human would not double-text)."
+    },
+    {
+      "name": "Group @mention by lid of the agent",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "@81000000000001 wie lang brauchen wir zum einstieg?",
+      "agentName": "Hori",
+      "agentContactIds": [
+        "81000000000001"
+      ],
+      "messages": [
+        {
+          "text": "@81000000000001 wie lang brauchen wir zum einstieg?"
+        }
+      ],
+      "transcript": [
+        [
+          "Kevin",
+          "@81000000000001 wie lang brauchen wir zum einstieg?"
+        ]
+      ],
+      "expect": "speak",
+      "deterministic": true,
+      "rationale": "WhatsApp @mention renders as a bare lid — the mention-lid hard trigger fires via the contacts mapping."
+    },
+    {
+      "name": "Agent name inside a shared URL hostname is not a mention",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "die Route liegt unter https://openclawhori.tail24194c.ts.net/route",
+      "agentName": "Hori",
+      "messages": [
+        {
+          "text": "die Route liegt unter https://openclawhori.tail24194c.ts.net/route"
+        }
+      ],
+      "transcript": [
+        [
+          "Kevin",
+          "die Route liegt unter https://openclawhori.tail24194c.ts.net/route"
+        ]
+      ],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "rationale": "URL hostname containing 'hori' must NOT trip the hard trigger (word-boundary + URL-stripping); decision falls to the LLM."
     }
   ]
 }
