@@ -35,7 +35,7 @@ const MATRIX = [
   { id: 14, behavior: "Engine error → single-bubble draft, reply never lost",
     tags: ["LLM error", "draft fallback", "reply never lost"] },
   { id: 15, behavior: "One thread/session; concurrent opens deduped",
-    tags: ["increments on each decide", "openThread"] },
+    tags: ["increments epoch on each speak", "openThread"] },
   { id: 16, behavior: "Bubbles delivered in order at increasing delays",
     tags: ["bubbles", "increasing delays", "timing"] },
   { id: 17, behavior: "Zero network in entire plugin (fetch/WebSocket absent)",

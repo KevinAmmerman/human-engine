@@ -58,7 +58,11 @@ describe("decide-eval", () => {
         }
 
         assert.equal(result.decision, scenario.expect, scenario.name + ": decision mismatch");
-        assert.ok(result.epoch > 0, scenario.name + ": epoch should be > 0");
+        if (result.decision === "speak") {
+          assert.ok(result.epoch > 0, scenario.name + ": speak should advance the epoch");
+        } else {
+          assert.equal(result.epoch, 0, scenario.name + ": stay_silent must not advance the epoch");
+        }
       });
     }
   });

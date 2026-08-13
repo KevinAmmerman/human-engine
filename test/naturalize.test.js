@@ -126,8 +126,21 @@ describe("naturalize", () => {
     });
 
     it("expires stale speak epoch", () => {
-      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() - 300000 });
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() - 400000 });
       const result = naturalize.onReplyDispatch({ sendPolicy: "allow" }, makeDefaultCtx({ dispatcher: makeDispatcher() }));
+      assert.equal(result, undefined);
+      assert.equal(state.speakEpochBySession.has(CHAT_SK), false);
+    });
+
+    it("honors the speakEpochTtlMs config override", () => {
+      const overrideCfg = { ...cfg, naturalize: { speakEpochTtlMs: 50000 } };
+      const nat = createNaturalize({
+        cfg: overrideCfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() - 60000 });
+      const result = nat.onReplyDispatch({ sendPolicy: "allow" }, makeDefaultCtx({ dispatcher: makeDispatcher() }));
       assert.equal(result, undefined);
       assert.equal(state.speakEpochBySession.has(CHAT_SK), false);
     });
@@ -289,6 +302,126 @@ describe("naturalize", () => {
       await new Promise((r) => setTimeout(r, 1700));
       assert.ok(dispatcher.sendBlockReply.mock.callCount() <= 2, "should have at most 2 calls");
       assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("stay_silent decide mid-delivery does not cancel bubbles", async () => {
+      const stayEngine = {
+        currentEpoch() { return 42; },
+        async respond() {
+          return {
+            scheduled: [
+              { content: "First", position: 0, delayMs: 10 },
+              { content: "Second", position: 1, delayMs: 150 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const stayNat = createNaturalize({
+        cfg, state, engine: stayEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(stayNat, dispatcher);
+      stayNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("new speak epoch mid-delivery cancels remaining bubbles and marks complete", async () => {
+      let epochCounter = 42;
+      const speakBumpEngine = {
+        currentEpoch() { return epochCounter; },
+        async respond() {
+          return {
+            scheduled: [
+              { content: "First", position: 0, delayMs: 10 },
+              { content: "Second", position: 1, delayMs: 400 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const sbNat = createNaturalize({
+        cfg, state, engine: speakBumpEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(sbNat, dispatcher);
+      sbNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      setTimeout(() => { epochCounter = 43; }, 1400);
+
+      await new Promise((r) => setTimeout(r, 2000));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("retries once when sendBlockReply fails then succeeds", async () => {
+      const logs = [];
+      const retryNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = {
+        sendBlockReply: mock.fn((opts) => {
+          if (dispatcher.sendBlockReply.mock.callCount() === 1) return false;
+          return true;
+        }),
+        markComplete: mock.fn(),
+      };
+      armSpeakTurn(retryNat, dispatcher);
+      retryNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 3);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+      assert.equal(logs.some((l) => l.includes("BUBBLE LOST")), false);
+    });
+
+    it("logs BUBBLE LOST exactly once per bubble when host aborts", async () => {
+      const logs = [];
+      const lostNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = {
+        sendBlockReply: mock.fn(() => false),
+        markComplete: mock.fn(),
+      };
+      armSpeakTurn(lostNat, dispatcher);
+      lostNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 4);
+      assert.equal(logs.filter((l) => l.includes("BUBBLE LOST")).length, 2);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("flush skips when no dispatcher is stashed at flush time", async () => {
+      const logs = [];
+      const flushNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info(m) { logs.push(m); }, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(flushNat, dispatcher);
+      flushNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+      flushNat.onReplyDispatch(
+        { sendPolicy: "allow" },
+        makeDefaultCtx({ dispatcher: null, abortSignal: undefined }),
+      );
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(logs.some((l) => l.includes("flush skipped")));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
     });
 
     it("delivers raw draft when engine returns superseded", async () => {

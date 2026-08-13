@@ -216,15 +216,28 @@ describe("local-engine", () => {
   });
 
   describe("epoch", () => {
-    it("increments on each decide call", async () => {
+    it("increments epoch on each speak decide", async () => {
       const engine = createLocalEngine({
         cfg: {},
-        llm: { complete: async () => ({ text: "STAY_SILENT" }) },
+        llm: { complete: async () => ({ text: "SPEAK" }) },
         timing: makeTiming(),
       });
       const r1 = await engine.decide({ sessionKey: "s10", prompt: "a" });
       const r2 = await engine.decide({ sessionKey: "s10", prompt: "b" });
       assert.equal(r2.epoch, r1.epoch + 1);
+    });
+
+    it("stay_silent does not bump the epoch", async () => {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: "STAY_SILENT" }) },
+        timing: makeTiming(),
+      });
+      const speak = await engine.decide({ sessionKey: "s10b", prompt: "OpenClaw?", agentName: "OpenClaw" });
+      assert.equal(speak.epoch, 1);
+      const silent = await engine.decide({ sessionKey: "s10b", prompt: "unrelated" });
+      assert.equal(silent.decision, "stay_silent");
+      assert.equal(silent.epoch, speak.epoch, "stay_silent must keep the epoch unchanged");
     });
 
     it("currentEpoch returns 0 for unknown session", () => {
@@ -235,7 +248,7 @@ describe("local-engine", () => {
     it("currentEpoch returns latest epoch", async () => {
       const engine = createLocalEngine({
         cfg: {},
-        llm: { complete: async () => ({ text: "STAY_SILENT" }) },
+        llm: { complete: async () => ({ text: "SPEAK" }) },
         timing: makeTiming(),
       });
       await engine.decide({ sessionKey: "s11", prompt: "x" });

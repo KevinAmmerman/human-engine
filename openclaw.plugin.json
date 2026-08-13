@@ -63,6 +63,14 @@
         },
         "default": {}
       },
+      "naturalize": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "speakEpochTtlMs": { "type": "number", "default": 300000 }
+        },
+        "default": {}
+      },
       "timing": {
         "type": "object",
         "additionalProperties": false,
