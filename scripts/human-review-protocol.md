@@ -2,18 +2,19 @@
 
 ## Purpose
 
-Before enabling Humalike on a live group, an operator must review generated
+Before enabling Human Engine on a live group, an operator must review generated
 outputs to confirm they are **human-plausible**. This document provides a
 10-step checklist covering output quality, tell detection, and timing
 believability. Every rubric item traces to a research benchmark.
 
 ## Prerequisites
 
-- Humalike local engine installed and configured.
+- Human Engine installed and configured.
 - A test channel/group (anonymized for review).
-- Real LLM configured (decide + humanize models).
-- `npm test` passes (244+ tests).
-- `node test/parity-matrix.mjs --check` → `32/32 covered`.
+- Host LLM configured (the plugin uses the host's built-in `llm.complete`; no
+  model override keys exist).
+- `npm test` passes (531+ tests across 27 files).
+- `node test/parity-matrix.mjs --check` → `36/36 covered`.
 
 ---
 

@@ -1,25 +1,51 @@
 # Changelog
 
-## 0.4.0 — proactive turn-taking (shadow-first)
+## 0.4.0 — the observability & hygiene wave
 
-- **Hori can now initiate**. A three-stage funnel runs in addition to the
-  reactive decide gate: (1) candidate triggers — `unanswered_question`,
-  `stalled_exchange`, `context_match`, `follow_up_commitment`; (2) an
-  anti-annoyance gate — daily budget, min gap, adaptive cooldown, no-double-text,
-  quiet hours, side-conversation velocity, seeded probability; (3) generation +
-  delivery via `api.runtime.subagent.run({ deliver: true, idempotencyKey })`.
-- **Shadow-first by default**: `proactive.enabled` defaults to `false` and
-  `proactive.shadow` to `true`, so every would-be send is logged
-  (`human-engine: proactive SHADOW …`) and nothing is delivered until the
-  operator flips `shadow:false`. The decide bar is stricter
-  (`buildProactiveDecidePrompt`: default answer NO).
-- **Adaptive cooldown**: after a sent proactive message the session is watched
-  for 15 min; engagement resets the cooldown, silence doubles it (×2, cap 48 h).
-  Budgets/cooldowns persist to `state/proactive.json` (0600, tmp+rename).
-- **No gate loop**: proactive sends run through `subagent.run`, which does not
-  re-enter `before_agent_reply`, so a proactive turn never feeds back into the
-  reactive decide gate. The 30-min tick is unref'd and cleaned up on
-  `gateway_stop`.
+A large wave that fixes how the plugin behaves on real hook semantics, hardens
+it against prompt injection, and cleans up the config surface, state layout,
+and docs so everything reflects what actually ships.
+
+- **Observed store (plugin-local)**: silenced messages are now persisted to
+  `state/observed/<sessionKey>.jsonl` by the plugin itself (the previous
+  host-transcript append never worked in practice), layered into the decide
+  transcript alongside the in-memory peek and hydrated session transcript.
+- **Decide reactivation**: the turn-taking decide was rebuilt on real hook
+  semantics — `before_agent_reply` fires *before* the model run with the
+  cleaned inbound body, so silencing happens in the same hook as the decide
+  (no cross-turn flags). Group sessions fail closed (silenced) on decide
+  errors; DMs stay fail-open. New hard triggers short-circuit to speak with
+  zero LLM calls: DMs, media, the agent's own name, and a mention of the
+  agent's contact ID from `contactsPath`.
+- **Naturalize repair**: bubbles are built from the agent's actual reply
+  captured at `reply_payload_sending`, not from inbound text. Reply payloads
+  are debounced into one draft, humanized, and re-delivered as timed bubbles;
+  the original payload is cancelled. Speak-epoch expiry (`naturalize.speakEpochTtlMs`)
+  prevents a dead turn from capturing a later turn's reply.
+- **Security hardening**: prompt-injection barriers on inbound content, sender
+  labels, PII handling modes, stricter voice-card scoping, and uniform
+  enabled/scoping checks on every handler. Group gate errors never leak a
+  reply; residual block text is cancelled at `message_sending`.
+- **Proactive turn-taking (shadow-first)**: an opt-in three-stage funnel lets
+  the agent initiate (triggers → anti-annoyance gate → `subagent.run`
+  delivery). Off by default; in `shadow:true` it only logs would-be sends.
+  Budgets/cooldowns persist to `state/proactive.json`.
+- **Soul merge**: `/soul enhance` and startup auto-enhance no longer overwrite
+  SOUL.md wholesale — the enhanced persona lives in a marked
+  `<!-- human-engine:persona:start/end -->` section that is appended if missing
+  and replaced in place on re-enhance, preserving operator content.
+- **Config truth sync**: removed the dead `decide.model`/`humanize.model`
+  overrides (the host's `llm.complete` surface doesn't accept them) and the
+  unused social-learning/timing keys are now actually wired
+  (`refreshEvery`, `window`, `enabled`, `maxTypingMs`, `maxBubbleGapMs`).
+  Nested config objects deep-merge one level, so a partial override never
+  drops sibling defaults. `socialLearning.perSessionCard` default is now
+  `true` (the effective behavior). Version bumped to `0.4.0`.
+- **Hygiene**: social-memory writes are coalesced (≤1 disk write per 2 s
+  window per session), the ingest/extract metadata race is closed, and the
+  profile cache is capped at 256 scopes. Dead state maps and the unused
+  constructor `state` parameter were removed. Real-looking contact data in the
+  README and tests was replaced with obviously-fake values.
 
 ## 0.3.2 — session-transcript hydration for decide
 

@@ -17,18 +17,21 @@ worker process.
 | Gate | `lib/gate.js` | Decides speak/stay-silent via local engine per message |
 | Naturalize | `lib/naturalize.js` | Splits reply into bubbles, adds timing delays |
 | Local engine | `lib/local-engine.js` | LLM-based decide + naturalize via host's `llm.complete` |
-| Config | `lib/config.js` | Default config + resolve from OpenClaw API |
+| Config | `lib/config.js` | Default config + one-level deep merge from OpenClaw API |
 | Voice card | `lib/voice-card.js` | Style-profile learning, onBeforePromptBuild injection |
-| Social memory | `lib/social-memory.js` | Person-centric fact extraction, cadence, recall |
+| Social memory | `lib/social-memory.js` | Person-centric fact extraction, cadence, recall (coalesced writes) |
+| Observed store | `lib/observed-store.js` | Plugin-local persistence of silenced messages to `state/observed/` |
+| Proactive | `lib/proactive.js` | 3-stage proactive funnel (triggers → anti-annoyance → subagent.run) |
 | Persona | `lib/persona.js` | Soul prompt + voice-card assembly |
-| Soul | `lib/soul.js` | SOUL.md enhancement via local LLM, auto-enhance on start |
+| Soul | `lib/soul.js` | SOUL.md section-merge enhancement via local LLM, auto-enhance on start |
 | Timing engine | `lib/timing-engine.js` | WPM-based delay calculation, night mode |
 | Anti-tell | `lib/anti-tell.js` | Suppress tell-like phrases in agent output |
 | Style stats | `lib/style-stats.js` | Communication pattern logging |
 | State | `lib/state.js` | Ephemeral in-memory Maps with size capping |
-| Autoconfig | `lib/autoconfig.js` | Plan config changes (requireMention, streaming off) |
+| Contacts | `lib/contacts.js` | contacts.md parsing + sender-ID → name resolution |
+| Autoconfig | `lib/autoconfig.js` | Advisory config warnings (no channel writes) |
 | Messages | `lib/messages.js` | Message conversion + validation utilities |
-| Local prompts | `lib/local-prompts.js` | System prompts for decide + naturalize LLM calls |
+| Local prompts | `lib/local-prompts.js` | System prompts for all LLM calls |
 
 ## Execution flow
 
@@ -41,13 +44,16 @@ fires per outbound payload with the real reply text and supports
 
 1. **`message_received`** hook: gate records chat type, caches the resolved
    sender name, pushes the transcript peek line, ingests into social memory
-   (chat sessions only).
+   (chat sessions only), and feeds the proactive inbound funnel.
 2. **`before_agent_reply`** hook (gate): runs the turn-taking decide on the
-   cleaned inbound body. Hard triggers (DM, media, agent-name mention)
-   short-circuit to `speak` with zero LLM calls; otherwise the local LLM
-   decides with persona + transcript peek context (last 20 lines).
+   cleaned inbound body. Hard triggers (DM, media, agent-name mention,
+   agent-contact mention) short-circuit to `speak` with zero LLM calls;
+   otherwise the local LLM decides with persona + transcript context. The
+   transcript is merged from three layers — hydrated session transcript
+   (session-transcript-runtime SDK), the observed store
+   (`state/observed/`), and the in-memory peek (last 20 lines).
    - `speak` → speak epoch `{epoch, ts}` recorded, social memory recalled.
-   - `stay_silent` → message buffered as observed context and
+   - `stay_silent` → message persisted to the observed store and
      `{handled: true}` returned — the turn is silenced before the LLM call,
      inside its own turn. No cross-turn state.
    - `null` (engine unavailable) → DM fails open; group fails closed
@@ -55,7 +61,8 @@ fires per outbound payload with the real reply text and supports
 3. **`before_agent_run`** hook: transcript/social-memory bookkeeping for
    turns that actually run (silenced turns never reach this hook).
 4. **`before_prompt_build`** hook: gate injects observed context (drained
-   once). Voice card injects style profile into system context.
+   once) and social-memory recall. Voice card injects style profile into
+   system context.
 5. **Agent run** produces a reply.
 6. **`reply_dispatch`** hook (naturalize): on speak turns, stashes the
    dispatcher and lets payloads flow.
@@ -65,6 +72,13 @@ fires per outbound payload with the real reply text and supports
 8. **Flush**: the draft is humanized by the local LLM into 1–5 bubbles and
    re-delivered via `dispatcher.sendBlockReply` with timing-engine delays
    (typing WPM, night mode). Raw-draft fallback on LLM error or supersede.
+9. **Proactive funnel** (independent of the reactive gate, off by default):
+   a 30-min unref'd tick runs candidate triggers (unanswered question,
+   stalled exchange, context match, follow-up commitment) through an
+   anti-annoyance gate (budget, min gap, adaptive cooldown, quiet hours,
+   seeded probability). In `shadow:true` it only logs; otherwise it
+   delivers via `api.runtime.subagent.run`, which does not re-enter
+   `before_agent_reply` — no gate loop.
 
 ## Key dependencies
 
@@ -98,5 +112,7 @@ No external npm packages — all logic is self-contained.
   captured at `reply_payload_sending`, never from inbound text.
 - **Scoping is uniform**: every handler (gate, naturalize, voice card)
   checks `enabled` and `agents` before doing any work.
-- **Purpose strings**: Block reasons use `human-engine-*` prefix for
-  traceability (`human-engine-stay-silent`, `human-engine-group-fail-closed`).
+- **LLM-call purposes**: every `llm.complete` call carries a purpose string
+  for traceability: `human-engine-decide`, `human-engine-humanize`,
+  `human-engine-extract` (voice card), `human-engine-soul`,
+  `human-engine-memory` (social memory).

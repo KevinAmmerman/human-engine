@@ -19,6 +19,9 @@ built-in LLM with no cloud dependencies.
 - Maintains per-agent persona prompts with soul auto-enhance.
 - Learns a voice card (communication-style profile) per session.
 - Extracts and recalls person-centric social memory on cadence.
+- Persists silenced messages to a plugin-local observed store
+  (`state/observed/`) and layers them into the decide transcript.
+- Runs an opt-in proactive turn-taking funnel (shadow-first).
 - Supports DM fail-open and group fail-closed safety modes.
 - Provides a parity-matrix contract for all behavioral capabilities.
 
@@ -50,8 +53,10 @@ built-in LLM with no cloud dependencies.
 
 - All hook error handling is in `index.js` wrap() — catches and logs, never
   throws into OpenClaw's hook chain.
-- State is in-memory only (Maps in `state.js`), except voice-card cache and
-  soul marker, which persist to `state/` files.
+- State is in-memory only (Maps in `state.js`); persistent state lives in
+  `state/` files (voice-card cache, social-memory profiles, observed store,
+  proactive.json) plus the soul marker/backup next to SOUL.md — see
+  `operations/environment.md`.
 - Config resolves via `api.pluginConfig ?? api.config.plugins.entries["human-engine"].config`.
 - `before_agent_reply` fires BEFORE the model run with the cleaned inbound
   body — the gate decides and silences there (`{handled: true}`). It never
@@ -61,9 +66,10 @@ built-in LLM with no cloud dependencies.
 - The decide/respond LLM calls get conversation context from
   `getTranscriptPeek(sk, n)` (state.js) — keep inbound messages flowing into
   the peek buffer or decide quality degrades to single-message guesses.
-- Every test uses fake API objects from `test/helpers/fake-api.js`.
+- Tests use inline fakes plus `test/helpers/sdk-hook-ctx.js` for SDK-shaped
+  hook contexts (no shared fake-api helper).
 - Parity matrix at `test/parity-matrix.mjs` is the behavioral contract — must
-  stay 35/35 before any release.
+  stay 36/36 before any release.
 
 ## Source map
 
