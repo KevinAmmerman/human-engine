@@ -18,9 +18,9 @@ describe("contacts", () => {
   it("parseContacts maps lid and phone to name", () => {
     const map = parseContacts(SAMPLE);
     assert.equal(map.get("81000000000004"), "Ada Example");
-    assert.equal(map.get("+4915000000001"), "Ada Example");
-    assert.equal(map.get("+4915000000004"), "Test Person");
-    assert.equal(map.get("+4915000000005"), "Test Person B");
+    assert.equal(resolveContactName(map, "+4915000000001"), "Ada Example");
+    assert.equal(resolveContactName(map, "+4915000000004"), "Test Person");
+    assert.equal(resolveContactName(map, "+4915000000005"), "Test Person B");
   });
 
   it("parseContacts skips headers and separators", () => {
@@ -44,12 +44,24 @@ describe("contacts", () => {
     assert.equal(resolveContactName(null, "+4915000000001"), null);
   });
 
+  it("normalizeId digit-normalizes lid/phone variants so @lid and @c.us suffixes match bare ids", () => {
+    const map = parseContacts(SAMPLE);
+    assert.equal(map.get("81000000000004"), "Ada Example", "bare lid key stored as digits");
+    assert.equal(resolveContactName(map, "81000000000004@lid"), "Ada Example", "@lid suffix resolves to same key");
+    assert.equal(resolveContactName(map, "@81000000000004@lid"), "Ada Example", "leading @ + @lid suffix resolve to same key");
+    assert.equal(resolveContactName(map, "+4915000000001"), "Ada Example", "phone with + stored as digits");
+    assert.equal(resolveContactName(map, "4915000000001@c.us"), "Ada Example", "@c.us suffix resolves to same key");
+    assert.equal(resolveContactName(map, "+49 1500 0000001"), "Ada Example", "spaces and hyphens stripped");
+    assert.equal(resolveContactName(map, "81000000000004@lid"), "Ada Example");
+    assert.equal(resolveContactName(map, "4915000000001@c.us"), "Ada Example");
+  });
+
   it("loadContacts caches by mtime and tolerates missing file", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contacts-"));
     const file = path.join(tmpDir, "contacts.md");
     fs.writeFileSync(file, SAMPLE);
     const map = loadContacts(file);
-    assert.equal(map.get("+4915000000001"), "Ada Example");
+    assert.equal(resolveContactName(map, "+4915000000001"), "Ada Example");
     assert.equal(loadContacts(path.join(tmpDir, "missing.md")), null);
     assert.equal(loadContacts(""), null);
     fs.rmSync(tmpDir, { recursive: true, force: true });

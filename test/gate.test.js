@@ -417,6 +417,24 @@ describe("gate", () => {
       assert.equal(captured.replyToAgent, true);
     });
 
+    it("passes replyToAgent=true via body-match against hydrated transcript lines when peek is empty", async () => {
+      let captured;
+      const bodyGate = makeGate({
+        cfg: { ...cfg, agentName: "Hori" },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [
+          { speaker: "Kevin", text: "wie wird das wetter am wochenende?" },
+          { speaker: "Hori", text: "klar und sonnig am Berg, perfekt fuer den Klettersteig" },
+        ],
+      });
+      bodyGate.onMessageReceived(
+        { text: "danke" },
+        makeDefaultCtx({ replyToBody: "klar und sonnig am Berg, perfekt fuer den Klettersteig" }),
+      );
+      await bodyGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx());
+      assert.equal(captured.replyToAgent, true);
+    });
+
     it("two queued quotes from the same sender: each decide consumes the text-matching entry", async () => {
       const fs = await import("node:fs");
       const os = await import("node:os");
