@@ -292,6 +292,61 @@ describe("voice-card", () => {
       assert.equal(vc.counter["s-disabled"], undefined);
     });
 
+    it("returns undefined and does not count when socialLearning.enabled is false", () => {
+      clearCounter();
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { enabled: false } },
+        engine: makeEngine(),
+        stateDir,
+        log: { info() {} },
+      });
+      const result = onBeforePromptBuild(
+        { messages: [{ role: "user", content: "hi" }] },
+        { sessionKey: "s-sl-disabled" },
+      );
+      assert.equal(result, undefined);
+      assert.equal(vc.counter["s-sl-disabled"], undefined);
+    });
+
+    it("refreshes on the Nth build per configured refreshEvery", async () => {
+      clearCounter();
+      clearRefreshing();
+      let extractCalls = 0;
+      const engine = { extractVoiceCard: async () => { extractCalls++; return null; } };
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { enabled: true, refreshEvery: 2, refreshMinutes: 0 } },
+        engine,
+        stateDir,
+        log: { info() {} },
+      });
+      const evt = { messages: [{ role: "user", content: "[User] hi" }] };
+      const ctx = { sessionKey: CHAT_SK, agentId: "test-agent" };
+      onBeforePromptBuild(evt, ctx); // n=1 → hasCard=false triggers refresh
+      onBeforePromptBuild(evt, ctx); // n=2 → refreshEvery cadence triggers refresh
+      onBeforePromptBuild(evt, ctx); // n=3 → no refresh
+      await new Promise((r) => setTimeout(r, 60));
+      assert.ok(extractCalls >= 2, `expected >=2 refresh spawns, got ${extractCalls}`);
+    });
+
+    it("does not refresh below refreshEvery cadence after card exists", async () => {
+      clearCounter();
+      clearRefreshing();
+      vc.cache[CHAT_SK] = "# seeded card";
+      let extractCalls = 0;
+      const engine = { extractVoiceCard: async () => { extractCalls++; return null; } };
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { enabled: true, refreshEvery: 5, refreshMinutes: 0 } },
+        engine,
+        stateDir,
+        log: { info() {} },
+      });
+      const evt = { messages: [{ role: "user", content: "[User] hi" }] };
+      const ctx = { sessionKey: CHAT_SK, agentId: "test-agent" };
+      for (let i = 0; i < 3; i++) onBeforePromptBuild(evt, ctx); // n=1..3, below 5
+      await new Promise((r) => setTimeout(r, 60));
+      assert.equal(extractCalls, 0);
+    });
+
     it("returns undefined and does not count for unscoped agent", () => {
       clearCounter();
       vc.cache["__global__"] = "# Voice Card";

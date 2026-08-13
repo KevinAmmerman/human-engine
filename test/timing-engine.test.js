@@ -118,6 +118,20 @@ describe("timing-engine", () => {
       assert.ok(d >= 1200 && d <= 60000, `out of range: ${d}`);
       resetRng();
     });
+
+    it("honors maxTypingMs override", () => {
+      setRng(() => 0.99);
+      const d = typingMs("x".repeat(50000), 40, { maxTypingMs: 5000 });
+      assert.ok(d <= 5000, `expected clamped to 5000, got ${d}`);
+      resetRng();
+    });
+
+    it("defaults to 60000 when maxTypingMs is falsy", () => {
+      setRng(() => 0.99);
+      const d = typingMs("x".repeat(50000), 40, {});
+      assert.ok(d <= 60000, `expected default 60000, got ${d}`);
+      resetRng();
+    });
   });
 
   describe("bubbleGapMs", () => {

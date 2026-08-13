@@ -17,9 +17,11 @@ describe("config", () => {
     assert.equal(cfg.socialLearning.refreshMinutes, 0);
     assert.deepEqual(cfg.socialMemory, { enabled: true, extractEvery: 25, extractMinutes: 0, maxPeople: 50, recallLimit: 800 });
     assert.equal(cfg.autoconfig, false);
-    assert.deepEqual(cfg.decide, { model: "", temperature: 0.2 });
-    assert.deepEqual(cfg.humanize, { model: "", maxBubbles: 5, temperature: 0.9 });
-    assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, nightMode: true });
+    assert.equal(cfg.socialLearning.perSessionCard, true);
+    assert.deepEqual(cfg.decide, { temperature: 0.2 });
+    assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.9 });
+    assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
+    assert.deepEqual(cfg.naturalize, { speakEpochTtlMs: 300000 });
   });
 
   it("resolveConfig merges with defaults", () => {
@@ -62,6 +64,24 @@ describe("config", () => {
     const cfg = resolveConfig({});
     assert.equal(cfg.enabled, true);
     assert.equal(cfg.agentName, "OpenClaw");
+  });
+
+  it("resolveConfig deep-merges nested objects one level", () => {
+    const api = { pluginConfig: { decide: { temperature: 0.5 }, timing: { typingWpm: 60 } } };
+    const cfg = resolveConfig(api);
+    assert.equal(cfg.decide.temperature, 0.5);
+    assert.equal(cfg.humanize.maxBubbles, 5, "sibling key in decide's default sub-object survives");
+    assert.equal(cfg.timing.typingWpm, 60);
+    assert.equal(cfg.timing.maxTypingMs, 60000, "sibling timing default survives");
+    assert.equal(cfg.timing.maxBubbleGapMs, 3000);
+    assert.equal(cfg.socialLearning.refreshEvery, 5);
+  });
+
+  it("resolveConfig keeps whole sub-object override intact", () => {
+    const api = { pluginConfig: { humanize: { temperature: 0.1 } } };
+    const cfg = resolveConfig(api);
+    assert.equal(cfg.humanize.temperature, 0.1);
+    assert.equal(cfg.humanize.maxBubbles, 5);
   });
 
   it("isEnabled returns true when enabled is true", () => {
