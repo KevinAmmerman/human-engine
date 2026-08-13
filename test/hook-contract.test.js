@@ -120,10 +120,39 @@ describe("hook-context contract (SDK-true ctx shapes)", () => {
     });
   });
 
-  describe("message_received (ctx has no isGroup)", () => {
+  describe("message_received (ctx has no isGroup, no agentId)", () => {
     it("labels a group session as group from the session key (plan 336 flip)", () => {
       gate.onMessageReceived({ text: "hi" }, makeMessageReceivedCtx({ sessionKey: GROUP_SK, senderId: "u1" }));
       assert.equal(state.chatTypeBySession.get(GROUP_SK), "group");
+    });
+
+    it("calls proactive.onInbound for a scoped group sk despite the SDK-true ctx having no agentId", () => {
+      const proactive = { onInbound: mock.fn() };
+      const g = createGate({
+        cfg, state, engine: makeEngine(), persona: { buildPersonaPrompt() { return ""; } },
+        socialMemory: null, log: { info() {}, warn() {}, debug() {} }, proactive,
+      });
+      g.onMessageReceived(
+        { text: "Wann treffen wir uns?" },
+        makeMessageReceivedCtx({ sessionKey: GROUP_SK, senderId: "u1" }),
+      );
+      assert.equal(proactive.onInbound.mock.callCount(), 1);
+      assert.equal(proactive.onInbound.mock.calls[0].arguments[0], GROUP_SK);
+      assert.equal(proactive.onInbound.mock.calls[0].arguments[1].agentId, "test-agent");
+      assert.equal(proactive.onInbound.mock.calls[0].arguments[1].text, "Wann treffen wir uns?");
+    });
+
+    it("does not call proactive.onInbound for an out-of-scope agent session", () => {
+      const proactive = { onInbound: mock.fn() };
+      const g = createGate({
+        cfg, state, engine: makeEngine(), persona: { buildPersonaPrompt() { return ""; } },
+        socialMemory: null, log: { info() {}, warn() {}, debug() {} }, proactive,
+      });
+      g.onMessageReceived(
+        { text: "hi" },
+        makeMessageReceivedCtx({ sessionKey: "agent:other:whatsapp:group:123@g.us", senderId: "u1" }),
+      );
+      assert.equal(proactive.onInbound.mock.callCount(), 0);
     });
   });
 });
