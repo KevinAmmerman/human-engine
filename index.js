@@ -105,7 +105,7 @@ export default definePluginEntry({
         try {
           return await handler(...args);
         } catch (err) {
-          log.warn("human-engine: hook error: %s", err?.message || err);
+          log.warn(`human-engine: hook error: ${err?.message || err}`);
         }
       };
     }
@@ -125,7 +125,7 @@ export default definePluginEntry({
       if (cfg.autoconfig) {
         const plan = planConfigChanges(cfg, api.config || {});
         const report = formatReport(plan);
-        log.info("human-engine autoconfig:\n%s", report);
+        log.info(`human-engine autoconfig:\n${report}`);
       }
     }));
 
