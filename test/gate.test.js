@@ -95,7 +95,7 @@ describe("gate", () => {
     state.speakEpochBySession.clear();
     state.chatTypeBySession.clear();
     state.senderBySession.clear();
-    state.replyContextBySession.clear();
+    state.replyContextQueue.clear();
     gate = makeGate();
   });
 
@@ -375,27 +375,30 @@ describe("gate", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it("clears stored reply context on a plain message (no replyTo*)", async () => {
+    it("race regression: plain message from sender B does not wipe sender A's stored quote-reply trigger", async () => {
       const fs = await import("node:fs");
       const os = await import("node:os");
       const path = await import("node:path");
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-reply-clear-"));
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-reply-race-"));
       const cFile = path.join(tmpDir, "contacts.md");
       fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
 
-      const replyGate = makeGate({ cfg: { ...cfg, contactsPath: cFile } });
-      replyGate.onMessageReceived({ text: "Ja" }, makeDefaultCtx({ replyToSender: "81000000000001" }));
-      assert.ok(state.replyContextBySession.get(CHAT_SK));
+      const raceGate = makeGate({ cfg: { ...cfg, contactsPath: cFile } });
+      raceGate.onMessageReceived(
+        { text: "Ja, gut" },
+        makeDefaultCtx({ senderId: "user-A", replyToSender: "81000000000001" }),
+      );
+      assert.ok(state.replyContextQueue.has(CHAT_SK + "|user-A"), "quote-reply queued under A's sender key");
 
       let captured;
-      const clearGate = makeGate({
+      const spyGate = makeGate({
         cfg: { ...cfg, contactsPath: cFile },
         engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
       });
-      clearGate.onMessageReceived({ text: "ganz normaler text" }, makeDefaultCtx());
-      assert.equal(state.replyContextBySession.has(CHAT_SK), false);
-      await clearGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "weiter im text" }), makeDefaultCtx());
-      assert.equal(captured.replyToAgent, false);
+      spyGate.onMessageReceived({ text: "ganz normaler text von B" }, makeDefaultCtx({ senderId: "user-B" }));
+      await spyGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx({ senderId: "user-A" }));
+      assert.equal(captured.replyToAgent, true);
+      assert.equal((state.replyContextQueue.get(CHAT_SK + "|user-A") || []).length, 0, "entry consumed once");
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
@@ -414,12 +417,91 @@ describe("gate", () => {
       assert.equal(captured.replyToAgent, true);
     });
 
-    it("does not apply a stale reply context older than 5 minutes", async () => {
-      state.replyContextBySession.set(CHAT_SK, {
-        sender: "81000000000001",
-        body: "klar und sonnig am Berg",
-        ts: Date.now() - 6 * 60 * 1000,
+    it("two queued quotes from the same sender: each decide consumes the text-matching entry", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-reply-twoq-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
+
+      let captured = [];
+      const twoGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide(opts) { captured.push(opts); return { decision: "speak", epoch: 1 }; } },
       });
+      twoGate.onMessageReceived(
+        { text: "was ist los in der gruppe" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001" }),
+      );
+      twoGate.onMessageReceived(
+        { text: "und der wochenendplan" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001" }),
+      );
+      assert.equal((state.replyContextQueue.get(CHAT_SK + "|user-1") || []).length, 2);
+
+      await twoGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "was ist los in der gruppe danke" }),
+        makeDefaultCtx({ senderId: "user-1" }),
+      );
+      assert.equal(captured[0].replyToAgent, true);
+      const afterFirst = state.replyContextQueue.get(CHAT_SK + "|user-1") || [];
+      assert.equal(afterFirst.length, 1);
+      assert.equal(afterFirst[0].textNorm, "und der wochenendplan", "matching entry consumed, other kept");
+
+      await twoGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "und der wochenendplan bitte" }),
+        makeDefaultCtx({ senderId: "user-1" }),
+      );
+      assert.equal(captured[1].replyToAgent, true);
+      assert.equal((state.replyContextQueue.get(CHAT_SK + "|user-1") || []).length, 0, "second entry consumed too");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("cleanedBody drift from the raw quoted text still resolves (exact or newest-fresh fallback)", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-reply-drift-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
+
+      let captured = [];
+      const driftGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide(opts) { captured.push(opts); return { decision: "speak", epoch: 1 }; } },
+      });
+
+      driftGate.onMessageReceived(
+        { text: "morgen am berg " },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001" }),
+      );
+      await driftGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "morgen am berg" }), makeDefaultCtx({ senderId: "user-1" }));
+      assert.equal(captured[0].replyToAgent, true, "trailing whitespace collapsed, exact match");
+      assert.equal((state.replyContextQueue.get(CHAT_SK + "|user-1") || []).length, 0);
+
+      driftGate.onMessageReceived(
+        { text: "abend am see" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001" }),
+      );
+      await driftGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "jetzt mal: abend am see" }),
+        makeDefaultCtx({ senderId: "user-1" }),
+      );
+      assert.equal(captured[1].replyToAgent, true, "prefix drift falls back to newest fresh entry");
+      assert.equal((state.replyContextQueue.get(CHAT_SK + "|user-1") || []).length, 0);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("does not apply a stale reply context older than 5 minutes and drops it", async () => {
+      state.replyContextQueue.set(CHAT_SK + "|user-1", [
+        {
+          sender: "81000000000001",
+          body: "klar und sonnig am Berg",
+          textNorm: "klar und sonnig am berg",
+          ts: Date.now() - 6 * 60 * 1000,
+        },
+      ]);
       state.transcriptPeekBySession.set(CHAT_SK, ["[OpenClaw] klar und sonnig am Berg"]);
       let captured;
       const staleGate = makeGate({
@@ -427,6 +509,7 @@ describe("gate", () => {
       });
       await staleGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx());
       assert.equal(captured.replyToAgent, false);
+      assert.equal(state.replyContextQueue.has(CHAT_SK + "|user-1"), false, "stale entry dropped");
     });
 
     it("does not duplicate transcript peek when message_received already pushed the line", async () => {
