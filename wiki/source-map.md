@@ -22,11 +22,11 @@ human-engine/
     persona.js              — Persona prompt assembly (soul + voice-card)
     soul.js                 — SOUL.md section-merge enhancement via local LLM
     timing-engine.js        — Human-typing timing calculation
-    anti-tell.js            — Tell-like phrase suppression
+    anti-tell.js            — Tell-like phrase suppression + meta-commentary strip (stripMetaCommentary)
     style-stats.js          — Communication pattern logging
     state.js                — In-memory ephemeral state (capped Maps)
     autoconfig.js           — Advisory config warnings for operator
-    contacts.js             — contacts.md parsing + sender-ID → name resolution
+    contacts.js             — contacts.md parsing + sender-ID → name resolution (findAgentContactIds, listContactNames)
     messages.js             — Message conversion + validation utils
     local-prompts.js        — System prompts for all LLM calls
   test/

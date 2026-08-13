@@ -21,6 +21,11 @@ built-in LLM with no cloud dependencies.
 - Extracts and recalls person-centric social memory on cadence.
 - Persists silenced messages to a plugin-local observed store
   (`state/observed/`) and layers them into the decide transcript.
+- Hard-triggers speech on direct address: name/word-boundary match, WhatsApp
+  @-mention (lid/phone via contacts), and quote-reply to the agent's own
+  message (`path=reply`).
+- Strips leaked model monologue (meta-commentary) before delivery
+  (`stripMetaCommentary`) on both the humanize and raw-fallback paths.
 - Runs an opt-in proactive turn-taking funnel (shadow-first).
 - Supports DM fail-open and group fail-closed safety modes.
 - Provides a parity-matrix contract for all behavioral capabilities.
