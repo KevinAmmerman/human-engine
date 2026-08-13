@@ -218,6 +218,7 @@ describe("social-memory", { concurrency: false }, () => {
       sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
       const scope = "agentX::file-mode";
       sm.ingest(scope, { speaker: "Dave", text: "hello", ts: 100 });
+      sm.flush(scope);
 
       const profileFile = path.join(tmpDir, "social-memory", "agentX", "file-mode.json");
       assert.ok(fs.existsSync(profileFile));
@@ -237,6 +238,7 @@ describe("social-memory", { concurrency: false }, () => {
       // Ingest to create profile
       sm.ingest(scope, { speaker: "Dave", text: "hello", ts: 100 });
       sm.ingest(scope, { speaker: "Eve", text: "hi", ts: 101 });
+      sm.flush(scope);
 
       const profile1 = sm.getOrLoadProfile(scope);
       assert.ok(profile1.people.Dave);
@@ -350,6 +352,69 @@ describe("social-memory", { concurrency: false }, () => {
     });
   });
 
+  describe("write coalescing", () => {
+    it("two rapid ingests within the window produce a single file write", async () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::coalesce";
+      let renameCalls = 0;
+      const origRename = fs.renameSync.bind(fs);
+      fs.renameSync = (...args) => { renameCalls++; return origRename(...args); };
+      try {
+        sm.ingest(scope, { speaker: "Alice", text: "a", ts: 1 });
+        sm.ingest(scope, { speaker: "Bob", text: "b", ts: 2 });
+        sm.flush(scope);
+        assert.equal(renameCalls, 1);
+      } finally {
+        fs.renameSync = origRename;
+      }
+    });
+
+    it("flush writes tmp+rename and marks clean", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::flush-clean";
+      sm.ingest(scope, { speaker: "Alice", text: "hi", ts: 1 });
+      sm.flush(scope);
+      sm.flush(scope);
+      const file = path.join(tmpDir, "social-memory", "agent1", "flush-clean.json");
+      assert.ok(fs.existsSync(file));
+    });
+  });
+
+  describe("extract race", () => {
+    it("keeps newer lastSeenTs from ingests during an in-flight extract", async () => {
+      let resolveLLM;
+      const gate = new Promise((r) => { resolveLLM = r; });
+      const llm = {
+        complete: mock.fn(async () => {
+          await gate;
+          return { text: JSON.stringify({ people: { Alice: { facts: ["climbs"] } } }) };
+        }),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 1 }), llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::race";
+      sm.ingest(scope, { speaker: "Alice", text: "first", ts: 100 });
+      await new Promise((r) => setTimeout(r, 30));
+      sm.ingest(scope, { speaker: "Alice", text: "second", ts: 200 });
+      resolveLLM();
+      await new Promise((r) => setTimeout(r, 50));
+      const profile = sm.getOrLoadProfile(scope);
+      assert.equal(profile.people.Alice.lastSeenTs, 200);
+      assert.equal(profile.people.Alice.mentionCount, 2);
+    });
+  });
+
+  describe("profile cache cap", () => {
+    it("caps profileCache at 256 scopes, evicting oldest-inserted", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      for (let i = 0; i < 300; i++) {
+        sm.getOrLoadProfile("agent::cache-scope-" + i);
+      }
+      assert.equal(sm.profileCache.size, 256);
+      assert.ok(sm.profileCache.has("agent::cache-scope-299"));
+      assert.ok(!sm.profileCache.has("agent::cache-scope-0"));
+    });
+  });
+
   describe("scope isolation", () => {
     it("two agents same sessionKey have separate profiles", () => {
       sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
@@ -375,6 +440,8 @@ describe("social-memory", { concurrency: false }, () => {
 
       sm.ingest(scopeA, { speaker: "Alice", text: "hi", ts: 1 });
       sm.ingest(scopeB, { speaker: "Bob", text: "hi", ts: 2 });
+      sm.flush(scopeA);
+      sm.flush(scopeB);
 
       // Create fresh instances and verify files are separate
       const sm2 = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
