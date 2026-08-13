@@ -80,6 +80,32 @@
           "nightMode": { "type": "boolean", "default": true }
         },
         "default": {}
+      },
+      "proactive": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "shadow": { "type": "boolean", "default": true },
+          "budgetPerDay": { "type": "number", "default": 2 },
+          "minGapMinutes": { "type": "number", "default": 180 },
+          "quietStart": { "type": "string", "default": "23:00" },
+          "quietEnd": { "type": "string", "default": "07:00" },
+          "probability": { "type": "number", "default": 0.5 },
+          "cooldownBaseMinutes": { "type": "number", "default": 180 },
+          "triggers": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "unansweredQuestion": { "type": "boolean", "default": true },
+              "stalledExchange": { "type": "boolean", "default": true },
+              "contextMatch": { "type": "boolean", "default": true },
+              "followUpCommitment": { "type": "boolean", "default": true }
+            },
+            "default": {}
+          }
+        },
+        "default": {}
       }
     }
   }
