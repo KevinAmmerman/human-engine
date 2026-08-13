@@ -319,12 +319,28 @@ describe("gate", () => {
       assert.equal(state.memoryBySession.has(CHAT_SK), false);
     });
 
-    it("errors fail open (returns undefined)", async () => {
+    it("errors fail open (returns undefined) for DM sessions", async () => {
       const badGate = makeGate({
         engine: { async decide() { throw new Error("boom"); } },
       });
-      const result = await badGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      const result = await badGate.onBeforeAgentReply(
+        makeReplyEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:telegram:direct:12345" }),
+      );
       assert.equal(result, undefined);
+    });
+
+    it("group gate errors fail closed (handled:true)", async () => {
+      const warns = [];
+      const badGate = makeGate({
+        engine: { async decide() { throw new Error("boom"); } },
+        log: { info() {}, warn: (msg) => warns.push(msg), debug() {} },
+      });
+      const result = await badGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.deepEqual(result, { handled: true });
+      assert.equal(state.observedBySession.get(CHAT_SK).length, 1);
+      assert.ok(warns.some((w) => w.includes("boom")), "warn should carry the thrown error");
+      assert.ok(warns.some((w) => w.includes("before_agent_reply error")), "warn should name the gate error path");
     });
   });
 

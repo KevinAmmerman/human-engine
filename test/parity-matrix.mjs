@@ -52,7 +52,7 @@ const MATRIX = [
     tags: ["kill-switch", "returns undefined", "enabled:false"] },
   { id: 23, behavior: "Agent scoping agents:['a'] → other agentId untouched",
     tags: ["unscoped agent"] },
-  { id: 24, behavior: "Fail-open everywhere: hook error → undefined",
+  { id: 24, behavior: "Hook errors never throw into the chain; DM errors fail open (undefined), group gate errors fail closed (handled:true)",
     tags: ["fail-open", "errors do not throw"] },
   { id: 25, behavior: "Autoconfig: only scoped keys, idempotent, opt-in",
     tags: ["autoconfig", "scoped paths", "idempotent"] },
