@@ -93,12 +93,8 @@ describe("gate", () => {
     state.memoryBySession.clear();
     state.transcriptPeekBySession.clear();
     state.speakEpochBySession.clear();
-    state.latestEpochByChat.clear();
     state.chatTypeBySession.clear();
-    state.draftBySession.clear();
-    state.metaBySession.clear();
     state.senderBySession.clear();
-    state.sessions.clear();
     gate = makeGate();
   });
 
@@ -290,13 +286,13 @@ describe("gate", () => {
       assert.equal(state.observedBySession.get(CHAT_SK).length, 1);
     });
 
-    it("stashes latest epoch on any decision", async () => {
+    it("handles any decision without writing dead epoch maps", async () => {
       const epGate = makeGate({
         engine: { async decide() { return { decision: "stay_silent", epoch: 7 }; } },
       });
 
-      await epGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx({ chatId: "chat-x" }));
-      assert.equal(state.latestEpochByChat.get("chat-x"), 7);
+      const result = await epGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx({ chatId: "chat-x" }));
+      assert.deepEqual(result, { handled: true });
     });
 
     it("decide receives transcript peek context", async () => {
@@ -341,12 +337,12 @@ describe("gate", () => {
       const cFile = path.join(tmpDir, "contacts.md");
       fs.writeFileSync(
         cFile,
-        "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000013 | Hori (Bot) | |\n| 81000000000004 | +4915000000010 | Kevin | |\n",
+        "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | AgentBot | |\n| 81000000000004 | +4915000000001 | Ada Example | |\n",
       );
 
       let captured;
       const contactGate = makeGate({
-        cfg: { ...cfg, agentName: "Hori", contactsPath: cFile },
+        cfg: { ...cfg, agentName: "AgentBot", contactsPath: cFile },
         engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
       });
       await contactGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
@@ -372,7 +368,7 @@ describe("gate", () => {
       const path = await import("node:path");
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-contacts-"));
       const cFile = path.join(tmpDir, "contacts.md");
-      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 111 | +4915000000010 | Kevin | |\n");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 111 | +4915000000001 | Ada Example | |\n");
 
       let captured;
       const contactGate = makeGate({
@@ -381,17 +377,17 @@ describe("gate", () => {
       });
       await contactGate.onBeforeAgentReply(
         makeReplyEvent({ cleanedBody: "servus" }),
-        makeDefaultCtx({ senderName: undefined, senderId: "+4915000000010" }),
+        makeDefaultCtx({ senderName: undefined, senderId: "+4915000000001" }),
       );
       const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
-      assert.ok(peek[peek.length - 1].startsWith("[Kevin] "));
+      assert.ok(peek[peek.length - 1].startsWith("[Ada Example] "));
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
     it("resolves unresolvable phone numbers to member-XXXX (last 4 digits)", async () => {
       const anonGate = makeGate();
-      const result = anonGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "+4915000000014" }));
-      assert.equal(state.senderBySession.get(CHAT_SK), "member-4567");
+      const result = anonGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "+4915000000003" }));
+      assert.equal(state.senderBySession.get(CHAT_SK), "member-0003");
     });
 
     it("resolves unresolvable lids to member-XXXX (last 4 digits)", async () => {
@@ -406,11 +402,11 @@ describe("gate", () => {
       const path = await import("node:path");
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-anon-contacts-"));
       const cFile = path.join(tmpDir, "contacts.md");
-      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 111 | +4915000000010 | Kevin | |\n");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 111 | +4915000000001 | Ada Example | |\n");
 
       const namedGate = makeGate({ cfg: { ...cfg, contactsPath: cFile } });
-      namedGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "+4915000000010" }));
-      assert.equal(state.senderBySession.get(CHAT_SK), "Kevin");
+      namedGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "+4915000000001" }));
+      assert.equal(state.senderBySession.get(CHAT_SK), "Ada Example");
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 

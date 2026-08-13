@@ -83,9 +83,6 @@ describe("naturalize", () => {
   beforeEach(() => {
     state.speakEpochBySession.clear();
     state.transcriptPeekBySession.clear();
-    state.draftBySession.clear();
-    state.latestEpochByChat.clear();
-    state.metaBySession.clear();
     state.chatTypeBySession.clear();
 
     naturalize = createNaturalize({

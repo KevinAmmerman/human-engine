@@ -37,11 +37,7 @@ describe("harness — kill-switch enabled:false", () => {
     state.observedBySession.clear();
     state.memoryBySession.clear();
     state.speakEpochBySession.clear();
-    state.latestEpochByChat.clear();
     state.chatTypeBySession.clear();
-    state.draftBySession.clear();
-    state.sessions.clear();
-    state.routes.clear();
   });
 
   it("onMessageReceived returns undefined", () => {
@@ -105,7 +101,6 @@ describe("harness — agent scoping", () => {
     state.chatTypeBySession.clear();
     state.speakEpochBySession.clear();
     state.memoryBySession.clear();
-    state.sessions.clear();
   });
 
   it("unscoped agent (main) returns undefined", async () => {
@@ -156,8 +151,6 @@ describe("harness — fail-open error injection", () => {
     state.chatTypeBySession.clear();
     state.memoryBySession.clear();
     state.speakEpochBySession.clear();
-    state.draftBySession.clear();
-    state.sessions.clear();
   });
 
   it("onBeforeAgentRun returns undefined on thrown error (engine.decide throws)", async () => {
@@ -170,7 +163,6 @@ describe("harness — fail-open error injection", () => {
 
   it("onReplyDispatch returns undefined on thrown error", async () => {
     state.speakEpochBySession.set("sk", 1);
-    state.draftBySession.set("sk", "draft");
     const result = await naturalize.onReplyDispatch(
       { cleanedBody: "draft", sendPolicy: "allow" },
       { agentId: "test", sessionKey: "sk", channelId: "ch", chatId: "ch" },

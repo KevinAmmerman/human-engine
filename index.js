@@ -83,8 +83,8 @@ export default definePluginEntry({
       }
     }
 
-    const gate = createGate({ cfg, state, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive });
-    const naturalize = createNaturalize({ cfg, state, engine, persona, socialMemory, log });
+    const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive });
+    const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, log });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
 

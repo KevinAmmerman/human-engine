@@ -34,17 +34,10 @@ describe("e2e-local", () => {
   beforeEach(() => {
     getState().epochs.clear();
     state.speakEpochBySession.clear();
-    state.draftBySession.clear();
-    state.latestEpochByChat.clear();
     state.chatTypeBySession.clear();
     state.observedBySession.clear();
     state.memoryBySession.clear();
-    state.sessions.clear();
-    state.routes.clear();
     state.transcriptPeekBySession?.clear?.();
-    state.metaBySession?.clear?.();
-    state.metaByMessageId?.clear?.();
-    state.epochByMessageId?.clear?.();
   });
 
   afterEach(() => {

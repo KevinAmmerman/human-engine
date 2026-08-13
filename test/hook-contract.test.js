@@ -51,9 +51,6 @@ describe("hook-context contract (SDK-true ctx shapes)", () => {
     state.chatTypeBySession.clear();
     state.observedBySession.clear();
     state.senderBySession.clear();
-    state.draftBySession.clear();
-    state.latestEpochByChat.clear();
-    state.metaBySession.clear();
 
     naturalize = createNaturalize({
       cfg,
