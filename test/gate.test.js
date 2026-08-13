@@ -201,6 +201,54 @@ describe("gate", () => {
       assert.equal(result, undefined);
     });
 
+    it("merges observed-store layer with hydrated and peek, deduped, chronological, capped at 20", async () => {
+      for (let i = 0; i < 6; i++) state.pushTranscriptPeek(CHAT_SK, `[Kevin] p${i}`);
+      state.pushTranscriptPeek(CHAT_SK, "[Kevin] older silenced");
+      let captured;
+      const obsGate = makeGate({
+        observedStore: {
+          readObserved: () => [{ speaker: "Kevin", text: "older silenced", ts: 1000 }],
+          appendObserved: () => {},
+        },
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
+        },
+        readTranscript: async () => [{ speaker: "Hori", text: "assistant note" }],
+      });
+
+      await obsGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "current prompt" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const texts = transcript.map((t) => t.text);
+      assert.ok(texts.includes("assistant note"), "hydrated assistant line present");
+      assert.ok(texts.includes("older silenced"), "observed layer present");
+      assert.equal(texts.filter((t) => t === "older silenced").length, 1, "observed + peek same message appears once");
+      assert.ok(texts.includes("p5"), "peek lines present");
+      assert.ok(texts.includes("current prompt"), "current prompt appended");
+      assert.ok(transcript.length <= 20, "merged transcript capped at 20");
+      assert.ok(texts.indexOf("assistant note") < texts.indexOf("older silenced"), "hydrated before observed");
+      assert.ok(texts.indexOf("older silenced") < texts.indexOf("p0"), "observed before peek");
+      assert.equal(texts[texts.length - 1], "current prompt", "current prompt is last");
+    });
+
+    it("stay_silent persists the silenced message to the observed store", async () => {
+      const appends = [];
+      const storeGate = makeGate({
+        observedStore: {
+          readObserved: () => [],
+          appendObserved: (sk, row) => appends.push({ sk, ...row }),
+        },
+        engine: { async decide() { return { decision: "stay_silent", epoch: 1 }; } },
+      });
+
+      const result = await storeGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.deepEqual(result, { handled: true });
+      assert.equal(appends.length, 1);
+      assert.equal(appends[0].sk, CHAT_SK);
+      assert.equal(appends[0].speaker, "Kevin");
+      assert.equal(appends[0].text, "Hello bot");
+      assert.ok(typeof appends[0].ts === "number");
+    });
+
     it("handles speak decision (returns undefined, stashes epoch with timestamp)", async () => {
       const speakGate = makeGate({
         engine: { async decide() { return { decision: "speak", epoch: 42 }; } },

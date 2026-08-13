@@ -9,6 +9,7 @@ import { enhanceAndWrite, maybeAutoEnhance } from "./lib/soul.js";
 import { planConfigChanges, formatReport } from "./lib/autoconfig.js";
 import { createLocalEngine } from "./lib/local-engine.js";
 import { createSocialMemory } from "./lib/social-memory.js";
+import { createObservedStore } from "./lib/observed-store.js";
 import * as timing from "./lib/timing-engine.js";
 
 const runtime = { api: null, cfg: null };
@@ -37,6 +38,8 @@ export default definePluginEntry({
     const stateDir = process.env.HUMAN_ENGINE_STATE_DIR || pluginDir + "state";
 
     const socialMemory = createSocialMemory({ cfg, llm, stateDir, log });
+
+    const observedStore = createObservedStore({ stateDir, log });
 
     const transcriptApiPromise = import("openclaw/plugin-sdk/session-transcript-runtime")
       .then((m) => m)
@@ -77,25 +80,7 @@ export default definePluginEntry({
       }
     }
 
-    function persistObserved(sessionKey, senderName, text) {
-      transcriptApiPromise.then((m) => {
-        if (!m?.appendSessionTranscriptMessageByIdentity) return;
-        const agentId = typeof sessionKey === "string" && sessionKey.startsWith("agent:")
-          ? sessionKey.split(":")[1]
-          : undefined;
-        const content = `[${senderName}] ${text}`;
-        return m
-          .appendSessionTranscriptMessageByIdentity({
-            agentId,
-            sessionKey,
-            config: api.config,
-            message: { role: "user", content, observed: true },
-          })
-          .catch(() => {});
-      }).catch(() => {});
-    }
-
-    const gate = createGate({ cfg, state, engine, persona, socialMemory, persistObserved, readTranscript: readSessionTranscript, log });
+    const gate = createGate({ cfg, state, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log });
     const naturalize = createNaturalize({ cfg, state, engine, persona, socialMemory, log });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
