@@ -74,12 +74,14 @@ describe("hook-context contract (SDK-true ctx shapes)", () => {
   });
 
   describe("reply_dispatch (PluginHookReplyDispatchContext has no agentId/sessionKey)", () => {
-    it("arms a dispatcher when the event carries the sessionKey and a speak epoch exists", () => {
-      state.speakEpochBySession.set(GROUP_SK, { epoch: 1, ts: Date.now() });
+    it("arms pre-speak (no epoch required) and binds the epoch at capture (plan 344)", () => {
+      // 338 pinned arm-time epoch gating; 344 moves the gate to capture time because
+      // reply_dispatch fires BEFORE before_agent_reply stashes the speak epoch.
       naturalize.onReplyDispatch(
         makeReplyDispatchEvent({ sessionKey: GROUP_SK, sendPolicy: "allow" }),
         makeReplyDispatchCtx({ dispatcher: makeDispatcher() }),
       );
+      state.speakEpochBySession.set(GROUP_SK, { epoch: 1, ts: Date.now() });
       const result = naturalize.onReplyPayloadSending(
         { sessionKey: GROUP_SK, kind: "final", payload: { text: "Agent reply" } },
         makeReplyPayloadCtx({ sessionKey: GROUP_SK }),

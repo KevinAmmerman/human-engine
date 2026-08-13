@@ -96,14 +96,12 @@ describe("naturalize", () => {
   });
 
   describe("onReplyDispatch", () => {
-    it("arms dispatcher when speak epoch exists", () => {
+    it("arms a dispatcher on allow dispatch — no speak epoch required at arm time (plan 344)", () => {
       const dispatcher = makeDispatcher();
-      const result = armSpeakTurn(naturalize, dispatcher);
-      assert.equal(result, undefined);
-    });
-
-    it("returns undefined when no speak epoch", () => {
-      const result = naturalize.onReplyDispatch({ sendPolicy: "allow" }, makeDefaultCtx({ dispatcher: makeDispatcher() }));
+      const result = naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        makeDefaultCtx({ dispatcher, abortSignal: undefined }),
+      );
       assert.equal(result, undefined);
     });
 
@@ -120,26 +118,6 @@ describe("naturalize", () => {
         makeDefaultCtx({ sessionKey: "agent:test-agent:cron:x" }),
       );
       assert.equal(result, undefined);
-    });
-
-    it("expires stale speak epoch", () => {
-      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() - 400000 });
-      const result = naturalize.onReplyDispatch({ sendPolicy: "allow" }, makeDefaultCtx({ dispatcher: makeDispatcher() }));
-      assert.equal(result, undefined);
-      assert.equal(state.speakEpochBySession.has(CHAT_SK), false);
-    });
-
-    it("honors the speakEpochTtlMs config override", () => {
-      const overrideCfg = { ...cfg, naturalize: { speakEpochTtlMs: 50000 } };
-      const nat = createNaturalize({
-        cfg: overrideCfg, state, engine: makeEngine(), persona: makePersona(),
-        socialMemory: makeSocialMemoryStub(),
-        log: { info() {}, warn() {}, debug() {} },
-      });
-      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() - 60000 });
-      const result = nat.onReplyDispatch({ sendPolicy: "allow" }, makeDefaultCtx({ dispatcher: makeDispatcher() }));
-      assert.equal(result, undefined);
-      assert.equal(state.speakEpochBySession.has(CHAT_SK), false);
     });
   });
 
@@ -158,6 +136,71 @@ describe("naturalize", () => {
       assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
       assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "Bubble one");
       assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("captures when the speak decision comes AFTER reply_dispatch (incident replay, plan 344)", async () => {
+      const dispatcher = makeDispatcher();
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        makeDefaultCtx({ dispatcher, abortSignal: undefined }),
+      );
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 42, ts: Date.now() });
+
+      const result = naturalize.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", channel: "whatsapp", payload: { text: "Real agent reply" } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("passes through when armed but no speak epoch exists (epoch gate lives at capture)", () => {
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        makeDefaultCtx({ dispatcher: makeDispatcher(), abortSignal: undefined }),
+      );
+      const result = naturalize.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } },
+        makeDefaultCtx(),
+      );
+      assert.equal(result, undefined);
+    });
+
+    it("expires a stale speak epoch at capture time (gate moved from arm to capture)", () => {
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        makeDefaultCtx({ dispatcher: makeDispatcher(), abortSignal: undefined }),
+      );
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() - 400000 });
+      const result = naturalize.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } },
+        makeDefaultCtx(),
+      );
+      assert.equal(result, undefined);
+      assert.equal(state.speakEpochBySession.has(CHAT_SK), false);
+    });
+
+    it("honors the speakEpochTtlMs config override at capture time", () => {
+      const overrideCfg = { ...cfg, naturalize: { speakEpochTtlMs: 50000 } };
+      const nat = createNaturalize({
+        cfg: overrideCfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      nat.onReplyDispatch(
+        { sendPolicy: "allow" },
+        makeDefaultCtx({ dispatcher: makeDispatcher(), abortSignal: undefined }),
+      );
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() - 60000 });
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } },
+        makeDefaultCtx(),
+      );
+      assert.equal(result, undefined);
+      assert.equal(state.speakEpochBySession.has(CHAT_SK), false);
     });
 
     it("returns undefined when no speak epoch", () => {
