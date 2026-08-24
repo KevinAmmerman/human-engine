@@ -11,6 +11,7 @@ import { createLocalEngine } from "./lib/local-engine.js";
 import { createSocialMemory } from "./lib/social-memory.js";
 import { createObservedStore } from "./lib/observed-store.js";
 import { createProactive } from "./lib/proactive.js";
+import { createDmProactive } from "./lib/dm-proactive.js";
 import * as timing from "./lib/timing-engine.js";
 
 const runtime = { api: null, cfg: null };
@@ -43,6 +44,8 @@ export default definePluginEntry({
     const observedStore = createObservedStore({ stateDir, log });
 
     const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log });
+
+    const dmProactive = createDmProactive({ cfg, llm, socialMemory, runtime: api.runtime, stateDir, log });
 
     const transcriptApiPromise = import("openclaw/plugin-sdk/session-transcript-runtime")
       .then((m) => m)
@@ -99,10 +102,12 @@ export default definePluginEntry({
     }
 
     api.on("message_received", wrap(gate.onMessageReceived));
+    api.on("message_received", wrap(dmProactive.onMessageReceived));
     api.on("before_agent_reply", wrap(gate.onBeforeAgentReply));
     api.on("before_agent_run", wrap(gate.onBeforeAgentRun));
     api.on("before_prompt_build", wrap(gate.onBeforePromptBuild));
     api.on("message_sending", wrap(gate.onMessageSending));
+    api.on("message_sending", wrap(dmProactive.onMessageSending));
     api.on("before_prompt_build", wrap(voiceCard.onBeforePromptBuild));
     api.on("reply_dispatch", wrap(naturalize.onReplyDispatch));
     api.on("reply_payload_sending", wrap(naturalize.onReplyPayloadSending));
@@ -125,6 +130,7 @@ export default definePluginEntry({
     api.on("gateway_stop", wrap(() => {
       clearInterval(proactiveTick);
       proactive.stop();
+      dmProactive.stop();
       log.info("human-engine: proactive tick stopped (gateway_stop)");
     }));
 

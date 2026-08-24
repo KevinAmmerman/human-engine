@@ -105,6 +105,20 @@
           }
         },
         "default": {}
+      },
+      "dmProactive": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "shadow": { "type": "boolean", "default": true },
+          "budgetPerDay": { "type": "number", "default": 2 },
+          "minGapMinutes": { "type": "number", "default": 180 },
+          "quietStart": { "type": "string", "default": "23:00" },
+          "quietEnd": { "type": "string", "default": "07:00" },
+          "careBudgetPerDay": { "type": "number", "default": 1 }
+        },
+        "default": {}
       }
     }
   }

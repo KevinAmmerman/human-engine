@@ -22,6 +22,7 @@ describe("config", () => {
     assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.9 });
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { speakEpochTtlMs: 300000 });
+    assert.deepEqual(cfg.dmProactive, { enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1 });
   });
 
   it("resolveConfig merges with defaults", () => {
@@ -75,6 +76,14 @@ describe("config", () => {
     assert.equal(cfg.timing.maxTypingMs, 60000, "sibling timing default survives");
     assert.equal(cfg.timing.maxBubbleGapMs, 3000);
     assert.equal(cfg.socialLearning.refreshEvery, 5);
+  });
+
+  it("resolveConfig deep-merges dmProactive one level and keeps sibling defaults", () => {
+    const api = { pluginConfig: { dmProactive: { enabled: true } } };
+    const cfg = resolveConfig(api);
+    assert.equal(cfg.dmProactive.enabled, true);
+    assert.equal(cfg.dmProactive.shadow, true, "sibling dmProactive default survives");
+    assert.equal(cfg.dmProactive.quietStart, "23:00");
   });
 
   it("resolveConfig keeps whole sub-object override intact", () => {

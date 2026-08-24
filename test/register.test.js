@@ -53,9 +53,9 @@ describe("register() from index.js", () => {
       pluginEntry.register(api);
     });
 
-    assert.equal(hooks.message_received?.length, 1);
+    assert.equal(hooks.message_received?.length, 2);
     assert.equal(hooks.before_agent_run?.length, 1);
-    assert.equal(hooks.message_sending?.length, 1);
+    assert.equal(hooks.message_sending?.length, 2);
     assert.equal(hooks.before_prompt_build?.length, 2);
     assert.equal(hooks.before_agent_reply?.length, 1);
     assert.equal(hooks.reply_dispatch?.length, 1);
@@ -79,9 +79,9 @@ describe("register() from index.js", () => {
 
     assert.equal(warnings.filter((w) => /degraded mode/i.test(w)).length, 0);
 
-    assert.equal(hooks.message_received?.length, 1);
+    assert.equal(hooks.message_received?.length, 2);
     assert.equal(hooks.before_agent_run?.length, 1);
-    assert.equal(hooks.message_sending?.length, 1);
+    assert.equal(hooks.message_sending?.length, 2);
     assert.equal(hooks.before_prompt_build?.length, 2);
     assert.equal(hooks.before_agent_reply?.length, 1);
     assert.equal(hooks.reply_dispatch?.length, 1);
