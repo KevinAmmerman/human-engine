@@ -115,6 +115,19 @@ All keys under `plugins.entries["human-engine"].config`:
 | `proactive.probability` | number | `0.5` | Seeded probability floor |
 | `proactive.cooldownBaseMinutes` | number | `180` | Base cooldown after a send |
 | `proactive.triggers.*` | bool | `true` | Candidate triggers (unanswered_question, stalled_exchange, context_match, follow_up_commitment) |
+| `dmProactive.enabled` | bool | `false` | Enable the DM-proactive render path |
+| `dmProactive.shadow` | bool | `true` | Log would-be DM sends without delivering |
+| `dmProactive.budgetPerDay` | number | `2` | Max proactive DMs per day |
+| `dmProactive.minGapMinutes` | number | `180` | Min gap between proactive DM sends |
+| `dmProactive.quietStart` | string | `"23:00"` | Quiet hours start (hard, with deadline exception) |
+| `dmProactive.quietEnd` | string | `"07:00"` | Quiet hours end (hard, with deadline exception) |
+| `dmProactive.careBudgetPerDay` | number | `1` | Max care sends per day (48h no-reply rule is hard) |
+
+Shadow-first: in `dmProactive.shadow:true` the module only logs to
+`state/dm-proactive.jsonl` and never sends. In live mode
+(`dmProactive.shadow:false`) the rendered draft is delivered via
+`subagent.run` and the original outbound is cancelled, so there is no double
+send.
 
 ### Sender name resolution (optional)
 

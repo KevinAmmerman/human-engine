@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.4.1 — the dm-proactive & hardening wave
+
+Post-0.4.0 work: the whole DM-proactive module plus fix/security/perf commits
+landed after the 0.4.0 changelog was written. Version bumped to `0.4.1`.
+
+- **DM-proactive module**: renders due DM commitments human (plan 412) —
+  shadow-first, logs to `state/dm-proactive.jsonl`, gate rules (budget, min
+  gap, quiet hours 23-07 hard with deadline exception, max 1 care send/day,
+  hard 48h no-reply care rule). 21 tests. In live mode (`shadow:false`) the
+  rendered draft is sent via `subagent.run` and the original outbound is
+  cancelled — no double send.
+- **Reply hard trigger + join**: quote-reply hard trigger (342), per
+  (sender,text) join, and reply-id normalization (343/346).
+- **Arming-race fix (344)**: displaced dispatcher completes on re-arm; pinned
+  null/empty/abort delivery branches.
+- **Meta-commentary strip (345)**: tell-like/meta text stripped from replies.
+- **Pure-commentary regenerate barrier (347)**: short pure-commentary drafts
+  are regenerated/suppressed, not only long ones.
+- **Gate fail-closed hardening**: recovery against throwing helpers.
+- **Identity coherence**: alias-aware mention triggers (`agentAliases`) and
+  name/language rules.
+- **Injection-barrier unification**: every untrusted prompt block wrapped in
+  shared delimiters + directive (`wrapUntrusted`).
+- **Security**: PII scrub from public fixtures, session-key log redaction,
+  0600 request log, self-heal state dir modes; obviously-fake ids in redaction
+  tests.
+- **Decide burst dedup**: in-flight decide deduped per session — one verdict
+  per burst.
+- **State/perf hygiene**: capped state maps and voice-card cache, observed-store
+  line counter, commitments mtime cache.
+- **misc fixes**: monologue strip, arming-race timing, reply-id normalization,
+  pure-commentary barrier, naturalize timer teardown + social-memory flush on
+  `gateway_stop`.
+
 ## 0.4.0 — the observability & hygiene wave
 
 A large wave that fixes how the plugin behaves on real hook semantics, hardens

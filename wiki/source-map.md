@@ -19,6 +19,7 @@ human-engine/
     social-memory.js        — Person-centric fact extraction & recall (coalesced writes)
     observed-store.js       — Plugin-local persistence of silenced messages
     proactive.js            — 3-stage proactive funnel (shadow-first)
+    dm-proactive.js         — DM-proactive render + fine-timing (shadow-first, live cancel)
     persona.js              — Persona prompt assembly (soul + voice-card)
     soul.js                 — SOUL.md section-merge enhancement via local LLM
     timing-engine.js        — Human-typing timing calculation
@@ -39,6 +40,8 @@ human-engine/
     social-memory.test.js   — Social memory tests (coalescing, race, cache cap)
     observed-store.test.js  — Observed store tests
     proactive.test.js       — Proactive funnel tests
+    dm-proactive.test.js    — DM-proactive render/gate/live-cancel tests
+    register.test.js        — Plugin register/hook-registration tests
     soul.test.js            — Soul enhancement tests
     soul-local.test.js      — Soul LLM integration tests
     persona.test.js         — Persona prompt tests
@@ -56,7 +59,7 @@ human-engine/
     hook-contract.test.js   — SDK-shaped hook-context contract tests
     e2e-local.test.js       — End-to-end local integration test
     harness.test.js         — Test harness tests
-    parity-matrix.mjs       — 36-item behavioral parity check
+    parity-matrix.mjs       — 40-item behavioral parity check
     fixtures/
       decide-scenarios.json — 20+ labeled decide test scenarios
     helpers/
@@ -70,8 +73,9 @@ human-engine/
 
 ## Git evidence
 
-- Last commit: `6b1d4e4`
+- Last commit: `a802a76`
 - Active branch: `main`
-- Recent churn: 0.4.0 wave (observability + hygiene) — observed store,
-  decide rebuild on real hook semantics, naturalize repair, security
-  hardening, proactive shadow mode, config truth sync, dead-code removal
+- Recent churn: 0.4.1 wave (dm-proactive + hardening) — dm-proactive module,
+  alias-aware mention triggers, injection-barrier unification, security
+  (PII scrub, session-key redaction, log perms), decide burst dedup,
+  state/perf hygiene, dm-proactive live cancel
