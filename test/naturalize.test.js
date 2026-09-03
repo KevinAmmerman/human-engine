@@ -344,6 +344,62 @@ describe("naturalize", () => {
       assert.equal(state.replyTargetBySession.has(CHAT_SK), false, "map entry drained after flush");
     });
 
+    it("plan 515: forwards triggerInfo to engine.respond (replyTarget, newestAgeMs, triggerLen)", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.replyTargetBySession.set(CHAT_SK, {
+        quotedName: "Basti",
+        replyToAgent: false,
+        textHead: "was sagst du dazu",
+        ts: Date.now(),
+      });
+      state.transcriptPeekBySession.set(CHAT_SK, ["[Nico] Hey Hori"]);
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "a bit longer reply to capture a trigger length" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(captured.triggerInfo, "triggerInfo forwarded to engine.respond");
+      assert.ok(captured.triggerInfo.replyTarget, "triggerInfo.replyTarget present");
+      assert.equal(captured.triggerInfo.replyTarget.quotedName, "Basti");
+      assert.equal(typeof captured.triggerInfo.triggerLen, "number");
+      assert.equal(captured.triggerInfo.replyTarget.quotedName, "Basti");
+    });
+
+    it("plan 515: triggerInfo is null-safe when replyTarget is absent (511 not landed)", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.transcriptPeekBySession.set(CHAT_SK, ["[Nico] short"]);
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(captured.triggerInfo, "triggerInfo forwarded");
+      assert.equal(captured.triggerInfo.replyTarget, null);
+      assert.equal(captured.triggerInfo.newestAgeMs, null, "no ts on peek line -> null age");
+    });
+
     it("plan 511: forwards a replyTarget even when quotedName is null but replyToAgent is true", async () => {
       let captured;
       const capEngine = {

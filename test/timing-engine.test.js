@@ -76,6 +76,49 @@ describe("timing-engine", () => {
       assert.ok(group >= dm, `group ${group} should be >= dm ${dm}`);
       resetRng();
     });
+
+    it("isQuestionReply reply is ~40% faster than the same ctx without (0.6x)", () => {
+      setRng(() => 0.5);
+      const base = readingDelayMs({ isGroup: true });
+      const direct = readingDelayMs({ isGroup: true, isQuestionReply: true });
+      const ratio = direct / base;
+      assert.ok(ratio <= 0.8, `expected ~0.6x (clamp-limited), got ratio ${ratio} (base ${base}, direct ${direct})`);
+      resetRng();
+    });
+
+    it("contentReadMs adds roughly that many ms to the result (within clamp)", () => {
+      setRng(() => 0.5);
+      const base = readingDelayMs({ isGroup: false });
+      const withRead = readingDelayMs({ isGroup: false, contentReadMs: 3000 });
+      const delta = withRead - base;
+      assert.ok(delta >= 2000 && delta <= 4000, `expected ~3000 delta, got ${delta} (base ${base}, with ${withRead})`);
+      resetRng();
+    });
+
+    it("group + no target still gets the 1.5x factor (not a direct answer)", () => {
+      setRng(() => 0.5);
+      const dm = readingDelayMs({ isGroup: false, isQuestionReply: false });
+      const group = readingDelayMs({ isGroup: true, isQuestionReply: false });
+      assert.ok(group >= dm * 1.2, `group ${group} should be ~1.5x dm ${dm}`);
+      resetRng();
+    });
+
+    it("night mode multiplies by 1.4 for question replies too", () => {
+      setRng(() => 0.5);
+      const day = readingDelayMs({ isGroup: false, isQuestionReply: true, hourOfDay: 14 });
+      const night = readingDelayMs({ isGroup: false, isQuestionReply: true, hourOfDay: 23 });
+      assert.ok(night >= day, `night ${night} should be >= day ${day}`);
+      resetRng();
+    });
+
+    it("clamp bounds hold for extreme inputs", () => {
+      setRng(() => 0.5);
+      const huge = readingDelayMs({ isGroup: true, contentReadMs: 100000, isQuestionReply: false });
+      assert.ok(huge <= 30000, `expected clamp to 30000, got ${huge}`);
+      const tiny = readingDelayMs({ isGroup: false, isQuestionReply: true });
+      assert.ok(tiny >= 2000, `expected clamp to 2000, got ${tiny}`);
+      resetRng();
+    });
   });
 
   describe("thinkPauseMs", () => {
