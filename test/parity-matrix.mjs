@@ -78,6 +78,14 @@ const MATRIX = [
     tags: ["caps at recalllimit chars", "two agents same sessionkey", "speak turn populates memory"] },
   { id: 36, behavior: "Proactive: 3-stage funnel, shadow default, budget/cooldown/quiet-hours, subagent.run deliver, no gate loop",
     tags: ["proactive", "shadow sends nothing but logs", "budget enforcement", "cooldown", "quiet hours", "deliver:true", "idempotencykey", "subagent.run"] },
+  { id: 37, behavior: "dm-proactive: shadow-first — logs to state file only, never cancels/rewrites outbound, dist fallback keeps delivering",
+    tags: ["shadow candidate logs an entry and never sends", "message_sending reconciles a pending commitment from the store and logs without blocking", "non-commitment outbound text produces no log entry"] },
+  { id: 38, behavior: "dm-proactive: care anti-annoyance — max 1 care send/day, hard 48h no-reply care rule survives day rollover",
+    tags: ["2nd care candidate the same day is blocked by care-budget", "care send without reply for >=48h blocks further care", "budget/care markers survive recreate"] },
+  { id: 39, behavior: "dm-proactive: quiet hours 23-07 hard with deadline exception (latestMs - now < 2h)",
+    tags: ["quiet hours 23:30 block unless the deadline is <2h away"] },
+  { id: 40, behavior: "dm-proactive: live send via subagent.run with idempotencyKey, budget bumped only after send",
+    tags: ["sends via subagent.run deliver with idempotency key", "budget not bumped after failed send"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
@@ -143,7 +151,7 @@ function check() {
     }
   }
 
-  const total = 36;
+  const total = 40;
   console.log(`\nParity matrix: ${covered + skipped}/${total} covered (${covered} tested, ${skipped} skipped)`);
   console.log(results.join("\n") + "\n");
 

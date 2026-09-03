@@ -314,6 +314,17 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(entries[0].candidate.id, "cm_live_001");
     });
 
+    it("budget not bumped after failed send", async () => {
+      const runtime = makeRuntime({ llmText: "Rendertext" });
+      runtime.subagent.run = mock.fn(async () => { throw new Error("send failed"); });
+      const { dm, clock } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      const res = await dm.handleCandidate(makeCandidate({ id: "cm_fail_001" }));
+      assert.equal(res.sent, false);
+      clock.t += 24 * 60 * 60 * 1000;
+      const next = dm.evaluateGate(makeCandidate({ id: "cm_fail_002" }));
+      assert.equal(next.pass, true, next.reasons.join(","));
+    });
+
     it("shadow flag in config keeps dmProactive from ever sending even on a matched send event", async () => {
       const { dm, stateDir, commitmentsPath, runtime } = track(makeDm());
       writeStore(commitmentsPath, [{

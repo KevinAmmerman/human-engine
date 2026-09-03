@@ -73,6 +73,29 @@ describe("hook-context contract (SDK-true ctx shapes)", () => {
     });
   });
 
+  describe("before_agent_reply → proactive.onInbound(ownReply)", () => {
+    it("speak decision forwards one onInbound with ownReply:true, agentId from session key, empty text", async () => {
+      const proactive = { onInbound: mock.fn() };
+      const g = createGate({
+        cfg, state, engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+        persona: { buildPersonaPrompt() { return ""; } },
+        socialMemory: null, log: { info() {}, warn() {}, debug() {} }, proactive,
+      });
+      state.chatTypeBySession.set(GROUP_SK, "group");
+      const result = await g.onBeforeAgentReply(
+        { cleanedBody: "Wann treffen wir uns?" },
+        { sessionKey: GROUP_SK, agentId: "test-agent", senderId: "u1", senderName: "Nico" },
+      );
+      assert.equal(result, undefined);
+      assert.equal(proactive.onInbound.mock.callCount(), 1);
+      const [sk, opts] = proactive.onInbound.mock.calls[0].arguments;
+      assert.equal(sk, GROUP_SK);
+      assert.equal(opts.agentId, "test-agent");
+      assert.equal(opts.ownReply, true);
+      assert.equal(opts.text, "");
+    });
+  });
+
   describe("reply_dispatch (PluginHookReplyDispatchContext has no agentId/sessionKey)", () => {
     it("arms pre-speak (no epoch required) and binds the epoch at capture (plan 344)", () => {
       // 338 pinned arm-time epoch gating; 344 moves the gate to capture time because
