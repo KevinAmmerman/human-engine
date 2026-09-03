@@ -102,7 +102,7 @@ describe("anti-tell", () => {
 
   describe("stripMetaCommentary", () => {
     const INCIDENT = [
-      'Kevin claims I\'m "his assistant." Light banter after my roast. He\'s',
+      'Nico claims I\'m "his assistant." Light banter after my roast. He\'s',
       "asserting ownership/role in a playful way. I should respond with",
       "personality - not capitulate … Keep it one sharp clean line. Not",
       "defensive, just deadpan. … Warm underneath.Per Assistenten-Definition",
@@ -111,7 +111,7 @@ describe("anti-tell", () => {
     const GERMAN_REPLY = "Per Assistenten-Definition\nmüsste ich dir dann auch …";
 
     it("strips the verbatim incident text down to the German reply (inline seam)", () => {
-      const result = stripMetaCommentary(INCIDENT, ["Kevin", "Ada"]);
+      const result = stripMetaCommentary(INCIDENT, ["Nico", "Ada"]);
       assert.equal(result.stripped, true);
       assert.equal(result.text, GERMAN_REPLY);
     });
@@ -123,57 +123,57 @@ describe("anti-tell", () => {
     });
 
     it("strips a paragraph-joined commentary/reply variant", () => {
-      const text = 'Kevin claims I\'m "his assistant." Light banter after my roast.\n\nPer Assistenten-Definition müsste ich dir dann auch helfen.';
-      const result = stripMetaCommentary(text, ["Kevin"]);
+      const text = 'Nico claims I\'m "his assistant." Light banter after my roast.\n\nPer Assistenten-Definition müsste ich dir dann auch helfen.';
+      const result = stripMetaCommentary(text, ["Nico"]);
       assert.equal(result.stripped, true);
       assert.equal(result.text, "Per Assistenten-Definition müsste ich dir dann auch helfen.");
     });
 
     it("strips a name+English-verb meta sentence with a German reply", () => {
-      const text = "Kevin claims the climb is too hard. Wir klettern trotzdem morgen.";
-      const result = stripMetaCommentary(text, ["Kevin"]);
+      const text = "Nico claims the climb is too hard. Wir klettern trotzdem morgen.";
+      const result = stripMetaCommentary(text, ["Nico"]);
       assert.equal(result.stripped, true);
       assert.equal(result.text, "Wir klettern trotzdem morgen.");
     });
 
     it("keeps a German reply starting with Yuki after an inline seam", () => {
-      const text = "Kevin claims the climb is too hard. Yuki steigt trotzdem morgen auf.";
-      const result = stripMetaCommentary(text, ["Kevin"]);
+      const text = "Nico claims the climb is too hard. Yuki steigt trotzdem morgen auf.";
+      const result = stripMetaCommentary(text, ["Nico"]);
       assert.equal(result.stripped, true);
       assert.equal(result.text, "Yuki steigt trotzdem morgen auf.");
     });
 
     it("leaves a normal German reply mentioning a member unchanged", () => {
-      const text = "Kevin, ich schau morgen";
-      const result = stripMetaCommentary(text, ["Kevin"]);
+      const text = "Nico, ich schau morgen";
+      const result = stripMetaCommentary(text, ["Nico"]);
       assert.equal(result.stripped, false);
       assert.equal(result.text, text);
     });
 
     it("leaves a German reply quoting English text with a name unchanged", () => {
-      const text = 'Haha, Kevin meinte "I think the route is doable" und ich bin dabei.';
-      const result = stripMetaCommentary(text, ["Kevin"]);
+      const text = 'Haha, Nico meinte "I think the route is doable" und ich bin dabei.';
+      const result = stripMetaCommentary(text, ["Nico"]);
       assert.equal(result.stripped, false);
       assert.equal(result.text, text);
     });
 
     it("fails open (unchanged) when no clean split point exists", () => {
-      const text = 'Kevin joked "I should just go" aber das war nur Spaß.';
-      const result = stripMetaCommentary(text, ["Kevin"]);
+      const text = 'Nico joked "I should just go" aber das war nur Spaß.';
+      const result = stripMetaCommentary(text, ["Nico"]);
       assert.equal(result.stripped, false);
       assert.equal(result.text, text);
     });
 
     describe("commentary flag (plan 347)", () => {
       const INCIDENT_PURE = [
-        'Kevin is playfully blessing/worshipping me here. He\'s clearly joking,',
+        'Nico is playfully blessing/worshipping me here. He\'s clearly joking,',
         "playing into the bit after the last exchange. I should match the mood",
         "with a single light, witty one-liner. Keep it short and warm, one clean",
         "line, nothing defensive.",
       ].join(" ");
 
       it("classifies the pure-commentary incident as commentary:true, stripped:false", () => {
-        const result = stripMetaCommentary(INCIDENT_PURE, ["Kevin"]);
+        const result = stripMetaCommentary(INCIDENT_PURE, ["Nico"]);
         assert.equal(result.commentary, true);
         assert.equal(result.stripped, false);
         assert.equal(result.text, INCIDENT_PURE);
@@ -187,45 +187,45 @@ describe("anti-tell", () => {
 
       it("leaves a normal German reply as commentary:false", () => {
         const text = "Per Assistenten-Definition müsste ich dir dann auch helfen.";
-        const result = stripMetaCommentary(text, ["Kevin"]);
+        const result = stripMetaCommentary(text, ["Nico"]);
         assert.equal(result.commentary, false);
         assert.equal(result.stripped, false);
       });
 
       it("reports the 345 mixed case as stripped:true, commentary:true", () => {
-        const result = stripMetaCommentary(INCIDENT, ["Kevin", "Ada"]);
+        const result = stripMetaCommentary(INCIDENT, ["Nico", "Ada"]);
         assert.equal(result.stripped, true);
         assert.equal(result.commentary, true);
       });
 
       it("reports a German reply quoting English text as commentary:false", () => {
-        const text = 'Haha, Kevin meinte "I think the route is doable" und ich bin dabei.';
-        const result = stripMetaCommentary(text, ["Kevin"]);
+        const text = 'Haha, Nico meinte "I think the route is doable" und ich bin dabei.';
+        const result = stripMetaCommentary(text, ["Nico"]);
         assert.equal(result.commentary, false);
       });
 
       it("exposes strong >= 1 for a short narrator-phrase commentary (plan 499)", () => {
-        const result = stripMetaCommentary("I should respond. ok.", ["Kevin"]);
+        const result = stripMetaCommentary("I should respond. ok.", ["Nico"]);
         assert.equal(result.commentary, true);
         assert.ok(result.strong >= 1);
       });
 
       it("reports a short member-name commentary as commentary:true but strong:0 (plan 499)", () => {
-        const result = stripMetaCommentary("ja genau lol", ["Kevin"]);
+        const result = stripMetaCommentary("ja genau lol", ["Nico"]);
         assert.equal(result.commentary, false);
         assert.equal(result.strong, 0);
       });
 
       it("reports a plain short German reply as commentary:false, strong:0 (plan 499)", () => {
-        const result = stripMetaCommentary("Alles klar, bis morgen.", ["Kevin"]);
+        const result = stripMetaCommentary("Alles klar, bis morgen.", ["Nico"]);
         assert.equal(result.commentary, false);
         assert.equal(result.strong, 0);
       });
     });
 
     it("returns unchanged for empty or non-string input", () => {
-      assert.deepEqual(stripMetaCommentary("", ["Kevin"]), { text: "", stripped: false, commentary: false });
-      assert.deepEqual(stripMetaCommentary(null, ["Kevin"]), { text: null, stripped: false, commentary: false });
+      assert.deepEqual(stripMetaCommentary("", ["Nico"]), { text: "", stripped: false, commentary: false });
+      assert.deepEqual(stripMetaCommentary(null, ["Nico"]), { text: null, stripped: false, commentary: false });
     });
   });
 });

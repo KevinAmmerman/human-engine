@@ -87,10 +87,10 @@ describe("state", () => {
     });
 
     it("getTranscriptPeek parses speaker and text", () => {
-      pushTranscriptPeek("tp-parse", "[Kevin] hey there");
+      pushTranscriptPeek("tp-parse", "[Nico] hey there");
       pushTranscriptPeek("tp-parse", "plain line");
       const out = getTranscriptPeek("tp-parse", 10);
-      assert.deepEqual(out[0], { speaker: "Kevin", text: "hey there" });
+      assert.deepEqual(out[0], { speaker: "Nico", text: "hey there" });
       assert.deepEqual(out[1], { speaker: "", text: "plain line" });
     });
 

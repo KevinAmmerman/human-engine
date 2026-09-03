@@ -40,13 +40,13 @@ describe("observed-store", { concurrency: false }, () => {
   describe("roundtrip", () => {
     it("appends rows and reads them back in order with speaker/text/ts", () => {
       const sk = "agent:test:whatsapp:group:123@g.us";
-      store.appendObserved(sk, { speaker: "Kevin", text: "erster", ts: 1000 });
+      store.appendObserved(sk, { speaker: "Nico", text: "erster", ts: 1000 });
       store.appendObserved(sk, { speaker: "Anna", text: "zweiter", ts: 1001 });
-      store.appendObserved(sk, { speaker: "Kevin", text: "dritter", ts: 1002 });
+      store.appendObserved(sk, { speaker: "Nico", text: "dritter", ts: 1002 });
 
       const rows = store.readObserved(sk, 20);
       assert.equal(rows.length, 3);
-      assert.deepEqual(rows.map((r) => r.speaker), ["Kevin", "Anna", "Kevin"]);
+      assert.deepEqual(rows.map((r) => r.speaker), ["Nico", "Anna", "Nico"]);
       assert.deepEqual(rows.map((r) => r.text), ["erster", "zweiter", "dritter"]);
       assert.deepEqual(rows.map((r) => r.ts), [1000, 1001, 1002]);
     });
@@ -68,7 +68,7 @@ describe("observed-store", { concurrency: false }, () => {
   describe("rotation", () => {
     it("bounds the file to ~200 newest rows after 405 appends", () => {
       const sk = "rotation-session";
-      for (let i = 0; i < 405; i++) store.appendObserved(sk, { speaker: "Kevin", text: "m" + i, ts: i });
+      for (let i = 0; i < 405; i++) store.appendObserved(sk, { speaker: "Nico", text: "m" + i, ts: i });
 
       const file = fileFor(sk);
       const dataLines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
@@ -83,7 +83,7 @@ describe("observed-store", { concurrency: false }, () => {
 
     it("keeps newest rows across a fresh instance (restart survival)", () => {
       const sk = "restart-session";
-      for (let i = 0; i < 405; i++) store.appendObserved(sk, { speaker: "Kevin", text: "m" + i, ts: i });
+      for (let i = 0; i < 405; i++) store.appendObserved(sk, { speaker: "Nico", text: "m" + i, ts: i });
 
       const fresh = createObservedStore({ stateDir: tmpDir, log: makeLog() });
       const rows = fresh.readObserved(sk, 20);
@@ -95,7 +95,7 @@ describe("observed-store", { concurrency: false }, () => {
   describe("file modes", () => {
     it("writes the jsonl with 0600 and dir with 0700", () => {
       const sk = "mode-session";
-      store.appendObserved(sk, { speaker: "Kevin", text: "secret", ts: 1 });
+      store.appendObserved(sk, { speaker: "Nico", text: "secret", ts: 1 });
 
       const file = fileFor(sk);
       assert.equal(fs.statSync(file).mode & 0o777, 0o600);
@@ -105,7 +105,7 @@ describe("observed-store", { concurrency: false }, () => {
 
     it("keeps 0600 after rotation rewrite", () => {
       const sk = "mode-rotation-session";
-      for (let i = 0; i < 405; i++) store.appendObserved(sk, { speaker: "Kevin", text: "m" + i, ts: i });
+      for (let i = 0; i < 405; i++) store.appendObserved(sk, { speaker: "Nico", text: "m" + i, ts: i });
       assert.equal(fs.statSync(fileFor(sk)).mode & 0o777, 0o600);
     });
   });
@@ -117,7 +117,7 @@ describe("observed-store", { concurrency: false }, () => {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       fs.writeFileSync(
         file,
-        JSON.stringify({ speaker: "Kevin", text: "gut", ts: 1 }) + "\n" +
+        JSON.stringify({ speaker: "Nico", text: "gut", ts: 1 }) + "\n" +
         JSON.stringify({ speaker: "Anna", text: "auch gut", ts: 2 }) + "\n" +
         '{"speaker": "Kim", "text": "kaputt',
         { mode: 0o600 },
@@ -135,7 +135,7 @@ describe("observed-store", { concurrency: false }, () => {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       fs.writeFileSync(
         file,
-        JSON.stringify({ speaker: "Kevin", text: "echt" }) + "\n" +
+        JSON.stringify({ speaker: "Nico", text: "echt" }) + "\n" +
         JSON.stringify({ speaker: "Ghost" }) + "\n" +
         '"just a string"',
         { mode: 0o600 },

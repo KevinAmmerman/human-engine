@@ -72,7 +72,7 @@ function makeCandidate(type = "unanswered_question", overrides = {}) {
     sessionKey: SK,
     agentId: "hori",
     anchor: "Wann geht ihr klettern?",
-    senderName: "Kevin",
+    senderName: "Nico",
     detectAt: T0,
     matureAt: T0,
     context: "",
@@ -131,7 +131,7 @@ describe("proactive", { concurrency: false }, () => {
       const { proactive, clock, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 1);
@@ -146,7 +146,7 @@ describe("proactive", { concurrency: false }, () => {
       const { proactive, clock, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
       await proactive.onInbound(SK, { senderName: "Anna", text: "Am Freitag passt es bei mir", isGroup: true });
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
@@ -158,7 +158,7 @@ describe("proactive", { concurrency: false }, () => {
       const { proactive, clock, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Hey @4912345678 kannst du kommen?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Hey @4912345678 kannst du kommen?", isGroup: true });
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
@@ -167,11 +167,11 @@ describe("proactive", { concurrency: false }, () => {
     it("stalled_exchange fires when the agent spoke within the last 5 lines", async () => {
       setRng(() => 0);
       state.pushTranscriptPeek(SK, "[Hori] ja genau");
-      state.pushTranscriptPeek(SK, "[Kevin] ok danke");
+      state.pushTranscriptPeek(SK, "[Nico] ok danke");
       const { proactive, clock, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { contextMatch: false, unansweredQuestion: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "ok danke", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "ok danke", isGroup: true });
       clock.t += 25 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 1);
@@ -182,9 +182,9 @@ describe("proactive", { concurrency: false }, () => {
       setRng(() => 0);
       const { proactive, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { unansweredQuestion: false, stalledExchange: false, followUpCommitment: false } }),
-        socialMemory: makeSocialMemory("Kevin klettert oft an nassen Felsen, das ist gefaehrlich"),
+        socialMemory: makeSocialMemory("Nico klettert oft an nassen Felsen, das ist gefaehrlich"),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "der fels ist nass", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "der fels ist nass", isGroup: true });
       assert.equal(runtime.subagent.run.mock.callCount(), 1);
       assert.equal(runtime.subagent.run.mock.calls[0].arguments[0].idempotencyKey.startsWith("human-engine-proactive-context_match-"), true);
     });
@@ -192,20 +192,20 @@ describe("proactive", { concurrency: false }, () => {
     it("context_match does not fire below the overlap threshold", async () => {
       const { proactive, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { unansweredQuestion: false, stalledExchange: false, followUpCommitment: false } }),
-        socialMemory: makeSocialMemory("Kevin mag schokolade"),
+        socialMemory: makeSocialMemory("Nico mag schokolade"),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "der fels ist nass", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "der fels ist nass", isGroup: true });
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
     });
 
     it("follow_up_commitment fires after the delivery delay", async () => {
       setRng(() => 0);
       state.pushTranscriptPeek(SK, "[Hori] ok ich schau nach");
-      state.pushTranscriptPeek(SK, "[Kevin] danke");
+      state.pushTranscriptPeek(SK, "[Nico] danke");
       const { proactive, clock, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { contextMatch: false, unansweredQuestion: false, stalledExchange: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "danke", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "danke", isGroup: true });
       clock.t += 121 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 1);
@@ -231,7 +231,7 @@ describe("proactive", { concurrency: false }, () => {
       const { proactive, clock, log } = track(makeProactive({
         cfg: makeCfg({ enabled: false, shadow: true, triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
       assert.ok(log._infos.some((m) => m.includes("reason=failed:disabled")), log._infos.join("\n"));
@@ -277,7 +277,7 @@ describe("proactive", { concurrency: false }, () => {
       }));
       await proactive.fire(makeCandidate("unanswered_question"));
       clock.t += 5 * 60 * 1000;
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "danke, super", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "danke, super", isGroup: true });
       const res = proactive.evaluate(makeCandidate("unanswered_question"));
       assert.equal(res.pass, true, res.reasons.join(","));
     });
@@ -288,7 +288,7 @@ describe("proactive", { concurrency: false }, () => {
       const { proactive, clock } = track(makeProactive({
         cfg: makeCfg({ triggers: { contextMatch: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Wann geht ihr klettern?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wann geht ihr klettern?", isGroup: true });
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
       const res = proactive.evaluate(makeCandidate("unanswered_question"));
@@ -311,7 +311,7 @@ describe("proactive", { concurrency: false }, () => {
         cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
       }));
       for (let i = 0; i < 4; i++) {
-        await proactive.onInbound(SK, { senderName: "Kevin", text: "hallo " + i, isGroup: true });
+        await proactive.onInbound(SK, { senderName: "Nico", text: "hallo " + i, isGroup: true });
       }
       const res = proactive.evaluate(makeCandidate("unanswered_question"));
       assert.equal(res.pass, false);
@@ -339,7 +339,7 @@ describe("proactive", { concurrency: false }, () => {
       const { proactive, clock, runtime, log } = track(makeProactive({
         cfg: makeCfg({ shadow: true, triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
@@ -352,7 +352,7 @@ describe("proactive", { concurrency: false }, () => {
         cfg: makeCfg({ shadow: true, triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
         runtime: makeRuntime({ llmText: "SKIP" }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
@@ -443,7 +443,7 @@ describe("proactive", { concurrency: false }, () => {
       const { proactive, clock, runtime } = track(makeProactive({
         cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
       }));
-      await proactive.onInbound(SK, { senderName: "Kevin", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wann treffen wir uns am Donnerstag?", isGroup: true });
       proactive.stop();
       clock.t += 10 * 60 * 1000;
       await proactive.tick();

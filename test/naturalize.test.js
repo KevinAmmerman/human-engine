@@ -292,7 +292,7 @@ describe("naturalize", () => {
     });
 
     it("respond receives transcript peek context", async () => {
-      state.transcriptPeekBySession.set(CHAT_SK, ["[Kevin] Hey Hori"]);
+      state.transcriptPeekBySession.set(CHAT_SK, ["[Nico] Hey Hori"]);
       let captured;
       const capEngine = {
         currentEpoch() { return 0; },
@@ -311,7 +311,7 @@ describe("naturalize", () => {
 
       await new Promise((r) => setTimeout(r, 1500));
       const transcript = captured.transcript || [];
-      assert.ok(transcript.some((t) => t.speaker === "Kevin" && t.text.includes("Hey Hori")));
+      assert.ok(transcript.some((t) => t.speaker === "Nico" && t.text.includes("Hey Hori")));
     });
 
     it("epoch bump mid-delivery cancels remaining bubbles", async () => {
@@ -600,7 +600,7 @@ describe("naturalize", () => {
 
   describe("meta-commentary strip (plan 345)", () => {
     const INCIDENT = [
-      'Kevin claims I\'m "his assistant." Light banter after my roast. He\'s',
+      'Nico claims I\'m "his assistant." Light banter after my roast. He\'s',
       "asserting ownership/role in a playful way. I should respond with",
       "personality - not capitulate … Keep it one sharp clean line. Not",
       "defensive, just deadpan. … Warm underneath.Per Assistenten-Definition",
@@ -652,7 +652,7 @@ describe("naturalize", () => {
 
   describe("pure-commentary regen barrier (plan 347)", () => {
     const INCIDENT_PURE = [
-      'Kevin is playfully blessing/worshipping me here. He\'s clearly joking,',
+      'Nico is playfully blessing/worshipping me here. He\'s clearly joking,',
       "playing into the bit after the last exchange. I should match the mood",
       "with a single light, witty one-liner. Keep it short and warm, one clean",
       "line, nothing defensive.",

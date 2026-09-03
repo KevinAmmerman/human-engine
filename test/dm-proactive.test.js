@@ -170,7 +170,7 @@ describe("dm-proactive", { concurrency: false }, () => {
     it("non-commitment outbound text produces no log entry", async () => {
       const { dm, stateDir } = track(makeDm());
       writeStore(path.join(tmpDir, "commitments.json"), []);
-      await dm.onMessageSending({ content: "Hey Kevin, hier ist die Antwort." }, { sessionKey: SK });
+      await dm.onMessageSending({ content: "Hey Nico, hier ist die Antwort." }, { sessionKey: SK });
       assert.equal(readLog(stateDir).length, 0);
     });
 
@@ -270,7 +270,7 @@ describe("dm-proactive", { concurrency: false }, () => {
     it("social-memory fact that fits the text becomes the memory reference and reaches the draft", async () => {
       const profile = {
         people: {
-          Kevin: { facts: ["Kevin geht gern frueh joggen", "Kevin mag Klettern"], preferences: [], situation: "" },
+          Nico: { facts: ["Nico geht gern frueh joggen", "Nico mag Klettern"], preferences: [], situation: "" },
         },
       };
       const runtime = makeRuntime({ llmText: "Du warst ja gern frueh beim Joggen — alles gut?" });
@@ -283,12 +283,12 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.handleCandidate(candidate);
       assert.equal(socialMemory.getOrLoadProfile.mock.callCount() > 0, true);
       const entries = readLog(stateDir);
-      assert.ok(String(entries[0].render.memoryReference).includes("Kevin"), String(entries[0].render.memoryReference));
+      assert.ok(String(entries[0].render.memoryReference).includes("Nico"), String(entries[0].render.memoryReference));
       assert.equal(entries[0].render.draft, "Du warst ja gern frueh beim Joggen — alles gut?");
     });
 
     it("no fitting social-memory fact means no reference (anti-hallucination)", async () => {
-      const profile = { people: { Kevin: { facts: ["Kevin mag Tee"], preferences: [], situation: "" } } };
+      const profile = { people: { Nico: { facts: ["Nico mag Tee"], preferences: [], situation: "" } } };
       const runtime = makeRuntime({ llmText: "Kurzer Stand, reicht dir das?" });
       const { dm, stateDir } = track(makeDm({ runtime, socialMemory: makeSocialMemory(profile) }));
       await dm.handleCandidate(makeCareCandidate({ suggestedText: "Wie war der fruehe Jogging-Run?" }));

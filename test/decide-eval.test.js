@@ -101,9 +101,9 @@ describe("decide-eval", () => {
 
     it("follow-up to the agent's own line is SPEAK-leaning and includes the agent line", () => {
       const transcript = [
-        { speaker: "Kevin", text: "was sagst du sollte ich mir eine Rastschlinge ausleihen?" },
+        { speaker: "Nico", text: "was sagst du sollte ich mir eine Rastschlinge ausleihen?" },
         { speaker: "Hori", text: "ja auf jeden fall, bei C/D-Passagen hilft sie dir" },
-        { speaker: "Kevin", text: "und wo bekomm ich die her?" },
+        { speaker: "Nico", text: "und wo bekomm ich die her?" },
       ];
       const prompt = buildDecidePrompt({ transcript, persona: null, voiceCard: null, agentName: "Hori" });
       assert.ok(prompt.systemPrompt.includes("follow-up"),

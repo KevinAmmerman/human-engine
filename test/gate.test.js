@@ -60,7 +60,7 @@ function makeDefaultCtx(overrides = {}) {
     agentId: "test-agent",
     sessionKey: CHAT_SK,
     senderId: "user-1",
-    senderName: "Kevin",
+    senderName: "Nico",
     channelId: "ch-1",
     ...overrides,
   };
@@ -117,7 +117,7 @@ describe("gate", () => {
 
     it("caches sender name per session", () => {
       gate.onMessageReceived({ text: "hi" }, makeDefaultCtx());
-      assert.equal(state.senderBySession.get(CHAT_SK), "Kevin");
+      assert.equal(state.senderBySession.get(CHAT_SK), "Nico");
     });
   });
 
@@ -173,7 +173,7 @@ describe("gate", () => {
     });
 
     it("merges hydrated assistant line even when peek has 6+ entries", async () => {
-      for (let i = 0; i < 8; i++) state.pushTranscriptPeek(CHAT_SK, `[Kevin] m${i}`);
+      for (let i = 0; i < 8; i++) state.pushTranscriptPeek(CHAT_SK, `[Nico] m${i}`);
       let captured;
       const pkGate = makeGate({
         engine: {
@@ -182,7 +182,7 @@ describe("gate", () => {
         readTranscript: async () => [
           { speaker: "User", text: "Hey Hori, wie ist das Wetter?" },
           { speaker: "Hori", text: "klar und sonnig" },
-          { speaker: "Kevin", text: "m7" },
+          { speaker: "Nico", text: "m7" },
         ],
       });
 
@@ -199,12 +199,12 @@ describe("gate", () => {
     });
 
     it("merges observed-store layer with hydrated and peek, deduped, chronological, capped at 20", async () => {
-      for (let i = 0; i < 6; i++) state.pushTranscriptPeek(CHAT_SK, `[Kevin] p${i}`);
-      state.pushTranscriptPeek(CHAT_SK, "[Kevin] older silenced");
+      for (let i = 0; i < 6; i++) state.pushTranscriptPeek(CHAT_SK, `[Nico] p${i}`);
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] older silenced");
       let captured;
       const obsGate = makeGate({
         observedStore: {
-          readObserved: () => [{ speaker: "Kevin", text: "older silenced", ts: 1000 }],
+          readObserved: () => [{ speaker: "Nico", text: "older silenced", ts: 1000 }],
           appendObserved: () => {},
         },
         engine: {
@@ -241,7 +241,7 @@ describe("gate", () => {
       assert.deepEqual(result, { handled: true });
       assert.equal(appends.length, 1);
       assert.equal(appends[0].sk, CHAT_SK);
-      assert.equal(appends[0].speaker, "Kevin");
+      assert.equal(appends[0].speaker, "Nico");
       assert.equal(appends[0].text, "Hello bot");
       assert.ok(typeof appends[0].ts === "number");
     });
@@ -297,7 +297,7 @@ describe("gate", () => {
     });
 
     it("decide receives transcript peek context", async () => {
-      state.transcriptPeekBySession.set(CHAT_SK, ["[Kevin] Hey Hori", "[Hori] Ja?"]);
+      state.transcriptPeekBySession.set(CHAT_SK, ["[Nico] Hey Hori", "[Hori] Ja?"]);
       let captured;
       const captureGate = makeGate({
         engine: {
@@ -309,7 +309,7 @@ describe("gate", () => {
       const transcript = captured.transcript || [];
       const hey = transcript.find((t) => t.text.includes("Hey Hori"));
       assert.ok(hey, "transcript should include peek line");
-      assert.equal(hey.speaker, "Kevin");
+      assert.equal(hey.speaker, "Nico");
       assert.ok(transcript.some((t) => t.text.includes("Was sagst du?")), "transcript should include current prompt");
     });
 
@@ -423,7 +423,7 @@ describe("gate", () => {
         cfg: { ...cfg, agentName: "Hori" },
         engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
         readTranscript: async () => [
-          { speaker: "Kevin", text: "wie wird das wetter am wochenende?" },
+          { speaker: "Nico", text: "wie wird das wetter am wochenende?" },
           { speaker: "Hori", text: "klar und sonnig am Berg, perfekt fuer den Klettersteig" },
         ],
       });

@@ -430,8 +430,8 @@ describe("local-engine", () => {
       });
       const res = await engine.regenerateReply({
         sessionKey: "s30",
-        reasoning: "Kevin is playfully blessing/worshipping me…",
-        transcript: [{ speaker: "Kevin", text: "Gepriesen seist du Hori" }],
+        reasoning: "Nico is playfully blessing/worshipping me…",
+        transcript: [{ speaker: "Nico", text: "Gepriesen seist du Hori" }],
         agentName: "Hori",
       });
       assert.deepEqual(res, { text: "Der Fels ist nass, also lass uns morgen gehen." });
