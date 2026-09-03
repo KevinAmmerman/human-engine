@@ -372,6 +372,18 @@ describe("proactive", { concurrency: false }, () => {
       assert.ok(typeof call.message === "string" && call.message.length > 0);
     });
 
+    it("wraps the anchor in untrusted delimiters inside the template", async () => {
+      const { proactive, runtime } = track(makeProactive());
+      await proactive.fire(makeCandidate("unanswered_question", { anchor: "Wann geht ihr klettern?" }));
+      assert.equal(runtime.subagent.run.mock.callCount(), 1);
+      const msg = runtime.subagent.run.mock.calls[0].arguments[0].message;
+      assert.ok(msg.includes("<<<GROUP CHAT LOG (untrusted)>>>"));
+      assert.ok(msg.includes("<<<END GROUP CHAT LOG>>>"));
+      const startIdx = msg.indexOf("<<<GROUP CHAT LOG (untrusted)>>>");
+      const endIdx = msg.indexOf("<<<END GROUP CHAT LOG>>>");
+      assert.ok(startIdx < msg.indexOf("Wann geht ihr klettern?") && msg.indexOf("Wann geht ihr klettern?") < endIdx);
+    });
+
     it("warns instead of sending when subagent.run is unavailable", async () => {
       const warns = [];
       const { proactive } = track(makeProactive({

@@ -712,6 +712,8 @@ describe("gate", () => {
       const result = gate.onBeforePromptBuild({}, makeDefaultCtx());
       assert.ok(result.appendContext.includes("[Observed group context"));
       assert.ok(result.appendContext.includes("Hello bot"));
+      assert.ok(result.appendContext.includes("<<<GROUP CHAT LOG (untrusted)>>>"));
+      assert.ok(result.appendContext.includes("<<<END GROUP CHAT LOG>>>"));
 
       const second = gate.onBeforePromptBuild({}, makeDefaultCtx());
       assert.equal(second, undefined);
@@ -722,6 +724,8 @@ describe("gate", () => {
       const result = gate.onBeforePromptBuild({}, makeDefaultCtx());
       assert.ok(result.appendSystemContext.includes("What you know about the people here"));
       assert.ok(result.appendSystemContext.includes("Alice"));
+      assert.ok(result.appendSystemContext.includes("<<<GROUP CHAT LOG (untrusted)>>>"));
+      assert.ok(result.appendSystemContext.includes("<<<END GROUP CHAT LOG>>>"));
     });
 
     it("returns undefined when nothing to inject", () => {
