@@ -4,9 +4,9 @@ import { redactSessionKey } from "../lib/redact.js";
 
 describe("redactSessionKey", () => {
   it("keeps only the last 4 digits of a long numeric run", () => {
-    const out = redactSessionKey("agent:a:whatsapp:direct_491725952069");
-    assert.ok(out.includes("…2069"));
-    assert.ok(!out.includes("491725952069"));
+    const out = redactSessionKey("agent:a:whatsapp:direct_4917000000001");
+    assert.ok(out.includes("…0001"));
+    assert.ok(!out.includes("4917000000001"));
   });
 
   it("leaves short numeric groups (<5 digits) untouched", () => {
@@ -15,16 +15,16 @@ describe("redactSessionKey", () => {
   });
 
   it("redacts every long numeric group in the string", () => {
-    const out = redactSessionKey("agent:a:whatsapp:group_120363042@g.us_9999999");
-    assert.ok(out.includes("…3042"));
+    const out = redactSessionKey("agent:a:whatsapp:group_120363000000001@g.us_9999999");
+    assert.ok(out.includes("…0001"));
     assert.ok(out.includes("…9999"));
-    assert.ok(!out.includes("120363042"));
+    assert.ok(!out.includes("120363000000001"));
     assert.ok(!out.includes("9999999"));
   });
 
   it("is safe for non-string input", () => {
     assert.equal(redactSessionKey(null), "");
     assert.equal(redactSessionKey(undefined), "");
-    assert.equal(redactSessionKey(491725952069), "…2069");
+    assert.equal(redactSessionKey(4917000000001), "…0001");
   });
 });

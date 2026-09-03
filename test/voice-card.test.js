@@ -427,7 +427,7 @@ describe("voice-card", () => {
       clearCache();
       clearCounter();
       clearRefreshing();
-      const logSk = "agent:test-agent:whatsapp:direct_491725952069";
+      const logSk = "agent:test-agent:whatsapp:direct_4917000000001";
       const engine = { extractVoiceCard: async () => null };
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: { enabled: true, logRequests: true, refreshEvery: 1, refreshMinutes: 0 } },
@@ -446,8 +446,8 @@ describe("voice-card", () => {
       const mode = fs.statSync(logFile).mode & 0o777;
       assert.equal(mode, 0o600, "request log file should be 0600");
       const content = fs.readFileSync(logFile, "utf8");
-      assert.ok(content.includes("…2069"), "session id should be redacted to last 4 digits");
-      assert.ok(!content.includes("491725952069"), "session id must not contain the full number");
+      assert.ok(content.includes("…0001"), "session id should be redacted to last 4 digits");
+      assert.ok(!content.includes("4917000000001"), "session id must not contain the full number");
     });
 
     it("uses the global card when perSessionCard is explicitly false", () => {

@@ -279,7 +279,7 @@ describe("gate", () => {
         socialMemory: makeSocialMemoryStub(),
         log,
       });
-      const groupSk = "agent:test-agent:whatsapp:group:120363042@g.us";
+      const groupSk = "agent:test-agent:whatsapp:group:120363000000001@g.us";
       const result = await redactGate.onBeforeAgentReply(
         makeReplyEvent(),
         makeDefaultCtx({ sessionKey: groupSk })
@@ -287,8 +287,8 @@ describe("gate", () => {
       assert.deepEqual(result, { handled: true });
       const line = lines.find((l) => l.includes("stay_silent handled"));
       assert.ok(line, "expected a stay_silent log line");
-      assert.ok(line.includes("…3042"), "log should keep only the last 4 digits");
-      assert.ok(!line.includes("120363042"), "log must not contain the full number");
+      assert.ok(line.includes("…0001"), "log should keep only the last 4 digits");
+      assert.ok(!line.includes("120363000000001"), "log must not contain the full number");
     });
 
     it("DM fail-open when decide returns null", async () => {
