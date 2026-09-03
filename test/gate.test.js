@@ -334,6 +334,30 @@ describe("gate", () => {
       assert.ok(state.observedBySession.get(CHAT_SK)[0].includes("Hello bot"));
     });
 
+    it("decide transcript entries carry ts after merge (peek + observed)", async () => {
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] fresh", undefined, 1000);
+      let captured;
+      const tsGate = makeGate({
+        observedStore: {
+          readObserved: () => [{ speaker: "Ada", text: "older silenced", ts: 500 }],
+          appendObserved: () => {},
+        },
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; },
+        },
+        readTranscript: async () => [{ speaker: "Hori", text: "assistant note", ts: 2000 }],
+      });
+
+      await tsGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "current" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const older = transcript.find((t) => t.text === "older silenced");
+      const peek = transcript.find((t) => t.text === "fresh");
+      const hyd = transcript.find((t) => t.text === "assistant note");
+      assert.equal(older.ts, 500, "observed layer ts preserved");
+      assert.equal(peek.ts, 1000, "peek layer ts preserved");
+      assert.equal(hyd.ts, 2000, "hydrated layer ts preserved");
+    });
+
     it("stay_silent log line redacts the session-key numeric tail", async () => {
       const lines = [];
       const log = { info: (m) => lines.push(m), warn() {}, debug() {} };

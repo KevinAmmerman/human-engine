@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach } from "node:test";
-import { capMap, pushObserved, observedBySession, pushTranscriptPeek, transcriptPeekBySession, getTranscriptPeek } from "../lib/state.js";
+import { capMap, pushObserved, observedBySession, pushTranscriptPeek, transcriptPeekBySession, getTranscriptPeek, peekMetaBySession } from "../lib/state.js";
 
 describe("state", () => {
   beforeEach(() => {
     observedBySession.clear();
     transcriptPeekBySession.clear();
+    peekMetaBySession.clear();
   });
 
   it("capMap does nothing when under limit", () => {
@@ -113,6 +114,33 @@ describe("state", () => {
 
     it("getTranscriptPeek returns empty array for unknown session", () => {
       assert.deepEqual(getTranscriptPeek("tp-unknown", 5), []);
+    });
+
+    it("aligns ts meta with peek lines (speaker/text/ts)", () => {
+      pushTranscriptPeek("tp-meta", "[Nico] a", undefined, 1000);
+      pushTranscriptPeek("tp-meta", "[Ada] b", undefined, 2000);
+      pushTranscriptPeek("tp-meta", "[Hori] c", undefined, 3000);
+      const out = getTranscriptPeek("tp-meta", 10);
+      assert.equal(out.length, 3);
+      assert.deepEqual(out[0], { speaker: "Nico", text: "a", ts: 1000 });
+      assert.deepEqual(out[1], { speaker: "Ada", text: "b", ts: 2000 });
+      assert.deepEqual(out[2], { speaker: "Hori", text: "c", ts: 3000 });
+    });
+
+    it("keeps ts alignment after overflow cap", () => {
+      for (let i = 0; i < 60; i++) pushTranscriptPeek("tp-overflow", `[U] m${i}`, 50, 1000 + i);
+      const out = getTranscriptPeek("tp-overflow", 50);
+      assert.equal(out.length, 50);
+      assert.deepEqual(out[0], { speaker: "U", text: "m10", ts: 1010 });
+      assert.deepEqual(out[49], { speaker: "U", text: "m59", ts: 1059 });
+    });
+
+    it("missing ts yields undefined (omitted)", () => {
+      pushTranscriptPeek("tp-nots", "[Nico] a");
+      pushTranscriptPeek("tp-nots", "[Ada] b", undefined, 500);
+      const out = getTranscriptPeek("tp-nots", 10);
+      assert.deepEqual(out[0], { speaker: "Nico", text: "a" });
+      assert.deepEqual(out[1], { speaker: "Ada", text: "b", ts: 500 });
     });
   });
 });
