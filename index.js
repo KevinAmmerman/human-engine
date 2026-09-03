@@ -1,7 +1,7 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { resolveConfig } from "./lib/config.js";
 import { createGate } from "./lib/gate.js";
-import { createNaturalize } from "./lib/naturalize.js";
+import { createNaturalize, clearAllBubbleTimers } from "./lib/naturalize.js";
 import { buildPersonaPrompt, buildPersonaPromptWithMemory, buildSoulPrompt } from "./lib/persona.js";
 import * as state from "./lib/state.js";
 import { createVoiceCard } from "./lib/voice-card.js";
@@ -131,7 +131,9 @@ export default definePluginEntry({
       clearInterval(proactiveTick);
       proactive.stop();
       dmProactive.stop();
-      log.info("human-engine: proactive tick stopped (gateway_stop)");
+      clearAllBubbleTimers();
+      socialMemory.stop();
+      log.info("human-engine: proactive tick stopped, naturalize timers cleared (gateway_stop)");
     }));
 
     api.registerCommand({

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { bubbleTimers } from "../lib/naturalize.js";
 
 process.env.HUMAN_ENGINE_STATE_DIR = mkdtempSync(join(tmpdir(), "he-test-state-"));
 
@@ -139,5 +140,19 @@ describe("register() from index.js", () => {
 
     result = await hooks.gateway_start[0]();
     assert.equal(result, undefined);
+  });
+
+  it("gateway_stop clears naturalize bubble timers", () => {
+    const { api, hooks } = makeFakeApi({ withLLM: true });
+
+    pluginEntry.register(api);
+
+    bubbleTimers.set("agent:test-agent:whatsapp:group:123@g.us", [setTimeout(() => {}, 1000)]);
+    try {
+      hooks.gateway_stop[0]();
+      assert.equal(bubbleTimers.size, 0);
+    } finally {
+      bubbleTimers.clear();
+    }
   });
 });

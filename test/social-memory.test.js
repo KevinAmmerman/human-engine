@@ -455,6 +455,26 @@ describe("social-memory", { concurrency: false }, () => {
     });
   });
 
+  describe("stop() flush-on-shutdown", () => {
+    it("flushes dirty scope to disk, clears timers", () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "social-mem-stop-"));
+      try {
+        const sm = createSocialMemory({ cfg: makeCfg(), stateDir: dir, log: makeLog() });
+        const scope = "agent1::conv1";
+        sm.ingest(scope, { speaker: "Alice", text: "hi", ts: 1 });
+        sm.stop();
+
+        const sm2 = createSocialMemory({ cfg: makeCfg(), stateDir: dir, log: makeLog() });
+        const profile = sm2.getOrLoadProfile(scope);
+        assert.ok(profile.people.Alice);
+        assert.equal(sm.flushTimers?.size, undefined);
+        assert.equal(sm2.flushTimers, undefined);
+      } finally {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+      }
+    });
+  });
+
   describe("disabled config", () => {
     it("ingest is no-op when socialMemory.enabled is false", () => {
       sm = createSocialMemory({ cfg: makeCfg({ enabled: false }), stateDir: tmpDir, log: makeLog() });
