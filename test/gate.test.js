@@ -699,6 +699,100 @@ describe("gate", () => {
       );
       assert.equal(result, undefined, "DM sessions stay fail-open by design");
     });
+
+    it("silent burst: concurrent messages share one decide, each persists to observed", async () => {
+      const appends = [];
+      let decideCount = 0;
+      const burstGate = makeGate({
+        observedStore: {
+          readObserved: () => [],
+          appendObserved: (sk, row) => appends.push({ sk, ...row }),
+        },
+        engine: {
+          async decide() {
+            decideCount++;
+            await new Promise((r) => setTimeout(r, 20));
+            return { decision: "stay_silent", epoch: 1 };
+          },
+        },
+      });
+
+      const results = await Promise.all([
+        burstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m1" }), makeDefaultCtx()),
+        burstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m2" }), makeDefaultCtx()),
+        burstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m3" }), makeDefaultCtx()),
+      ]);
+
+      assert.equal(decideCount, 1, "decide called exactly once for the burst");
+      for (const r of results) assert.deepEqual(r, { handled: true });
+      assert.equal(appends.length, 3, "one observed row persisted per message");
+    });
+
+    it("speak burst: concurrent messages share one decide, all return undefined", async () => {
+      let decideCount = 0;
+      const speakBurstGate = makeGate({
+        engine: {
+          async decide() {
+            decideCount++;
+            await new Promise((r) => setTimeout(r, 20));
+            return { decision: "speak", epoch: 1 };
+          },
+        },
+      });
+
+      const results = await Promise.all([
+        speakBurstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m1" }), makeDefaultCtx()),
+        speakBurstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m2" }), makeDefaultCtx()),
+        speakBurstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m3" }), makeDefaultCtx()),
+      ]);
+
+      assert.equal(decideCount, 1, "decide called exactly once for the burst");
+      for (const r of results) assert.equal(r, undefined, "agent runs for each speak message");
+    });
+
+    it("sequential non-overlapping messages each get their own decide (no cache)", async () => {
+      let decideCount = 0;
+      const seqGate = makeGate({
+        engine: {
+          async decide() {
+            decideCount++;
+            return { decision: "stay_silent", epoch: 1 };
+          },
+        },
+      });
+
+      const first = await seqGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m1" }), makeDefaultCtx());
+      const second = await seqGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m2" }), makeDefaultCtx());
+
+      assert.deepEqual(first, { handled: true });
+      assert.deepEqual(second, { handled: true });
+      assert.equal(decideCount, 2, "second call after resolve triggers a fresh decide");
+    });
+
+    it("hard trigger during a burst short-circuits per-message without joining dedup", async () => {
+      let decideCount = 0;
+      const triggerBurstGate = makeGate({
+        engine: {
+          async decide(opts) {
+            decideCount++;
+            await new Promise((r) => setTimeout(r, 20));
+            if (opts.prompt && opts.prompt.includes(cfg.agentName)) {
+              return { decision: "speak", epoch: 1 };
+            }
+            return { decision: "stay_silent", epoch: 1 };
+          },
+        },
+      });
+
+      const [chatter, named] = await Promise.all([
+        triggerBurstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "chatty filler" }), makeDefaultCtx()),
+        triggerBurstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: `hey ${cfg.agentName} what do you think` }), makeDefaultCtx()),
+      ]);
+
+      assert.deepEqual(chatter, { handled: true });
+      assert.equal(named, undefined, "name-mention message speaks independently of the burst");
+      assert.equal(decideCount, 2, "hard trigger runs its own decide without reusing the chatter verdict");
+    });
   });
 
   describe("onBeforeAgentRun", () => {
