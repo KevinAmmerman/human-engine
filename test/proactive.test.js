@@ -260,6 +260,21 @@ describe("proactive", { concurrency: false }, () => {
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
     });
 
+    it("outcome_celebration ignores the corrupted gekRampe token but fires on geschafft", async () => {
+      setRng(() => 0);
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, checkInOnPromise: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Ich hab die route gekRampe!", isGroup: true });
+      clock.t += 5 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0, "gekRampe must not fire");
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Ich hab die route geschafft!", isGroup: true });
+      clock.t += 3 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "geschafft! must fire");
+    });
+
     it("outcome_celebration does not fire on the agent's own success (ownReply guard)", async () => {
       setRng(() => 0);
       const { proactive, clock, runtime } = track(makeProactive({
