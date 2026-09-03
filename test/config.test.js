@@ -78,6 +78,9 @@ describe("config", () => {
     assert.equal(cfg.timing.maxTypingMs, 60000, "sibling timing default survives");
     assert.equal(cfg.timing.maxBubbleGapMs, 3000);
     assert.equal(cfg.socialLearning.refreshEvery, 5);
+    assert.equal(cfg.proactive.recognitionBudgetPerDay, 1);
+    assert.equal(cfg.proactive.triggers.outcomeCelebration, true);
+    assert.equal(cfg.proactive.triggers.checkInOnPromise, true);
   });
 
   it("resolveConfig deep-merges dmProactive one level and keeps sibling defaults", () => {

@@ -88,6 +88,7 @@
           "enabled": { "type": "boolean", "default": false },
           "shadow": { "type": "boolean", "default": true },
           "budgetPerDay": { "type": "number", "default": 2 },
+          "recognitionBudgetPerDay": { "type": "number", "default": 1 },
           "minGapMinutes": { "type": "number", "default": 180 },
           "quietStart": { "type": "string", "default": "23:00" },
           "quietEnd": { "type": "string", "default": "07:00" },
@@ -100,7 +101,9 @@
               "unansweredQuestion": { "type": "boolean", "default": true },
               "stalledExchange": { "type": "boolean", "default": true },
               "contextMatch": { "type": "boolean", "default": true },
-              "followUpCommitment": { "type": "boolean", "default": true }
+              "followUpCommitment": { "type": "boolean", "default": true },
+              "outcomeCelebration": { "type": "boolean", "default": true },
+              "checkInOnPromise": { "type": "boolean", "default": true }
             },
             "default": {}
           }

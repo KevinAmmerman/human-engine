@@ -223,6 +223,109 @@ describe("proactive", { concurrency: false }, () => {
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
     });
+
+    it("outcome_celebration fires on a member's success with a signal", async () => {
+      setRng(() => 0);
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, checkInOnPromise: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Ich hab den routesgrad endlich geschafft! 🎉", isGroup: true });
+      clock.t += 3 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1);
+      assert.ok(runtime.subagent.run.mock.calls[0].arguments[0].idempotencyKey.startsWith("human-engine-proactive-outcome_celebration-"));
+    });
+
+    it("outcome_celebration matures at ~2-6 min jitter", async () => {
+      setRng(() => 0);
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, checkInOnPromise: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Ich hab den routesgrad endlich geschafft! 🎉", isGroup: true });
+      clock.t += 1 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0, "not matured before 2 min");
+      clock.t += 1 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "matured within 2-6 min");
+    });
+
+    it("outcome_celebration false positive: plain question does not fire", async () => {
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, checkInOnPromise: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Wie geschafft?", isGroup: true });
+      clock.t += 5 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("outcome_celebration does not fire on the agent's own success (ownReply guard)", async () => {
+      setRng(() => 0);
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, checkInOnPromise: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Hori", text: "Ich hab den routesgrad endlich geschafft! 🎉", isGroup: true, ownReply: true });
+      clock.t += 5 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("check_in_on_promise fires 24h later when the agent participated", async () => {
+      setRng(() => 0);
+      state.pushTranscriptPeek(SK, "[Nico] ok ich schau nach dem ticket");
+      state.pushTranscriptPeek(SK, "[Hori] danke, super");
+      state.pushTranscriptPeek(SK, "[Anna] klingt gut");
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, outcomeCelebration: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Anna", text: "klingt gut", isGroup: true });
+      clock.t += 21 * 60 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0, "not matured before ~18h");
+      clock.t += 6 * 60 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "matured within 24±6h");
+      assert.ok(runtime.subagent.run.mock.calls[0].arguments[0].idempotencyKey.startsWith("human-engine-proactive-check_in_on_promise-"));
+    });
+
+    it("check_in_on_promise does not fire without an agent line in the window", async () => {
+      setRng(() => 0);
+      state.pushTranscriptPeek(SK, "[Nico] ok ich schau nach dem ticket");
+      state.pushTranscriptPeek(SK, "[Anna] klingt gut");
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({ triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, outcomeCelebration: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Anna", text: "klingt gut", isGroup: true });
+      clock.t += 27 * 60 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("recognition budget blocks a 2nd recognition same day but allows informational", async () => {
+      setRng(() => 0);
+      const { proactive } = track(makeProactive({
+        cfg: makeCfg({ minGapMinutes: 0, triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
+      }));
+      await proactive.fire(makeCandidate("outcome_celebration"));
+      const second = proactive.evaluate(makeCandidate("outcome_celebration"));
+      assert.equal(second.pass, false);
+      assert.ok(second.reasons.includes("recognition-budget"), second.reasons.join(","));
+      const info = proactive.evaluate(makeCandidate("unanswered_question"));
+      assert.equal(info.pass, true, info.reasons.join(","));
+    });
+
+    it("shadow logs outcome_celebration candidates and never sends", async () => {
+      setRng(() => 0);
+      const { proactive, clock, runtime, log } = track(makeProactive({
+        cfg: makeCfg({ shadow: true, triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, checkInOnPromise: false } }),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "Ich hab den routesgrad endlich geschafft! 🎉", isGroup: true });
+      clock.t += 3 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+      assert.ok(log._infos.some((m) => m.includes("type=outcome_celebration") && m.includes("proactive SHADOW")), log._infos.join("\n"));
+    });
   });
 
   describe("stage-2 anti-annoyance gate", () => {
