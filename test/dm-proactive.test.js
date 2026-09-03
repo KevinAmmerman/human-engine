@@ -34,11 +34,13 @@ function makeCfg(dmOverrides = {}, extra = {}) {
 
 function makeLog() {
   const infos = [];
+  const warns = [];
   return {
     info(msg) { infos.push(msg); },
-    warn() {},
+    warn(msg) { warns.push(msg); },
     debug() {},
     _infos: infos,
+    _warns: warns,
   };
 }
 
@@ -350,6 +352,108 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
       assert.equal(readLog(stateDir)[0].sent, false);
+    });
+  });
+
+  describe("activation safety: cancel-on-live-send", () => {
+    it("shadow=true passes through: never cancels, still logs", async () => {
+      const { dm, stateDir, commitmentsPath, runtime } = track(makeDm());
+      writeStore(commitmentsPath, [{
+        id: "cm_as_shadow", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
+        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
+        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
+      }]);
+      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      assert.equal(result, undefined, "shadow must never cancel");
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].candidate.id, "cm_as_shadow");
+    });
+
+    it("live + gate pass + runtime cancels original, sends rendered draft once with idempotencyKey", async () => {
+      const runtime = makeRuntime({ llmText: "Rendertext live" });
+      const { dm, commitmentsPath, stateDir } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      writeStore(commitmentsPath, [{
+        id: "cm_as_live", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
+        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
+        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
+      }]);
+      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      assert.deepEqual(result, { cancel: true });
+      assert.equal(runtime.subagent.run.mock.callCount(), 1);
+      const call = runtime.subagent.run.mock.calls[0].arguments[0];
+      assert.equal(call.deliver, true);
+      assert.equal(call.message, "Rendertext live");
+      assert.equal(call.idempotencyKey, "human-engine-dm-proactive-cm_as_live");
+      const entries = readLog(stateDir);
+      assert.equal(entries[0].sent, true);
+      assert.equal(entries[0].candidate.id, "cm_as_live");
+    });
+
+    it("live + gate fail (quiet hours): no cancel, subagent.run not called", async () => {
+      const runtime = makeRuntime({ llmText: "Rendertext" });
+      const { dm, commitmentsPath, stateDir } = track(makeDm({
+        cfg: makeCfg({ shadow: false, minGapMinutes: 0 }),
+        runtime,
+        now0: new Date(2026, 7, 24, 23, 30).getTime(),
+      }));
+      writeStore(commitmentsPath, [{
+        id: "cm_as_quiet", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
+        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
+        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
+      }]);
+      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      assert.equal(result, undefined, "gate-fail live path must NOT cancel (dist fallback delivers)");
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+      const entries = readLog(stateDir);
+      assert.equal(entries[0].gate.pass, false);
+      assert.ok(entries[0].gate.reasons.includes("quiet-hours"), entries[0].gate.reasons.join(","));
+    });
+
+    it("live + no candidate match (store miss): no cancel, dist fallback delivers", async () => {
+      const runtime = makeRuntime();
+      const { dm, commitmentsPath } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      writeStore(commitmentsPath, []);
+      const result = await dm.onMessageSending({ content: "Freeform text, not a commitment" }, { sessionKey: SK });
+      assert.equal(result, undefined, "non-match must pass through");
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("live + subagent.run throws: still cancels, WARN logged with candidate id, budget NOT bumped", async () => {
+      const runtime = makeRuntime({ llmText: "Rendertext" });
+      runtime.subagent.run = mock.fn(async () => { throw new Error("boom"); });
+      const { dm, commitmentsPath, clock, stateDir, log } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      writeStore(commitmentsPath, [{
+        id: "cm_as_throw", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
+        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
+        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
+      }]);
+      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      assert.deepEqual(result, { cancel: true }, "cancel still returned after failed send");
+      assert.ok(log._warns.some((m) => m.includes("live send failed after cancel") && m.includes("cm_as_throw")), log._warns.join("\n"));
+      clock.t += 24 * 60 * 60 * 1000;
+      const next = dm.evaluateGate(makeCandidate({ id: "cm_as_throw_2" }));
+      assert.equal(next.pass, true, "budget must NOT be bumped after failed send");
+      const entries = readLog(stateDir);
+      assert.equal(entries[0].sent, false);
+    });
+
+    it("duplicate delivery guard: same content/store twice → same idempotencyKey twice", async () => {
+      const runtime = makeRuntime({ llmText: "Rendertext" });
+      const { dm, commitmentsPath } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      writeStore(commitmentsPath, [{
+        id: "cm_as_dup", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
+        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
+        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
+      }]);
+      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      assert.equal(runtime.subagent.run.mock.callCount(), 2);
+      const k0 = runtime.subagent.run.mock.calls[0].arguments[0].idempotencyKey;
+      const k1 = runtime.subagent.run.mock.calls[1].arguments[0].idempotencyKey;
+      assert.equal(k0, k1);
+      assert.equal(k0, "human-engine-dm-proactive-cm_as_dup");
     });
   });
 
