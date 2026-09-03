@@ -41,6 +41,62 @@ describe("social-memory", { concurrency: false }, () => {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   });
 
+  describe("self-filter (plan 513)", () => {
+    it("does not create a person record when speaker is the agent name", () => {
+      const cfg = makeCfg();
+      cfg.agentName = "Hori";
+      sm = createSocialMemory({ cfg, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::self-name";
+      sm.ingest(scope, { speaker: "Hori", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Alice", text: "hello", ts: 101 });
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(profile.people.Alice);
+      assert.ok(!profile.people.Hori);
+      assert.ok(!profile.people.hori);
+    });
+
+    it("does not create a person record for an agent alias (case-insensitive)", () => {
+      const cfg = makeCfg();
+      cfg.agentName = "Hori";
+      cfg.agentAliases = ["yuki", "Horsten"];
+      sm = createSocialMemory({ cfg, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::self-alias";
+      sm.ingest(scope, { speaker: "YuKi", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Alice", text: "hello", ts: 101 });
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(profile.people.Alice);
+      assert.ok(!profile.people.YuKi);
+      assert.ok(!profile.people.Horsten);
+    });
+
+    it("excludes an existing agent-self record from recall output", () => {
+      const cfg = makeCfg();
+      cfg.agentName = "Hori";
+      sm = createSocialMemory({ cfg, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::self-recall";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Hori: { facts: ["placeholder"], preferences: [], situation: "", lastSeenTs: 200, mentionCount: 5 },
+        Alice: { facts: ["likes climbing"], preferences: [], situation: "", lastSeenTs: 100, mentionCount: 3 },
+      };
+      const result = sm.recall(scope, ["Alice"]);
+      assert.ok(!result.includes("Hori"));
+      assert.ok(result.includes("Alice"));
+    });
+
+    it("keeps a real group member whose name merely overlaps an alias", () => {
+      const cfg = makeCfg();
+      cfg.agentName = "Hori";
+      cfg.agentAliases = ["hori"];
+      sm = createSocialMemory({ cfg, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::self-overlap";
+      sm.ingest(scope, { speaker: "Horibert", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Alice", text: "hello", ts: 101 });
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(profile.people.Horibert);
+    });
+  });
+
   describe("ingest bounds", () => {
     it("ingests messages into buffer", () => {
       sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
