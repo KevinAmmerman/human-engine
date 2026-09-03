@@ -96,6 +96,7 @@ describe("gate", () => {
     state.chatTypeBySession.clear();
     state.senderBySession.clear();
     state.replyContextQueue.clear();
+    state.mediaBySession.clear();
     gate = makeGate();
   });
 
@@ -196,6 +197,70 @@ describe("gate", () => {
     it("returns undefined for empty body", async () => {
       const result = await gate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "" }), makeDefaultCtx());
       assert.equal(result, undefined);
+    });
+
+    it("decide receives hasMedia + mediaKind from a cached media message", async () => {
+      let captured;
+      const mediaGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      mediaGate.onMessageReceived(
+        { media: [{ kind: "image", path: "/tmp/pic.jpg" }], content: "" },
+        makeDefaultCtx(),
+      );
+      const result = await mediaGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "" }),
+        makeDefaultCtx(),
+      );
+      assert.equal(result, undefined, "media-only decide speaks (LLM gate is the group guard)");
+      assert.equal(captured.hasMedia, true);
+      assert.equal(captured.mediaKind, "image");
+    });
+
+    it("transcript marker uses placeholder for media-only message", async () => {
+      let captured;
+      const mediaGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+      });
+      mediaGate.onMessageReceived(
+        { media: [{ kind: "image" }], content: "" },
+        makeDefaultCtx(),
+      );
+      await mediaGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "" }), makeDefaultCtx());
+      const last = (captured.transcript || []).slice(-1)[0];
+      assert.equal(last.speaker, "Nico");
+      assert.equal(last.text, "[image]");
+    });
+
+    it("media with caption keeps the caption as the transcript text", async () => {
+      let captured;
+      const mediaGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+      });
+      mediaGate.onMessageReceived(
+        { media: [{ kind: "image" }], content: "nice send!" },
+        makeDefaultCtx(),
+      );
+      await mediaGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "nice send!" }),
+        makeDefaultCtx(),
+      );
+      const last = (captured.transcript || []).slice(-1)[0];
+      assert.equal(last.text, "nice send!", "caption text is preserved, not replaced by marker");
+      assert.equal(captured.hasMedia, true);
+    });
+
+    it("non-media flow: decide receives hasMedia:false", async () => {
+      let captured;
+      const plainGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+      });
+      await plainGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "Hello bot" }), makeDefaultCtx());
+      assert.equal(captured.hasMedia, false);
+      assert.equal(captured.mediaKind, undefined);
     });
 
     it("merges observed-store layer with hydrated and peek, deduped, chronological, capped at 20", async () => {

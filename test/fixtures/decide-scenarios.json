@@ -38,9 +38,10 @@
           "check this out"
         ]
       ],
-      "expect": "speak",
-      "deterministic": true,
-      "rationale": "hasMedia short-circuits to speak regardless of group vs DM"
+      "expect": "stay_silent",
+      "deterministic": false,
+      "path": "llm",
+      "rationale": "Group media no longer auto-speaks; a bare media share without a direct call-out goes to the LLM decide."
     },
     {
       "name": "Direct @mention in group",

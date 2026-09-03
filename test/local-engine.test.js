@@ -34,16 +34,29 @@ describe("local-engine", () => {
       assert.equal(llmCalled, false);
     });
 
-    it("hasMedia always speaks with zero LLM calls", async () => {
+    it("DM + media always speaks with zero LLM calls", async () => {
       let llmCalled = false;
       const engine = createLocalEngine({
         cfg: {},
         llm: { complete: async () => { llmCalled = true; return { text: "STAY_SILENT" }; } },
         timing: makeTiming(),
       });
-      const res = await engine.decide({ sessionKey: "s2", hasMedia: true });
+      const res = await engine.decide({ sessionKey: "s2", isDM: true, hasMedia: true });
       assert.deepEqual(res.decision, "speak");
       assert.equal(llmCalled, false);
+    });
+
+    it("group + media NO LONGER auto-speaks (falls to LLM decide)", async () => {
+      let llmCalled = false;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => { llmCalled = true; return { text: "STAY_SILENT" }; } },
+        timing: makeTiming(),
+      });
+      const res = await engine.decide({ sessionKey: "s2b", isDM: false, hasMedia: true });
+      assert.equal(llmCalled, true, "group media should reach the LLM decide");
+      assert.equal(res.decision, "stay_silent");
+      assert.equal(res.path, "llm");
     });
 
     it("hard trigger (agent name) speaks with zero LLM calls", async () => {
@@ -251,10 +264,16 @@ describe("local-engine", () => {
       assert.equal(res.path, "dm");
     });
 
-    it("returns path=media for media short-circuit", async () => {
+    it("returns path=dm for DM media short-circuit", async () => {
       const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
-      const res = await engine.decide({ sessionKey: "p2", hasMedia: true });
-      assert.equal(res.path, "media");
+      const res = await engine.decide({ sessionKey: "p2", isDM: true, hasMedia: true });
+      assert.equal(res.path, "dm");
+    });
+
+    it("group media does not short-circuit to path=media", async () => {
+      const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
+      const res = await engine.decide({ sessionKey: "p2g", isDM: false, hasMedia: true });
+      assert.equal(res, null, "group media with no LLM yields null, not a media auto-speak");
     });
 
     it("returns path=hard for hard trigger", async () => {

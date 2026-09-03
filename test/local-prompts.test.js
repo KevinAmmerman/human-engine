@@ -49,6 +49,12 @@ describe("local-prompts", () => {
       const endIdx = p.userMessage.indexOf(LOG_END);
       assert.ok(startIdx < p.userMessage.indexOf("[A] hello") && p.userMessage.indexOf("[A] hello") < endIdx);
     });
+
+    it("includes the conservative media rule", () => {
+      const p = buildDecidePrompt({ agentName: "Bot" });
+      assert.ok(p.systemPrompt.includes("[image]"));
+      assert.ok(p.systemPrompt.includes("a generic compliment is worse than silence"));
+    });
   });
 
   describe("buildSplitPrompt", () => {
