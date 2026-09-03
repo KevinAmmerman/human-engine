@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, mock } from "node:test";
 import { createLocalEngine, getState, hasHardTrigger } from "../lib/local-engine.js";
+import { findAgentContactIds } from "../lib/contacts.js";
 
 function makeTiming() {
   return {
@@ -120,6 +121,23 @@ describe("local-engine", () => {
     it("word-boundary name match DOES hard-trigger", async () => {
       assert.equal(hasHardTrigger("Hori, was meinst du?", [], "Hori"), true);
       assert.equal(hasHardTrigger("OpenClaw, was denkst du?", [], "OpenClaw"), true);
+    });
+
+    it("word-boundary Yuki match fires", async () => {
+      assert.equal(hasHardTrigger("Yuki, was meinst du?", [], "Yuki"), true);
+    });
+
+    it("alias name fires when provided", async () => {
+      assert.equal(hasHardTrigger("Hori, was meinst du?", [], "Yuki", undefined, ["Hori"]), true);
+      assert.equal(hasHardTrigger("Hori, was meinst du?", [], "Yuki"), false, "without alias, Hori must not fire");
+    });
+
+    it("@digits mention fires only when agentContactIds contains those digits", async () => {
+      const map = new Map([["81000000000001", "Yuki (Bot)"]]);
+      const ids = findAgentContactIds(map, "Yuki");
+      assert.equal(ids.has("81000000000001"), true);
+      assert.equal(hasHardTrigger("@81000000000001 hallo", [], "Yuki", ids), true);
+      assert.equal(hasHardTrigger("@81000000000099 hallo", [], "Yuki", ids), false, "unmapped id must not fire");
     });
 
     it("lid mention with unmapped id does not trigger", async () => {

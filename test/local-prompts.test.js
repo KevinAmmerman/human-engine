@@ -79,6 +79,11 @@ describe("local-prompts", () => {
       assert.ok(p.systemPrompt.includes('"messages"'));
     });
 
+    it("includes the LANGUAGE directive (plan 496)", () => {
+      const p = buildSplitPrompt({ draft: "hi" });
+      assert.ok(p.systemPrompt.includes("LANGUAGE:"));
+    });
+
     it("includes draft in user message", () => {
       const p = buildSplitPrompt({ draft: "Hello world" });
       assert.ok(p.userMessage.includes("Hello world"));

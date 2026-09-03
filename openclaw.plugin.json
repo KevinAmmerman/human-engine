@@ -13,6 +13,7 @@
       "enabled": { "type": "boolean", "default": true },
       "agents": { "type": "array", "items": { "type": "string" }, "default": [] },
       "agentName": { "type": "string", "default": "OpenClaw" },
+      "agentAliases": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Additional names the agent is called by (e.g. its former name) — used for hard-trigger mention detection" },
       "soulPath": { "type": "string", "default": "" },
       "contactsPath": { "type": "string", "default": "" },
       "soulAutoEnhance": { "type": "boolean", "default": true },

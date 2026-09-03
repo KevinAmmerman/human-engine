@@ -86,4 +86,25 @@ describe("contacts", () => {
     assert.equal(findAgentContactIds(null, "Hori").size, 0);
     assert.equal(findAgentContactIds(parseContacts(SAMPLE), null).size, 0);
   });
+
+  it("findAgentContactIds matches Yuki against a 'Yuki (Bot)' row", () => {
+    const map = parseContacts("| 81000000000001 | +4915000000001 | Yuki (Bot) | Deine Nummer / Bot-Account |");
+    const ids = findAgentContactIds(map, "Yuki");
+    assert.equal(ids.has("81000000000001"), true, "Yuki should match the Yuki (Bot) row");
+  });
+
+  it("findAgentContactIds matches a former name via alias on a parenthetical row", () => {
+    const map = parseContacts("| 81000000000001 | +4915000000001 | Hori (Bot) | Deine Nummer / Bot-Account |");
+    assert.equal(findAgentContactIds(map, "Yuki").has("81000000000001"), false, "without alias, Hori row must NOT match Yuki");
+    const withAlias = findAgentContactIds(map, "Yuki", ["Hori"]);
+    assert.equal(withAlias.has("81000000000001"), true, "with alias Hori, the Hori (Bot) row should match");
+  });
+
+  it("findAgentContactIds never matches unrelated names", () => {
+    const map = parseContacts(SAMPLE);
+    const ids = findAgentContactIds(map, "Yuki", ["Hori"]);
+    assert.equal(ids.has("81000000000004"), false, "Ada Example must not match");
+    assert.equal(ids.has("81000000000002"), false, "Test Person must not match");
+    assert.equal(ids.has("81000000000003"), false, "Test Person B must not match");
+  });
 });

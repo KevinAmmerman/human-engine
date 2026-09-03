@@ -136,6 +136,13 @@ describe("anti-tell", () => {
       assert.equal(result.text, "Wir klettern trotzdem morgen.");
     });
 
+    it("keeps a German reply starting with Yuki after an inline seam", () => {
+      const text = "Kevin claims the climb is too hard. Yuki steigt trotzdem morgen auf.";
+      const result = stripMetaCommentary(text, ["Kevin"]);
+      assert.equal(result.stripped, true);
+      assert.equal(result.text, "Yuki steigt trotzdem morgen auf.");
+    });
+
     it("leaves a normal German reply mentioning a member unchanged", () => {
       const text = "Kevin, ich schau morgen";
       const result = stripMetaCommentary(text, ["Kevin"]);

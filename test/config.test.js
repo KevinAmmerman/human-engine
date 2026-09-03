@@ -8,6 +8,7 @@ describe("config", () => {
     assert.equal(cfg.enabled, true);
     assert.deepEqual(cfg.agents, []);
     assert.equal(cfg.agentName, "OpenClaw");
+    assert.deepEqual(cfg.agentAliases, []);
     assert.equal(cfg.soulPath, "");
     assert.equal(cfg.soulAutoEnhance, true);
     assert.equal(cfg.socialLearning.enabled, true);
@@ -30,6 +31,7 @@ describe("config", () => {
     const cfg = resolveConfig(api);
     assert.equal(cfg.agentName, "TestBot");
     assert.equal(cfg.enabled, true);
+    assert.deepEqual(cfg.agentAliases, [], "agentAliases default survives when only agentName is overridden");
   });
 
   it("resolveConfig falls back to api.config.plugins.entries", () => {
