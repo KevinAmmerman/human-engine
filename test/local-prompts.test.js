@@ -130,6 +130,26 @@ describe("local-prompts", () => {
       const endIdx = p.userMessage.indexOf(LOG_END);
       assert.ok(startIdx < p.userMessage.indexOf("[A] hello") && p.userMessage.indexOf("[A] hello") < endIdx);
     });
+
+    it("plan 511: adds the Reply target system line only when a target with quotedName is given", () => {
+      const withTarget = buildSplitPrompt({
+        draft: "hi",
+        replyTarget: { quotedName: "Basti", replyToAgent: false, textHead: "was sagst du dazu", ts: 0 },
+      });
+      assert.ok(withTarget.systemPrompt.includes("Reply target: you are answering Basti's message"));
+      assert.ok(withTarget.systemPrompt.includes('("was sagst du dazu")'));
+      assert.ok(withTarget.systemPrompt.includes("you may answer both in separate bubbles"));
+    });
+
+    it("plan 511: omits the Reply target line when no target or no quotedName", () => {
+      const noTarget = buildSplitPrompt({ draft: "hi" });
+      assert.ok(!noTarget.systemPrompt.includes("Reply target:"));
+      const noName = buildSplitPrompt({
+        draft: "hi",
+        replyTarget: { quotedName: null, replyToAgent: true, textHead: "", ts: 0 },
+      });
+      assert.ok(!noName.systemPrompt.includes("Reply target:"));
+    });
   });
 
   describe("buildRegeneratePrompt", () => {

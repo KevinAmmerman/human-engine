@@ -97,6 +97,7 @@ describe("gate", () => {
     state.senderBySession.clear();
     state.replyContextQueue.clear();
     state.mediaBySession.clear();
+    state.replyTargetBySession.clear();
     gate = makeGate();
   });
 
@@ -521,6 +522,77 @@ describe("gate", () => {
       );
       await bodyGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx());
       assert.equal(captured.replyToAgent, true);
+    });
+
+    it("persists a reply target on speak for a reply-to-agent message", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-replytarget-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
+
+      const targetGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      targetGate.onMessageReceived(
+        { text: "danke!" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001", replyToBody: "Ja, gut" }),
+      );
+      await targetGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx({ senderId: "user-1" }));
+      const entry = state.replyTargetBySession.get(CHAT_SK);
+      assert.ok(entry, "reply target persisted on speak");
+      assert.equal(entry.replyToAgent, true);
+      assert.equal(entry.quotedName, "OpenClaw (Bot)");
+      assert.equal(entry.textHead, "Ja, gut");
+      assert.ok(typeof entry.ts === "number");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("persists a reply target on the burst-reuse speak path (quoting a human, non-trigger)", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-replytarget-burst-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000002 | +4915000000003 | Basti | |\n");
+
+      let decideCount = 0;
+      const burstGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: {
+          async decide() {
+            decideCount++;
+            await new Promise((r) => setTimeout(r, 20));
+            return { decision: "speak", epoch: 1 };
+          },
+        },
+      });
+      burstGate.onMessageReceived(
+        { text: "was sagst du dazu" },
+        makeDefaultCtx({ senderId: "user-b", replyToSender: "81000000000002", replyToBody: "was sagst du dazu" }),
+      );
+      const results = await Promise.all([
+        burstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "chatty filler" }), makeDefaultCtx({ senderId: "user-a" })),
+        burstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "was sagst du dazu" }), makeDefaultCtx({ senderId: "user-b" })),
+      ]);
+      assert.equal(decideCount, 1, "decide called once for the burst");
+      for (const r of results) assert.equal(r, undefined);
+      const entry = state.replyTargetBySession.get(CHAT_SK);
+      assert.ok(entry, "reply target persisted on burst-reuse speak path");
+      assert.equal(entry.replyToAgent, false);
+      assert.equal(entry.quotedName, "Basti");
+      assert.equal(entry.textHead, "was sagst du dazu");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("does not persist a reply target for plain chatter speak", async () => {
+      const chatterGate = makeGate({
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      await chatterGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "Hello bot" }), makeDefaultCtx());
+      assert.equal(state.replyTargetBySession.has(CHAT_SK), false);
     });
 
     it("two queued quotes from the same sender: each decide consumes the text-matching entry", async () => {

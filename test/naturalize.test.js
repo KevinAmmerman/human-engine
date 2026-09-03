@@ -84,6 +84,7 @@ describe("naturalize", () => {
     state.speakEpochBySession.clear();
     state.transcriptPeekBySession.clear();
     state.chatTypeBySession.clear();
+    state.replyTargetBySession.clear();
 
     naturalize = createNaturalize({
       cfg,
@@ -312,6 +313,91 @@ describe("naturalize", () => {
       await new Promise((r) => setTimeout(r, 1500));
       const transcript = captured.transcript || [];
       assert.ok(transcript.some((t) => t.speaker === "Nico" && t.text.includes("Hey Hori")));
+    });
+
+    it("plan 511: forwards replyTarget to engine.respond and drains the map after flush", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.replyTargetBySession.set(CHAT_SK, {
+        quotedName: "Basti",
+        replyToAgent: false,
+        textHead: "was sagst du dazu",
+        ts: Date.now(),
+      });
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(captured.replyTarget, "replyTarget forwarded to engine.respond");
+      assert.equal(captured.replyTarget.quotedName, "Basti");
+      assert.equal(state.replyTargetBySession.has(CHAT_SK), false, "map entry drained after flush");
+    });
+
+    it("plan 511: forwards a replyTarget even when quotedName is null but replyToAgent is true", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.replyTargetBySession.set(CHAT_SK, {
+        quotedName: null,
+        replyToAgent: true,
+        textHead: "",
+        ts: Date.now(),
+      });
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(captured.replyTarget, "replyTarget forwarded even without quotedName");
+      assert.equal(captured.replyTarget.replyToAgent, true);
+    });
+
+    it("plan 511: passes a stale (>5min) reply target as null", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.replyTargetBySession.set(CHAT_SK, {
+        quotedName: "Basti",
+        replyToAgent: false,
+        textHead: "was sagst du dazu",
+        ts: Date.now() - 6 * 60 * 1000,
+      });
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(captured.replyTarget, null, "stale reply target passed as null");
+      assert.equal(state.replyTargetBySession.has(CHAT_SK), false, "map entry drained even when stale");
     });
 
     it("epoch bump mid-delivery cancels remaining bubbles", async () => {
