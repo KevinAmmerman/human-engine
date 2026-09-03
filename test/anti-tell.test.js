@@ -203,6 +203,24 @@ describe("anti-tell", () => {
         const result = stripMetaCommentary(text, ["Kevin"]);
         assert.equal(result.commentary, false);
       });
+
+      it("exposes strong >= 1 for a short narrator-phrase commentary (plan 499)", () => {
+        const result = stripMetaCommentary("I should respond. ok.", ["Kevin"]);
+        assert.equal(result.commentary, true);
+        assert.ok(result.strong >= 1);
+      });
+
+      it("reports a short member-name commentary as commentary:true but strong:0 (plan 499)", () => {
+        const result = stripMetaCommentary("ja genau lol", ["Kevin"]);
+        assert.equal(result.commentary, false);
+        assert.equal(result.strong, 0);
+      });
+
+      it("reports a plain short German reply as commentary:false, strong:0 (plan 499)", () => {
+        const result = stripMetaCommentary("Alles klar, bis morgen.", ["Kevin"]);
+        assert.equal(result.commentary, false);
+        assert.equal(result.strong, 0);
+      });
     });
 
     it("returns unchanged for empty or non-string input", () => {

@@ -653,6 +653,66 @@ describe("naturalize", () => {
       await new Promise((r) => setTimeout(r, 1500));
       assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
     });
+
+    it("plan 499: regenerates a SHORT pure-commentary draft and delivers regen, not commentary", async () => {
+      const SHORT_PURE = "I should respond. ok.";
+      const regenEngine = makeRegenEngine({ regenResult: { text: REGEN } });
+      let capturedDraft;
+      regenEngine.respond = async (opts) => {
+        capturedDraft = opts.draft;
+        return { scheduled: [{ content: "ok", position: 0, delayMs: 5 }], superseded: false };
+      };
+      const nat = createNaturalize({
+        cfg, state, engine: regenEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: SHORT_PURE } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(regenEngine.regenerateReply.mock.callCount(), 1);
+      assert.equal(capturedDraft, REGEN);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "ok");
+    });
+
+    it("plan 499: suppresses a SHORT pure-commentary draft when regen fails (nothing delivered)", async () => {
+      const logs = [];
+      const regenEngine = makeRegenEngine({ regenResult: null });
+      const nat = createNaturalize({
+        cfg, state, engine: regenEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "I should respond. ok." } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(regenEngine.regenerateReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 0);
+      assert.ok(logs.some((l) => l.includes("REPLY SUPPRESSED")));
+    });
+
+    it("plan 499: delivers a SHORT weak-only reply unchanged (no regen)", async () => {
+      const regenEngine = makeRegenEngine({ regenResult: { text: REGEN } });
+      const nat = createNaturalize({
+        cfg, state, engine: regenEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "ja genau lol" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(regenEngine.regenerateReply.mock.callCount(), 0);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "ja genau lol");
+    });
   });
 
   describe("socialMemory integration", () => {
