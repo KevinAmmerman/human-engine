@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import { createNaturalize, clearAllBubbleTimers } from "../lib/naturalize.js";
+import { createNaturalize, clearAllBubbleTimers, bubbleTimers } from "../lib/naturalize.js";
 import * as state from "../lib/state.js";
 
 const cfg = {
@@ -462,6 +462,99 @@ describe("naturalize", () => {
       await new Promise((r) => setTimeout(r, 1500));
       assert.ok(logs.some((l) => l.includes("flush skipped")));
       assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
+    });
+
+    it("plan 501: completes the displaced dispatcher exactly once on re-arm", () => {
+      const displacedNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcherA = makeDispatcher();
+      const dispatcherB = makeDispatcher();
+      armSpeakTurn(displacedNat, dispatcherA);
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 0);
+
+      armSpeakTurn(displacedNat, dispatcherB);
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 1);
+      assert.equal(dispatcherB.markComplete.mock.callCount(), 0);
+    });
+
+    it("plan 501: delivers raw draft when engine.respond resolves null", async () => {
+      const nullEngine = {
+        currentEpoch() { return 0; },
+        async respond() { return null; },
+      };
+      const nullNat = createNaturalize({
+        cfg, state, engine: nullEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nullNat, dispatcher);
+      nullNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "the draft" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "the draft");
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("plan 501: delivers raw draft when engine.respond resolves empty scheduled", async () => {
+      const emptyEngine = {
+        currentEpoch() { return 0; },
+        async respond() { return { scheduled: [], superseded: false }; },
+      };
+      const emptyNat = createNaturalize({
+        cfg, state, engine: emptyEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(emptyNat, dispatcher);
+      emptyNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "the draft" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "the draft");
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("plan 501: abort mid-delivery cancels remaining bubbles and marks complete", async () => {
+      const abortEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return {
+            scheduled: [
+              { content: "First", position: 0, delayMs: 200 },
+              { content: "Second", position: 1, delayMs: 400 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const abortNat = createNaturalize({
+        cfg, state, engine: abortEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      const abortController = new AbortController();
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 42, ts: Date.now() });
+      abortNat.onReplyDispatch(
+        { sendPolicy: "allow" },
+        makeDefaultCtx({ dispatcher, abortSignal: abortController.signal }),
+      );
+      abortNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1, "first bubble should have fired");
+      abortController.abort();
+
+      await new Promise((r) => setTimeout(r, 600));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1, "second bubble must NOT fire after abort");
+      assert.equal(bubbleTimers.get(CHAT_SK), undefined);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
     });
 
     it("delivers raw draft when engine returns superseded", async () => {
