@@ -66,6 +66,11 @@ describe("state", () => {
     assert.equal(observedBySession.get("test-session-4")[0], "x-10");
   });
 
+  it("pushObserved caps the observedBySession map at 4096 sessions", () => {
+    for (let i = 0; i < 4100; i++) pushObserved(`cap-obs-${i}`, "entry");
+    assert.ok(observedBySession.size <= 4096, `observedBySession.size=${observedBySession.size}`);
+  });
+
   describe("transcriptPeekBySession", () => {
     it("pushTranscriptPeek creates array for new session", () => {
       pushTranscriptPeek("tp-session", "[User] hi");
@@ -84,6 +89,11 @@ describe("state", () => {
       for (let i = 0; i < 60; i++) pushTranscriptPeek("tp-session-3", `[User] msg ${i}`);
       assert.equal(transcriptPeekBySession.get("tp-session-3").length, 50);
       assert.equal(transcriptPeekBySession.get("tp-session-3")[0], "[User] msg 10");
+    });
+
+    it("pushTranscriptPeek caps the transcriptPeekBySession map at 4096 sessions", () => {
+      for (let i = 0; i < 4100; i++) pushTranscriptPeek(`cap-tp-${i}`, "[User] hi");
+      assert.ok(transcriptPeekBySession.size <= 4096, `transcriptPeekBySession.size=${transcriptPeekBySession.size}`);
     });
 
     it("getTranscriptPeek parses speaker and text", () => {

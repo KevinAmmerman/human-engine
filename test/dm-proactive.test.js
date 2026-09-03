@@ -174,6 +174,21 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(readLog(stateDir).length, 0);
     });
 
+    it("unchanged commitments file reconciles across repeated outbound sends (mtime cache)", async () => {
+      const { dm, stateDir, commitmentsPath } = track(makeDm());
+      writeStore(commitmentsPath, [{
+        id: "cm_due_001", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
+        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
+        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
+      }]);
+      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 2, "both sends must reconcile from the cached store");
+      assert.equal(entries[0].candidate.id, "cm_due_001");
+      assert.equal(entries[1].candidate.id, "cm_due_001");
+    });
+
     it("group outbound text is ignored (DM scope only)", async () => {
       const { dm, stateDir } = track(makeDm());
       const groupSk = "agent:hori-wa-public-group-kletter:whatsapp:group:123@g.us";
@@ -363,6 +378,7 @@ describe("dm-proactive", { concurrency: false }, () => {
     it("writes dm-proactive-state.json and dm-proactive.jsonl with mode 0600", async () => {
       const { dm } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) }));
       await dm.handleCandidate(makeCandidate({ id: "cm_persist_001" }));
+      dm.stop();
       const stateFile = path.join(tmpDir, "dm-proactive-state.json");
       const logFile = path.join(tmpDir, "dm-proactive.jsonl");
       assert.ok(fs.existsSync(stateFile));
@@ -375,11 +391,22 @@ describe("dm-proactive", { concurrency: false }, () => {
     it("budget/care markers survive recreate (roundtrip)", async () => {
       const { dm, clock } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) }));
       await dm.handleCandidate(makeCareCandidate({ id: "cm_rt_001" }));
+      dm.stop();
       clock.t += 49 * 60 * 60 * 1000;
       const second = makeDm({ now0: clock.t, cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) });
       const res = second.dm.evaluateGate(makeCareCandidate({ id: "cm_rt_002" }));
       assert.equal(res.pass, false);
       assert.ok(res.reasons.includes("care-no-reply-48h"), res.reasons.join(","));
+    });
+
+    it("stop() flushes dirty budget synchronously to disk", async () => {
+      const { dm } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) }));
+      await dm.handleCandidate(makeCandidate({ id: "cm_stop_001" }));
+      const stateFile = path.join(tmpDir, "dm-proactive-state.json");
+      fs.rmSync(stateFile, { force: true });
+      dm.stop();
+      const data = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      assert.ok(data.scopes[SCOPE], "stop() must persist the dirty budget");
     });
   });
 });

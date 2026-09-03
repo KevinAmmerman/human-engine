@@ -423,6 +423,28 @@ describe("voice-card", () => {
       assert.ok(rB.appendSystemContext.includes("# Card B"));
     });
 
+    it("evicts oldest cache/counter entries beyond MAX_ENTRIES (256)", async () => {
+      clearCache();
+      clearCounter();
+      clearRefreshing();
+      const engine = { extractVoiceCard: async () => ({ prompt_block: "# Card" }) };
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { enabled: true, refreshEvery: 1, refreshMinutes: 0 } },
+        engine,
+        stateDir,
+        log: { info() {} },
+      });
+      for (let i = 0; i < 260; i++) {
+        const sk = `agent:test-agent:whatsapp:group:evict${i}@g.us`;
+        onBeforePromptBuild({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: sk });
+      }
+      await new Promise((r) => setTimeout(r, 120));
+      assert.ok(Object.keys(vc.cache).length <= 256, `cache keys=${Object.keys(vc.cache).length}`);
+      assert.ok(Object.keys(vc.counter).length <= 256, `counter keys=${Object.keys(vc.counter).length}`);
+      assert.equal(vc.cache["agent:test-agent:whatsapp:group:evict0@g.us"], undefined, "oldest evicted");
+      assert.equal(vc.cache["agent:test-agent:whatsapp:group:evict259@g.us"], "# Card", "newest retained");
+    });
+
     it("logRequests writes a 0600 log with redacted session id", async () => {
       clearCache();
       clearCounter();

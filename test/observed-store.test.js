@@ -90,6 +90,19 @@ describe("observed-store", { concurrency: false }, () => {
       assert.equal(rows.length, 20);
       assert.equal(rows[0].text, "m385");
     });
+
+    it("rotation still triggers at threshold after fresh instance (lazy line-count re-init)", () => {
+      const sk = "lazy-rotation";
+      for (let i = 0; i < 200; i++) store.appendObserved(sk, { speaker: "Nico", text: "m" + i, ts: i });
+
+      const fresh = createObservedStore({ stateDir: tmpDir, log: makeLog() });
+      for (let i = 200; i < 405; i++) fresh.appendObserved(sk, { speaker: "Nico", text: "m" + i, ts: i });
+
+      const file = fileFor(sk);
+      const dataLines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+      assert.ok(dataLines.length <= 205, "file should be trimmed after fresh-instance appends, got " + dataLines.length);
+      assert.ok(dataLines.length < 405, "file must not keep all appended rows");
+    });
   });
 
   describe("file modes", () => {
