@@ -86,6 +86,7 @@
       ],
       "expect": "stay_silent",
       "deterministic": false,
+      "path": "llm",
       "rationale": "Side chatter not addressed to bot should stay silent"
     },
     {
@@ -115,6 +116,7 @@
       ],
       "expect": "stay_silent",
       "deterministic": false,
+      "path": "llm",
       "rationale": "Already answered — no need to repeat"
     },
     {
@@ -576,6 +578,158 @@
       "expect": "stay_silent",
       "deterministic": false,
       "rationale": "URL hostname containing 'hori' must NOT trip the hard trigger (word-boundary + URL-stripping); decision falls to the LLM."
+    },
+    {
+      "name": "Reply quoting the agent's own previous message",
+      "isDM": false,
+      "hasMedia": false,
+      "replyToAgent": true,
+      "prompt": "du meintest ja wir sollen die option a nehmen",
+      "agentName": "Hori",
+      "messages": [
+        {
+          "text": "du meintest ja wir sollen die option a nehmen"
+        }
+      ],
+      "transcript": [
+        [
+          "Kevin",
+          "welche option sollen wir nehmen?"
+        ],
+        [
+          "Hori",
+          "option a, definitiv"
+        ],
+        [
+          "Kevin",
+          "du meintest ja wir sollen die option a nehmen"
+        ]
+      ],
+      "expect": "speak",
+      "deterministic": true,
+      "path": "reply",
+      "rationale": "Message replies to/quotes the agent's own previous message, so replyToAgent short-circuits to speak."
+    },
+    {
+      "name": "Reply quoting another member's message is not a reply-to-agent",
+      "isDM": false,
+      "hasMedia": false,
+      "replyToAgent": false,
+      "prompt": "das war gut von dir alice",
+      "agentName": "Hori",
+      "messages": [
+        {
+          "text": "das war gut von dir alice"
+        }
+      ],
+      "transcript": [
+        [
+          "Alice",
+          "ich hab den raum gebucht"
+        ],
+        [
+          "Kevin",
+          "das war gut von dir alice"
+        ]
+      ],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "path": "llm",
+      "rationale": "The quoted message is from Alice, not the agent, so replyToAgent is false; decision falls to the LLM."
+    },
+    {
+      "name": "Agent name as a word in a group message",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "hori hast du die tour schon rausgesucht?",
+      "agentName": "Hori",
+      "messages": [
+        {
+          "text": "hori hast du die tour schon rausgesucht?"
+        }
+      ],
+      "transcript": [
+        [
+          "Kevin",
+          "hori hast du die tour schon rausgesucht?"
+        ]
+      ],
+      "expect": "speak",
+      "deterministic": true,
+      "path": "hard",
+      "rationale": "The agent name 'Hori' appears as a word, so the name hard trigger fires without an LLM call."
+    },
+    {
+      "name": "Agent lid @mention matches a known contact id",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "@12345678901 schick mir die route",
+      "agentName": "Hori",
+      "agentContactIds": [
+        "12345678901"
+      ],
+      "messages": [
+        {
+          "text": "@12345678901 schick mir die route"
+        }
+      ],
+      "transcript": [
+        [
+          "Kevin",
+          "@12345678901 schick mir die route"
+        ]
+      ],
+      "expect": "speak",
+      "deterministic": true,
+      "path": "hard",
+      "rationale": "The @mention lid matches a known agent contact id, so the hard trigger fires."
+    },
+    {
+      "name": "Agent lid @mention of an unknown contact id is not a hard trigger",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "@99999999999 wer hat die tour?",
+      "agentName": "Hori",
+      "agentContactIds": [
+        "12345678901"
+      ],
+      "messages": [
+        {
+          "text": "@99999999999 wer hat die tour?"
+        }
+      ],
+      "transcript": [
+        [
+          "Kevin",
+          "@99999999999 wer hat die tour?"
+        ]
+      ],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "path": "llm",
+      "rationale": "The @mention lid is not among the agent's contact ids, so no hard trigger; decision falls to the LLM."
+    },
+    {
+      "name": "URL containing the agent name substring is not a hard trigger",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "die notizen liegen unter https://x.com/yuki-notes",
+      "agentName": "Hori",
+      "messages": [
+        {
+          "text": "die notizen liegen unter https://x.com/yuki-notes"
+        }
+      ],
+      "transcript": [
+        [
+          "Kevin",
+          "die notizen liegen unter https://x.com/yuki-notes"
+        ]
+      ],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "path": "llm",
+      "rationale": "The URL is stripped by URL_RE, so the 'hori' substring inside the hostname cannot trip the hard trigger; decision falls to the LLM."
     }
   ]
 }

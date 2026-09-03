@@ -44,6 +44,7 @@ describe("decide-eval", () => {
           messages: scenario.messages || [],
           transcript: (scenario.transcript || []).map(function (t) { return { speaker: t[0], text: t[1] }; }),
           agentContactIds: scenario.agentContactIds ? new Set(scenario.agentContactIds) : undefined,
+          replyToAgent: scenario.replyToAgent,
         });
 
         if (scenario.deterministic) {
@@ -62,6 +63,10 @@ describe("decide-eval", () => {
           assert.ok(result.epoch > 0, scenario.name + ": speak should advance the epoch");
         } else {
           assert.equal(result.epoch, 0, scenario.name + ": stay_silent must not advance the epoch");
+        }
+
+        if (scenario.path !== undefined) {
+          assert.equal(result.path, scenario.path, scenario.name + ": path mismatch");
         }
       });
     }
