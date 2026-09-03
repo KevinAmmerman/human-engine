@@ -228,6 +228,21 @@ describe("social-memory", { concurrency: false }, () => {
       const dirMode = fs.statSync(path.join(tmpDir, "social-memory")).mode & 0o777;
       assert.equal(dirMode, 0o700, "state dir must be 0700");
     });
+
+    it("self-heals a pre-existing 0775 state subdir to 0700 on write", async () => {
+      const agentDir = path.join(tmpDir, "social-memory", "agentY");
+      fs.mkdirSync(agentDir, { recursive: true, mode: 0o775 });
+      const beforeMode = fs.statSync(agentDir).mode & 0o777;
+      assert.equal(beforeMode, 0o775, "precondition: dir must be 0775");
+
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agentY::self-heal";
+      sm.ingest(scope, { speaker: "Dave", text: "hello", ts: 100 });
+      sm.flush(scope);
+
+      const afterMode = fs.statSync(agentDir).mode & 0o777;
+      assert.equal(afterMode, 0o700, "dir should be corrected to 0700 after write");
+    });
   });
 
   describe("profile persistence round-trip", () => {

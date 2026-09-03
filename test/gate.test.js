@@ -268,6 +268,29 @@ describe("gate", () => {
       assert.ok(state.observedBySession.get(CHAT_SK)[0].includes("Hello bot"));
     });
 
+    it("stay_silent log line redacts the session-key numeric tail", async () => {
+      const lines = [];
+      const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
+      const redactGate = createGate({
+        cfg,
+        state,
+        engine: makeEngine(),
+        persona,
+        socialMemory: makeSocialMemoryStub(),
+        log,
+      });
+      const groupSk = "agent:test-agent:whatsapp:group:120363042@g.us";
+      const result = await redactGate.onBeforeAgentReply(
+        makeReplyEvent(),
+        makeDefaultCtx({ sessionKey: groupSk })
+      );
+      assert.deepEqual(result, { handled: true });
+      const line = lines.find((l) => l.includes("stay_silent handled"));
+      assert.ok(line, "expected a stay_silent log line");
+      assert.ok(line.includes("…3042"), "log should keep only the last 4 digits");
+      assert.ok(!line.includes("120363042"), "log must not contain the full number");
+    });
+
     it("DM fail-open when decide returns null", async () => {
       const nullGate = makeGate({
         engine: { async decide() { return null; } },

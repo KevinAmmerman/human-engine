@@ -423,6 +423,33 @@ describe("voice-card", () => {
       assert.ok(rB.appendSystemContext.includes("# Card B"));
     });
 
+    it("logRequests writes a 0600 log with redacted session id", async () => {
+      clearCache();
+      clearCounter();
+      clearRefreshing();
+      const logSk = "agent:test-agent:whatsapp:direct_491725952069";
+      const engine = { extractVoiceCard: async () => null };
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { enabled: true, logRequests: true, refreshEvery: 1, refreshMinutes: 0 } },
+        engine,
+        stateDir,
+        log: { info() {} },
+      });
+      onBeforePromptBuild(
+        { messages: [{ role: "user", content: "[User] hi" }] },
+        { sessionKey: logSk, agentId: "test-agent" },
+      );
+      await new Promise((r) => setTimeout(r, 80));
+      const logDir = path.join(path.dirname(stateDir), "logs");
+      const logFile = path.join(logDir, "social-learning-requests.jsonl");
+      assert.ok(fs.existsSync(logFile), "request log should exist");
+      const mode = fs.statSync(logFile).mode & 0o777;
+      assert.equal(mode, 0o600, "request log file should be 0600");
+      const content = fs.readFileSync(logFile, "utf8");
+      assert.ok(content.includes("…2069"), "session id should be redacted to last 4 digits");
+      assert.ok(!content.includes("491725952069"), "session id must not contain the full number");
+    });
+
     it("uses the global card when perSessionCard is explicitly false", () => {
       clearCache();
       clearCounter();
