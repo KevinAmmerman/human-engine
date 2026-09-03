@@ -1,60 +1,49 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { planConfigChanges, formatReport } from "../lib/autoconfig.js";
+import { warnStartupConfig } from "../lib/autoconfig.js";
+
+function collect() {
+  const warned = [];
+  const log = {
+    info() {},
+    warn(msg) { warned.push(String(msg)); },
+    debug() {},
+  };
+  return { warned, log };
+}
 
 describe("autoconfig", () => {
-  describe("planConfigChanges", () => {
-    it("autoconfig no longer emits channel changes (targetGroups/gateway removed)", () => {
-      const cfg = {
-        targetGroups: [
-          { channel: "telegram", chatId: "-100123" },
-          { channel: "discord", chatId: "456" },
-        ],
-        gateway: { typingMode: "slow" },
-      };
-      const plan = planConfigChanges(cfg, {});
-      assert.equal(plan.changes.length, 0);
+  describe("warnStartupConfig", () => {
+    it("warns about no API key and Telegram reminder always", () => {
+      const { warned, log } = collect();
+      warnStartupConfig({}, {}, log);
+      assert.ok(warned.some((w) => w.includes("no API key needed")));
+      assert.ok(warned.some((w) => w.includes("BotFather")));
     });
 
     it("warns when hooks.allowConversationAccess is missing", () => {
-      const plan = planConfigChanges({}, {});
-      assert.ok(plan.warnings.some((w) => w.includes("allowConversationAccess")));
+      const { warned, log } = collect();
+      warnStartupConfig({}, {}, log);
+      assert.ok(warned.some((w) => w.includes("allowConversationAccess")));
     });
 
     it("does not warn when hooks.allowConversationAccess is set", () => {
-      const plan = planConfigChanges({}, { hooks: { allowConversationAccess: true } });
-      assert.ok(!plan.warnings.some((w) => w.includes("allowConversationAccess")));
+      const { warned, log } = collect();
+      warnStartupConfig({}, { hooks: { allowConversationAccess: true } }, log);
+      assert.ok(!warned.some((w) => w.includes("allowConversationAccess")));
     });
 
-    it("includes Telegram privacy mode reminder", () => {
-      const plan = planConfigChanges({}, {});
-      assert.ok(plan.warnings.some((w) => w.includes("Telegram") && w.includes("BotFather")));
+    it("does not throw on missing host config", () => {
+      const { log } = collect();
+      assert.doesNotThrow(() => warnStartupConfig({}, undefined, log));
     });
 
-    it("no dead-model warnings (decide.model/humanize.model removed)", () => {
-      const plan = planConfigChanges({ decide: { model: "gpt-4o" }, humanize: { model: "gpt-4o" } }, {});
-      assert.ok(!plan.warnings.some((w) => w.includes("model") && w.includes("allowModelOverride")));
-      assert.ok(!plan.warnings.some((w) => w.includes("typingMode")));
-    });
-  });
-
-  describe("formatReport", () => {
-    it("formats changes and warnings", () => {
-      const plan = {
-        changes: [
-          { path: 'channels.telegram.groups."-100".requireMention', from: "true", to: "false", why: "test" },
-        ],
-        warnings: ["Test warning"],
-      };
-      const report = formatReport(plan);
-      assert.ok(report.includes("requireMention"));
-      assert.ok(report.includes("Test warning"));
-    });
-
-    it("reports no changes when list is empty", () => {
-      const report = formatReport({ changes: [], warnings: [] });
-      assert.ok(report.includes("no changes needed"));
+    it("autoconfig opt-in is warnings-only advisory: no channel changes, no dead-model keys", () => {
+      const { warned, log } = collect();
+      warnStartupConfig({ decide: { model: "gpt-4o" }, humanize: { model: "gpt-4o" } }, { hooks: { allowConversationAccess: true } }, log);
+      assert.ok(!warned.some((w) => w.includes("model") && w.includes("allowModelOverride")));
+      assert.ok(!warned.some((w) => w.includes("typingMode")));
     });
   });
 });

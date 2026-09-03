@@ -6,7 +6,7 @@ import { buildPersonaPrompt, buildPersonaPromptWithMemory, buildSoulPrompt } fro
 import * as state from "./lib/state.js";
 import { createVoiceCard } from "./lib/voice-card.js";
 import { enhanceAndWrite, maybeAutoEnhance } from "./lib/soul.js";
-import { planConfigChanges, formatReport } from "./lib/autoconfig.js";
+import { warnStartupConfig } from "./lib/autoconfig.js";
 import { createLocalEngine } from "./lib/local-engine.js";
 import { createSocialMemory } from "./lib/social-memory.js";
 import { createObservedStore } from "./lib/observed-store.js";
@@ -116,9 +116,7 @@ export default definePluginEntry({
       maybeAutoEnhance(cfg, engine);
 
       if (cfg.autoconfig) {
-        const plan = planConfigChanges(cfg, api.config || {});
-        const report = formatReport(plan);
-        log.info(`human-engine autoconfig:\n${report}`);
+        warnStartupConfig(cfg, api.config || {}, log);
       }
     }));
 
