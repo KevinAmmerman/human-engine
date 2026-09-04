@@ -3,12 +3,17 @@ import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { createDmProactive } from "../lib/dm-proactive.js";
+import { parseFollowupEnvelope, evaluateDmGate, candidateFromEnvelope } from "../lib/dm-gate-core.js";
+import { localDayKey } from "../lib/proactive.js";
 import { setRng, resetRng } from "../lib/proactive.js";
 import * as state from "../lib/state.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dm-proactive-test-"));
-const SK = "agent:hori-wa:telegram:direct:111111111";
+const PLUGIN_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const BIN_GATE = path.join(PLUGIN_ROOT, "bin", "followup-gate.mjs");
+const SK = "agent:hori-wa:telegram:direct:999999999"; // fake session key (public repo)
 const SCOPE = "hori-wa::" + SK;
 const T0 = new Date(2026, 7, 24, 14, 0).getTime();
 
@@ -70,6 +75,25 @@ function makeCandidate(overrides = {}) {
   };
 }
 
+// v2 envelope helpers (Plan 530): the followup-cron sends
+// `[[fu:{…}]]\n<draft>` — fake ids only (public repo).
+function makeEnvelope(overrides = {}) {
+  return {
+    id: "fu-20260824-test-001",
+    kind: "soft_followup",
+    sensitivity: "normal",
+    confidence: 0.8,
+    dueWindow: { earliestMs: T0, latestMs: T0 + 6 * 60 * 60 * 1000 },
+    lastUserRefMs: T0 - 2 * 60 * 60 * 1000,
+    source: "followup-cron",
+    ...overrides,
+  };
+}
+
+function envelopeText(envelope = makeEnvelope(), draft = "Kommt ihr heute noch am Projekt voran?") {
+  return "[[fu:" + JSON.stringify(envelope) + "]]\n" + draft;
+}
+
 function makeCareCandidate(overrides = {}) {
   return makeCandidate({
     id: "cm_care_001",
@@ -88,7 +112,6 @@ function makeDm(overrides = {}) {
   const socialMemory = overrides.socialMemory ?? makeSocialMemory();
   const log = overrides.log ?? makeLog();
   const stateDir = overrides.stateDir ?? tmpDir;
-  const commitmentsPath = overrides.commitmentsPath ?? path.join(tmpDir, "commitments.json");
   const dm = createDmProactive({
     cfg,
     llm: runtime.llm,
@@ -97,9 +120,8 @@ function makeDm(overrides = {}) {
     stateDir,
     log,
     now: () => clock.t,
-    commitmentsPath,
   });
-  return { dm, cfg, clock, runtime, socialMemory, log, stateDir, commitmentsPath };
+  return { dm, cfg, clock, runtime, socialMemory, log, stateDir };
 }
 
 function readLog(stateDir) {
@@ -111,9 +133,9 @@ function readLog(stateDir) {
   }
 }
 
-function writeStore(file, commitments) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ version: 1, commitments }), "utf8");
+function writeState(stateDir, data) {
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(path.join(stateDir, "dm-proactive-state.json"), JSON.stringify(data), "utf8");
 }
 
 const instances = [];
@@ -154,47 +176,49 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.ok(log._infos.some((m) => m.includes("dm-proactive SHADOW") && m.includes("reason=passed")), log._infos.join("\n"));
     });
 
-    it("message_sending reconciles a pending commitment from the store and logs without blocking", async () => {
-      const { dm, stateDir, commitmentsPath } = track(makeDm());
-      writeStore(commitmentsPath, [{
-        id: "cm_due_001", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
-      assert.equal(result, undefined, "shadow must pass through without rewriting");
+    it("message_sending reconciles a pending commitment from the store and logs without blocking (v2: envelope source, store removed — Plan 530)", async () => {
+      const { dm, stateDir } = track(makeDm());
+      const result = await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "shadow must pass through with the envelope stripped");
       const entries = readLog(stateDir);
       assert.equal(entries.length, 1);
-      assert.equal(entries[0].candidate.id, "cm_due_001");
+      assert.equal(entries[0].candidate.id, "fu-20260824-test-001");
+      assert.equal(entries[0].candidate.source, "followup-cron");
       assert.equal(entries[0].gate.pass, true);
+      assert.equal(typeof entries[0].render.draft, "string");
     });
 
     it("non-commitment outbound text produces no log entry", async () => {
       const { dm, stateDir } = track(makeDm());
-      writeStore(path.join(tmpDir, "commitments.json"), []);
-      await dm.onMessageSending({ content: "Hey Nico, hier ist die Antwort." }, { sessionKey: SK });
+      const result = await dm.onMessageSending({ content: "Hey Nico, hier ist die Antwort." }, { sessionKey: SK });
+      assert.equal(result, undefined, "normal agent text must stay untouched (fail-open)");
       assert.equal(readLog(stateDir).length, 0);
     });
 
-    it("unchanged commitments file reconciles across repeated outbound sends (mtime cache)", async () => {
-      const { dm, stateDir, commitmentsPath } = track(makeDm());
-      writeStore(commitmentsPath, [{
-        id: "cm_due_001", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
-      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+    it("malformed envelope warns and passes through unchanged — no cancel, no log entry (fail-open)", async () => {
+      const { dm, stateDir, log } = track(makeDm());
+      const broken = "[[fu:{\"id\":broken…}]]\nDraft text";
+      const result = await dm.onMessageSending({ content: broken }, { sessionKey: SK });
+      assert.equal(result, undefined, "malformed envelope must pass through");
+      assert.equal(readLog(stateDir).length, 0);
+      assert.ok(log._warns.some((m) => m.includes("malformed followup envelope")), log._warns.join("\n"));
+    });
+
+    it("repeated envelope sends with the same id in shadow deliver both, but the second is logged as duplicate", async () => {
+      const { dm, stateDir } = track(makeDm());
+      await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
+      await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
       const entries = readLog(stateDir);
-      assert.equal(entries.length, 2, "both sends must reconcile from the cached store");
-      assert.equal(entries[0].candidate.id, "cm_due_001");
-      assert.equal(entries[1].candidate.id, "cm_due_001");
+      assert.equal(entries.length, 2, "shadow never cancels — both cron sends deliver");
+      assert.equal(entries[0].gate.reasons.includes("duplicate"), false);
+      assert.equal(entries[1].gate.reasons.includes("duplicate"), true, entries[1].gate.reasons.join(","));
+      assert.equal(entries[1].gate.verdicts.duplicate, false);
     });
 
     it("group outbound text is ignored (DM scope only)", async () => {
       const { dm, stateDir } = track(makeDm());
       const groupSk = "agent:hori-wa-public-group-kletter:whatsapp:group:123@g.us";
-      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: groupSk });
+      await dm.onMessageSending({ content: envelopeText() }, { sessionKey: groupSk });
       assert.equal(readLog(stateDir).length, 0);
     });
   });
@@ -342,96 +366,81 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(next.pass, true, next.reasons.join(","));
     });
 
-    it("shadow flag in config keeps dmProactive from ever sending even on a matched send event", async () => {
-      const { dm, stateDir, commitmentsPath, runtime } = track(makeDm());
-      writeStore(commitmentsPath, [{
-        id: "cm_due_001", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+    it("shadow flag in config keeps dmProactive from ever sending even on a matched envelope send", async () => {
+      const { dm, stateDir, runtime } = track(makeDm());
+      await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
       assert.equal(readLog(stateDir)[0].sent, false);
     });
   });
 
-  describe("activation safety: cancel-on-live-send", () => {
-    it("shadow=true passes through: never cancels, still logs", async () => {
-      const { dm, stateDir, commitmentsPath, runtime } = track(makeDm());
-      writeStore(commitmentsPath, [{
-        id: "cm_as_shadow", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
-      assert.equal(result, undefined, "shadow must never cancel");
+  describe("activation safety: shadow-v2 pass-through vs live cancel", () => {
+    it("shadow=true passes through with the envelope stripped: never cancels, still logs", async () => {
+      const { dm, stateDir, runtime } = track(makeDm());
+      const result = await dm.onMessageSending({ content: envelopeText(makeEnvelope({ id: "fu-20260824-as-shadow" })) }, { sessionKey: SK });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "shadow must never cancel — strip only");
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
       const entries = readLog(stateDir);
       assert.equal(entries.length, 1);
-      assert.equal(entries[0].candidate.id, "cm_as_shadow");
+      assert.equal(entries[0].candidate.id, "fu-20260824-as-shadow");
     });
 
     it("live + gate pass + runtime cancels original, sends rendered draft once with idempotencyKey", async () => {
       const runtime = makeRuntime({ llmText: "Rendertext live" });
-      const { dm, commitmentsPath, stateDir } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
-      writeStore(commitmentsPath, [{
-        id: "cm_as_live", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      const { dm, stateDir } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      const result = await dm.onMessageSending({ content: envelopeText(makeEnvelope({ id: "fu-20260824-as-live" })) }, { sessionKey: SK });
       assert.deepEqual(result, { cancel: true });
       assert.equal(runtime.subagent.run.mock.callCount(), 1);
       const call = runtime.subagent.run.mock.calls[0].arguments[0];
       assert.equal(call.deliver, true);
       assert.equal(call.message, "Rendertext live");
-      assert.equal(call.idempotencyKey, "human-engine-dm-proactive-cm_as_live");
+      assert.equal(call.idempotencyKey, "human-engine-dm-proactive-fu-20260824-as-live");
       const entries = readLog(stateDir);
       assert.equal(entries[0].sent, true);
-      assert.equal(entries[0].candidate.id, "cm_as_live");
+      assert.equal(entries[0].candidate.id, "fu-20260824-as-live");
     });
 
-    it("live + gate fail (quiet hours): no cancel, subagent.run not called", async () => {
+    it("live + gate fail (quiet hours): cancels (v2 — no dist fallback), subagent.run not called, logged", async () => {
       const runtime = makeRuntime({ llmText: "Rendertext" });
-      const { dm, commitmentsPath, stateDir } = track(makeDm({
+      const { dm, stateDir } = track(makeDm({
         cfg: makeCfg({ shadow: false, minGapMinutes: 0 }),
         runtime,
         now0: new Date(2026, 7, 24, 23, 30).getTime(),
       }));
-      writeStore(commitmentsPath, [{
-        id: "cm_as_quiet", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
-      assert.equal(result, undefined, "gate-fail live path must NOT cancel (dist fallback delivers)");
+      const result = await dm.onMessageSending({ content: envelopeText(makeEnvelope({ id: "fu-20260824-as-quiet" })) }, { sessionKey: SK });
+      assert.deepEqual(result, { cancel: true }, "v2 live gate-fail must cancel — there is no fallback lane");
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
       const entries = readLog(stateDir);
       assert.equal(entries[0].gate.pass, false);
       assert.ok(entries[0].gate.reasons.includes("quiet-hours"), entries[0].gate.reasons.join(","));
     });
 
-    it("live + no candidate match (store miss): no cancel, dist fallback delivers", async () => {
+    it("live + plain text without envelope: pass-through untouched, no send, no log", async () => {
       const runtime = makeRuntime();
-      const { dm, commitmentsPath } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
-      writeStore(commitmentsPath, []);
-      const result = await dm.onMessageSending({ content: "Freeform text, not a commitment" }, { sessionKey: SK });
-      assert.equal(result, undefined, "non-match must pass through");
+      const { dm, stateDir } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      const result = await dm.onMessageSending({ content: "Freeform text, not an envelope" }, { sessionKey: SK });
+      assert.equal(result, undefined, "normal agent text must never be touched (fail-open)");
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
+      assert.equal(readLog(stateDir).length, 0);
+    });
+
+    it("live + no runtime.subagent.run: delivers the stripped raw draft (fail-open, no lost send)", async () => {
+      const runtime = makeRuntime();
+      runtime.subagent.run = undefined;
+      const { dm, stateDir } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      const result = await dm.onMessageSending({ content: envelopeText(makeEnvelope({ id: "fu-20260824-no-rt" })) }, { sessionKey: SK });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" });
+      const entries = readLog(stateDir);
+      assert.equal(entries[0].sent, false);
     });
 
     it("live + subagent.run throws: still cancels, WARN logged with candidate id, budget NOT bumped", async () => {
       const runtime = makeRuntime({ llmText: "Rendertext" });
       runtime.subagent.run = mock.fn(async () => { throw new Error("boom"); });
-      const { dm, commitmentsPath, clock, stateDir, log } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
-      writeStore(commitmentsPath, [{
-        id: "cm_as_throw", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      const result = await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
+      const { dm, clock, stateDir, log } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      const result = await dm.onMessageSending({ content: envelopeText(makeEnvelope({ id: "fu-20260824-as-throw" })) }, { sessionKey: SK });
       assert.deepEqual(result, { cancel: true }, "cancel still returned after failed send");
-      assert.ok(log._warns.some((m) => m.includes("live send failed after cancel") && m.includes("cm_as_throw")), log._warns.join("\n"));
+      assert.ok(log._warns.some((m) => m.includes("live send failed after cancel") && m.includes("as-throw")), log._warns.join("\n"));
       clock.t += 24 * 60 * 60 * 1000;
       const next = dm.evaluateGate(makeCandidate({ id: "cm_as_throw_2" }));
       assert.equal(next.pass, true, "budget must NOT be bumped after failed send");
@@ -439,37 +448,36 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(entries[0].sent, false);
     });
 
-    it("duplicate delivery guard: same content/store twice → same idempotencyKey twice", async () => {
+    it("duplicate sentId in live: second cron retry is cancelled without a second send", async () => {
       const runtime = makeRuntime({ llmText: "Rendertext" });
-      const { dm, commitmentsPath } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
-      writeStore(commitmentsPath, [{
-        id: "cm_as_dup", agentId: "hori-wa", sessionKey: SK, kind: "open_loop",
-        sensitivity: "personal", confidence: 0.8, source: "agent_promise", status: "pending",
-        suggestedText: "Kommt ihr heute noch am Projekt voran?", updatedAtMs: T0,
-      }]);
-      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
-      await dm.onMessageSending({ content: "Kommt ihr heute noch am Projekt voran?" }, { sessionKey: SK });
-      assert.equal(runtime.subagent.run.mock.callCount(), 2);
-      const k0 = runtime.subagent.run.mock.calls[0].arguments[0].idempotencyKey;
-      const k1 = runtime.subagent.run.mock.calls[1].arguments[0].idempotencyKey;
-      assert.equal(k0, k1);
-      assert.equal(k0, "human-engine-dm-proactive-cm_as_dup");
+      const { dm, stateDir } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      const content = envelopeText(makeEnvelope({ id: "fu-20260824-as-dup" }));
+      const first = await dm.onMessageSending({ content }, { sessionKey: SK });
+      assert.deepEqual(first, { cancel: true });
+      assert.equal(runtime.subagent.run.mock.callCount(), 1);
+      const second = await dm.onMessageSending({ content }, { sessionKey: SK });
+      assert.deepEqual(second, { cancel: true }, "duplicate must cancel in live");
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "duplicate must NOT send twice");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 2);
+      assert.ok(entries[1].gate.reasons.includes("duplicate"), entries[1].gate.reasons.join(","));
+      assert.equal(entries[1].sent, false);
     });
   });
 
-  describe("e2e dry run with a pending commitment fixture", () => {
-    it("ugly raw template from the store renders (no-llm fallback) into the shadow log with candidate metadata", async () => {
-      const { dm, stateDir, commitmentsPath } = track(makeDm());
-      writeStore(commitmentsPath, [{
-        id: "cm_voyage_dup_01", agentId: "hori-wa", sessionKey: SK, kind: "care_check_in",
-        sensitivity: "care", confidence: 0.88, source: "agent_promise", status: "pending",
-        suggestedText: "Kurzer Check-in: Alles okay? Du wolltest ja noch was nachreichen.",
-        updatedAtMs: T0,
-      }]);
-      await dm.onMessageSending({ content: "Kurzer Check-in: Alles okay? Du wolltest ja noch was nachreichen." }, { sessionKey: SK });
+  describe("e2e dry run with a followup envelope fixture", () => {
+    it("ugly raw template from the cron renders (no-llm fallback) into the shadow log with candidate metadata", async () => {
+      const { dm, stateDir } = track(makeDm({ runtime: { subagent: { run: mock.fn() }, llm: null } }));
+      const envelope = makeEnvelope({
+        id: "fu-20260824-voyage-dup-01",
+        kind: "care_check_in",
+        sensitivity: "care",
+        confidence: 0.88,
+      });
+      await dm.onMessageSending({ content: envelopeText(envelope, "Kurzer Check-in: Alles okay? Du wolltest ja noch was nachreichen.") }, { sessionKey: SK });
       const entries = readLog(stateDir);
       assert.equal(entries.length, 1);
-      assert.equal(entries[0].candidate.id, "cm_voyage_dup_01");
+      assert.equal(entries[0].candidate.id, "fu-20260824-voyage-dup-01");
       assert.equal(entries[0].candidate.kind, "care_check_in");
       assert.equal(entries[0].suggestedText.includes("nachreichen"), true);
       assert.equal(typeof entries[0].gate.pass, "boolean");
@@ -511,6 +519,202 @@ describe("dm-proactive", { concurrency: false }, () => {
       dm.stop();
       const data = JSON.parse(fs.readFileSync(stateFile, "utf8"));
       assert.ok(data.scopes[SCOPE], "stop() must persist the dirty budget");
+    });
+
+    it("v1 state (only scopes) loads unchanged — sentIds stays empty", async () => {
+      writeState(tmpDir, { scopes: { [SCOPE]: { day: localDayKey(T0), count: 1, careCount: 0, lastSentAt: T0, lastCareSentAt: 0, lastReplyAtMs: 0 } } });
+      const { dm, log } = track(makeDm({ now0: T0 }));
+      const res = dm.evaluateGate(makeCandidate({ id: "fu-20260824-v1-load" }));
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("min-gap"), res.reasons.join(","));
+      assert.ok(log._warns.length === 0, "v1 state must load without warnings");
+    });
+
+    it("sentIds persist and are bounded (LRU 512)", async () => {
+      const old = [];
+      for (let i = 0; i < 600; i++) old.push("fu-20200101-old-" + i);
+      writeState(tmpDir, { scopes: {}, sentIds: old });
+      const { dm, clock } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) }));
+      await dm.handleCandidate(makeCandidate({ id: "fu-20260824-live-001" }));
+      dm.stop();
+      clock.t += 24 * 60 * 60 * 1000;
+      const second = makeDm({ now0: clock.t, cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) });
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.ok(Array.isArray(data.sentIds));
+      assert.ok(data.sentIds.length <= 512, "sentIds must stay bounded");
+      assert.ok(data.sentIds.includes("fu-20260824-live-001"), "delivered id must be recorded");
+      assert.ok(!data.sentIds.includes("fu-20200101-old-0"), "oldest ids must be evicted");
+      const dup = second.dm.evaluateGate(makeCandidate({ id: "fu-20260824-live-001", dueWindow: { earliestMs: clock.t, latestMs: clock.t + 3600000 } }));
+      assert.ok(dup.reasons.includes("duplicate"), "recorded sentId must gate a retry as duplicate");
+    });
+  });
+
+  describe("followup envelope parsing (design §2.1)", () => {
+    it("valid envelope parses with draft and all contract fields", () => {
+      const parsed = parseFollowupEnvelope(envelopeText());
+      assert.equal(parsed.ok, true);
+      assert.equal(parsed.envelope.id, "fu-20260824-test-001");
+      assert.equal(parsed.envelope.kind, "soft_followup");
+      assert.equal(parsed.draftText, "Kommt ihr heute noch am Projekt voran?");
+    });
+
+    it("unknown fields are tolerated (§7.1 — ignored, not rejected)", () => {
+      const parsed = parseFollowupEnvelope(envelopeText(makeEnvelope({ schemaVersion: 2, futureField: "x" })));
+      assert.equal(parsed.ok, true);
+    });
+
+    it("content without an envelope line returns null (normal agent text)", () => {
+      assert.equal(parseFollowupEnvelope("Ganz normale Antwort ohne Envelope."), null);
+      assert.equal(parseFollowupEnvelope(""), null);
+    });
+
+    it("malformed envelope JSON reports json-parse", () => {
+      const parsed = parseFollowupEnvelope('[[fu:{"id":broken}]]\nDraft');
+      assert.equal(parsed.ok, false);
+      assert.equal(parsed.error, "json-parse");
+    });
+
+    it("unterminated envelope line and empty draft are malformed", () => {
+      assert.equal(parseFollowupEnvelope('[[fu:{"id":"fu-20260824-x"}\nDraft').error, "unterminated");
+      assert.equal(parseFollowupEnvelope('[[fu:{"id":"fu-20260824-x"}]]').error, "empty-draft");
+    });
+
+    it("schema violations are rejected with distinct error codes", () => {
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ id: "wrong-format" }))).error, "bad-id");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ kind: "open_loop" }))).error, "bad-kind");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ sensitivity: "urgent" }))).error, "bad-sensitivity");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ confidence: 1.5 }))).error, "bad-confidence");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ dueWindow: null }))).error, "bad-due-window");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ source: "" }))).error, "bad-source");
+    });
+
+    it("lastUserRefMs is mandatory for soft_followup only (§3 Q3)", () => {
+      const without = makeEnvelope({ id: "fu-20260824-noref", kind: "soft_followup" });
+      delete without.lastUserRefMs;
+      assert.equal(parseFollowupEnvelope(envelopeText(without)).error, "missing-last-user-ref");
+      const reminder = makeEnvelope({ id: "fu-20260824-rem", kind: "reminder" });
+      delete reminder.lastUserRefMs;
+      assert.equal(parseFollowupEnvelope(envelopeText(reminder)).ok, true);
+    });
+
+    it("candidateFromEnvelope maps the envelope onto the candidate shape", () => {
+      const parsed = parseFollowupEnvelope(envelopeText());
+      const candidate = candidateFromEnvelope(parsed.envelope, parsed.draftText, SK, "hori-wa");
+      assert.equal(candidate.id, parsed.envelope.id);
+      assert.equal(candidate.suggestedText, parsed.draftText);
+      assert.equal(candidate.sessionKey, SK);
+      assert.equal(candidate.agentId, "hori-wa");
+      assert.deepEqual(candidate.dueWindow, parsed.envelope.dueWindow);
+    });
+  });
+
+  describe("shared gate-core verdicts (lib/dm-gate-core.js)", () => {
+    it("exposes per-check verdicts alongside reasons", () => {
+      const quietNow = new Date(2026, 7, 24, 23, 30).getTime();
+      const res = evaluateDmGate(candidateFromEnvelope(makeEnvelope(), "draft", SK, "hori-wa"), { dcfg: BASE_DM, now: quietNow });
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("quiet-hours"));
+      assert.equal(res.verdicts["quiet-hours"], false);
+      assert.equal(res.verdicts.budget, true);
+      assert.equal(res.verdicts.duplicate, true);
+    });
+
+    it("duplicate sentId fails the gate", () => {
+      const res = evaluateDmGate(candidateFromEnvelope(makeEnvelope(), "draft", SK, "hori-wa"), { dcfg: BASE_DM, now: T0, duplicate: true });
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("duplicate"));
+      assert.equal(res.verdicts.duplicate, false);
+    });
+
+    it("missing counter (CLI mode) passes scope-dependent checks", () => {
+      const res = evaluateDmGate(candidateFromEnvelope(makeEnvelope(), "draft", SK, "hori-wa"), { dcfg: BASE_DM, now: T0 });
+      assert.equal(res.pass, true, res.reasons.join(","));
+      assert.equal(res.verdicts["min-gap"], true);
+    });
+  });
+
+  describe("followup-gate CLI (layer 1, bin/followup-gate.mjs)", () => {
+    const cfgFixture = path.join(tmpDir, "fixture-config.json");
+    const stateFixture = path.join(tmpDir, "fixture-state.json");
+
+    function runGate(args, input) {
+      // spawn + stdin.end(): execFile's `input` option deadlocks with a
+      // stdin-reading child in this Node version — verified minimal repro.
+      return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [BIN_GATE, "check", ...args], { stdio: ["pipe", "pipe", "pipe"] });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (d) => { stdout += d; });
+        child.stderr.on("data", (d) => { stderr += d; });
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code, stdout, stderr }));
+        if (input !== undefined) child.stdin.end(input);
+        else child.stdin.end();
+      });
+    }
+
+    function parseOut(stdout) {
+      return JSON.parse(stdout.trim().split("\n").pop());
+    }
+
+    beforeEach(() => {
+      writeState(tmpDir, {});
+      fs.writeFileSync(cfgFixture, JSON.stringify({ dmProactive: { ...BASE_DM } }), "utf8");
+      fs.writeFileSync(stateFixture, JSON.stringify({ scopes: {}, sentIds: [] }), "utf8");
+    });
+
+    it("check --file returns a pass verdict for a valid envelope", async () => {
+      const envFile = path.join(tmpDir, "env.json");
+      fs.writeFileSync(envFile, envelopeText(), "utf8");
+      const { code, stdout } = await runGate(["--file", envFile, "--config", cfgFixture, "--state", stateFixture, "--now", String(T0)]);
+      assert.equal(code, 0);
+      const out = parseOut(stdout);
+      assert.equal(out.valid, true);
+      assert.equal(out.pass, true);
+      assert.deepEqual(out.reasons, []);
+      assert.equal(out.candidate.id, "fu-20260824-test-001");
+    });
+
+    it("check via STDIN blocks on quiet hours with reasons", async () => {
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--now", String(new Date(2026, 7, 24, 23, 30).getTime())], envelopeText());
+      assert.equal(code, 1);
+      const out = parseOut(stdout);
+      assert.equal(out.pass, false);
+      assert.ok(out.reasons.includes("quiet-hours"), out.reasons.join(","));
+      assert.equal(out.verdicts["quiet-hours"], false);
+    });
+
+    it("check blocks a duplicate sentId from the plugin state", async () => {
+      fs.writeFileSync(stateFixture, JSON.stringify({ scopes: {}, sentIds: ["fu-20260824-test-001"] }), "utf8");
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--now", String(T0)], envelopeText());
+      assert.equal(code, 1);
+      const out = parseOut(stdout);
+      assert.equal(out.pass, false);
+      assert.ok(out.reasons.includes("duplicate"), out.reasons.join(","));
+    });
+
+    it("check blocks on budget via the scope counter from state", async () => {
+      fs.writeFileSync(stateFixture, JSON.stringify({ scopes: { [SCOPE]: { day: localDayKey(T0), count: 2, careCount: 0, lastSentAt: T0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [] }), "utf8");
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--session", SK, "--agent", "hori-wa", "--now", String(T0)], envelopeText());
+      assert.equal(code, 1);
+      const out = parseOut(stdout);
+      assert.equal(out.pass, false);
+      assert.ok(out.reasons.includes("budget"), out.reasons.join(","));
+      assert.equal(out.scope, SCOPE);
+    });
+
+    it("invalid envelope exits 2 with an error code", async () => {
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture], '[[fu:{broken}]]\nDraft');
+      assert.equal(code, 2);
+      const out = parseOut(stdout);
+      assert.equal(out.valid, false);
+      assert.equal(out.error, "json-parse");
+    });
+
+    it("content without an envelope exits 2 with no-envelope", async () => {
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture], "Just a normal message.");
+      assert.equal(code, 2);
+      assert.equal(parseOut(stdout).error, "no-envelope");
     });
   });
 });
