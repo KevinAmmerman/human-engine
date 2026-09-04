@@ -464,7 +464,8 @@ describe("naturalize", () => {
       await new Promise((r) => setTimeout(r, 1500));
       assert.ok(captured.triggerInfo, "triggerInfo forwarded");
       assert.equal(captured.triggerInfo.replyTarget, null);
-      assert.equal(captured.triggerInfo.newestAgeMs, null, "no ts on peek line -> null age");
+      assert.equal(typeof captured.triggerInfo.newestAgeMs, "number", "plan 529: own peek line carries ts -> numeric age");
+      assert.ok(captured.triggerInfo.newestAgeMs >= 0, "age is a small non-negative delta");
     });
 
     it("plan 511: forwards a replyTarget even when quotedName is null but replyToAgent is true", async () => {

@@ -16,6 +16,22 @@ import * as timing from "./lib/timing-engine.js";
 
 const runtime = { api: null, cfg: null };
 
+export function transcriptEventTsMs(event) {
+  const raw = event?.timestamp ?? event?.message?.timestamp;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw < 1e12 ? raw * 1000 : raw;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+export function isNoReplyAssistantText(role, text) {
+  return role === "assistant" && /^\s*NO_REPLY\s*$/i.test(String(text || ""));
+}
+
 export default definePluginEntry({
   id: "human-engine",
   name: "Human Engine",
@@ -77,8 +93,12 @@ export default definePluginEntry({
           }
           text = text.trim();
           if (!text) continue;
+          if (isNoReplyAssistantText(role, text)) continue;
           const speaker = role === "assistant" ? (cfg.agentName || "Agent") : "User";
-          out.push({ speaker, text: text.slice(0, 300) });
+          const entry = { speaker, text: text.slice(0, 300) };
+          const ts = transcriptEventTsMs(e);
+          if (ts !== undefined) entry.ts = ts;
+          out.push(entry);
         }
         return out.slice(-limit);
       } catch {

@@ -88,6 +88,8 @@ const MATRIX = [
     tags: ["sends via subagent.run deliver with idempotency key", "budget not bumped after failed send"] },
   { id: 41, behavior: "own replies survive restart in decide context (observed store, merged transcript)",
     tags: ["own replies survive restart"] },
+  { id: 42, behavior: "decide context ordering: chronological merge + NO_REPLY filter + ts backfill",
+    tags: ["chronological merge", "no_reply filter", "ts backfill"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

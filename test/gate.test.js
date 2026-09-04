@@ -266,8 +266,8 @@ describe("gate", () => {
     });
 
     it("merges observed-store layer with hydrated and peek, deduped, chronological, capped at 20", async () => {
-      for (let i = 0; i < 6; i++) state.pushTranscriptPeek(CHAT_SK, `[Nico] p${i}`);
-      state.pushTranscriptPeek(CHAT_SK, "[Nico] older silenced");
+      for (let i = 0; i < 6; i++) state.pushTranscriptPeek(CHAT_SK, `[Nico] p${i}`, undefined, 1100 + i * 100);
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] older silenced", undefined, 1000);
       let captured;
       const obsGate = makeGate({
         observedStore: {
@@ -277,7 +277,7 @@ describe("gate", () => {
         engine: {
           async decide(opts) { captured = opts; return { decision: "speak", epoch: 5 }; },
         },
-        readTranscript: async () => [{ speaker: "Hori", text: "assistant note" }],
+        readTranscript: async () => [{ speaker: "Hori", text: "assistant note", ts: 3000 }],
       });
 
       await obsGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "current prompt" }), makeDefaultCtx());
@@ -289,9 +289,74 @@ describe("gate", () => {
       assert.ok(texts.includes("p5"), "peek lines present");
       assert.ok(texts.includes("current prompt"), "current prompt appended");
       assert.ok(transcript.length <= 20, "merged transcript capped at 20");
-      assert.ok(texts.indexOf("assistant note") < texts.indexOf("older silenced"), "hydrated before observed");
+      assert.ok(texts.indexOf("older silenced") < texts.indexOf("assistant note"), "older observed sorts before fresh hydrated");
       assert.ok(texts.indexOf("older silenced") < texts.indexOf("p0"), "observed before peek");
+      assert.ok(texts.indexOf("p5") < texts.indexOf("assistant note"), "fresh hydrated sorts after older peek lines");
       assert.equal(texts[texts.length - 1], "current prompt", "current prompt is last");
+    });
+
+    it("chronological merge: layers with interleaved ts merge oldest → newest, current message last", async () => {
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] peek-mid", undefined, 1500);
+      let captured;
+      const sortGate = makeGate({
+        observedStore: {
+          readObserved: () => [{ speaker: "Nico", text: "old silenced", ts: 1000 }],
+          appendObserved: () => {},
+        },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [
+          { speaker: "Hori", text: "fresh hydrated", ts: 3000 },
+          { speaker: "User", text: "older hydrated", ts: 900 },
+        ],
+      });
+
+      await sortGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "aktuelle frage" }), makeDefaultCtx());
+      const texts = (captured.transcript || []).map((t) => t.text);
+      assert.deepEqual(texts, [
+        "older hydrated",
+        "old silenced",
+        "peek-mid",
+        "fresh hydrated",
+        "aktuelle frage",
+      ], "merged transcript is chronological with the current message last");
+    });
+
+    it("ts-less entries sort after all ts entries, stable among themselves", async () => {
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] no-ts one");
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] no-ts two");
+      let captured;
+      const tslessGate = makeGate({
+        observedStore: {
+          readObserved: () => [{ speaker: "Nico", text: "with ts", ts: 1000 }],
+          appendObserved: () => {},
+        },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [{ speaker: "Hori", text: "hydrated ts-less" }],
+      });
+
+      await tslessGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "neu hier" }), makeDefaultCtx());
+      const texts = (captured.transcript || []).map((t) => t.text);
+      assert.deepEqual(texts, ["with ts", "neu hier", "hydrated ts-less", "no-ts one", "no-ts two"]);
+    });
+
+    it("merge + slice(-20) cuts the oldest lines and keeps the current message last", async () => {
+      const observed = [];
+      for (let i = 0; i < 25; i++) observed.push({ speaker: "Nico", text: `m${i}`, ts: 1000 + i });
+      let captured;
+      const capGate = makeGate({
+        observedStore: {
+          readObserved: () => observed,
+          appendObserved: () => {},
+        },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+
+      await capGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "brandaktuell" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const texts = transcript.map((t) => t.text);
+      assert.equal(transcript.length, 20, "capped at 20 lines");
+      assert.equal(texts[0], "m6", "oldest lines are cut first");
+      assert.equal(texts[texts.length - 1], "brandaktuell", "current message survives as the last line");
     });
 
     it("stay_silent persists the silenced message to the observed store", async () => {
