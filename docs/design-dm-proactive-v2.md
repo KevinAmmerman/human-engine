@@ -152,6 +152,27 @@ wiederholt bewusst mit derselben id, bis delivered.
 >    Messgröße; der amnesische Isolated-Cron regeneriert ids strukturell
 >    (kann Delivery-State nicht sehen). Ein Kandidat = eine Delivery;
 >    Retries sind Logs, keine Sends.
+>
+> **Amendment 3 (Plan 546, Incident 2 — `[[fu:`-Präfix-Policy, bindend)**
+>
+> Content, der mit `[[fu:` beginnt, ist mit Sicherheit ein Followup-Versuch →
+> NIE raw pass-through (das würde Envelope-Metadaten an Kevin leaken). Bei
+> Parser-Fehler (malformed/unknown-kind nach Amendment 4): **Shadow** →
+> Envelope-Erste-Zeile strippen, Draft-Rest durchlassen (fail-open für die
+> Nutzererfahrung, KEINE Metadaten), Log-Eintrag `gatePassed:false` +
+> reason `malformed-envelope` (gateVerdicts leer — es gibt keinen Kandidaten);
+> **Live** → `{cancel:true}` + Log. Kein-Envelope (Präfix fehlt) → unverändert
+> return, Parity #24 intakt (normaler Text beginnt nie mit `[[fu:`).
+>
+> **Amendment 4 (Plan 546, Incident 2 — Kind-Normalisierung, bindend)**
+>
+> `parseFollowupEnvelope` normalisiert `kind` VOR der Validierung:
+> `care`/`care-check-in`/`care_checkin` → `care_check_in`;
+> `soft-followup`/`softfollowup` → `soft_followup`; case-insensitive, trim.
+> Unbekannte Kinds bleiben invalid (→ Amendment-3-Policy). Grund: hori-wa
+> schrieb real `kind:"care"` (invalid) — der momentum-Fall (kind `care`,
+> sensitivity `care`) muss als gültiger `care_check_in` GESTRIPPT zugestellt
+> werden (Kevin fand die Message gut), nicht unterdrückt.
 
 **Verdrahtung doppelt (Defense in Depth)**: Schicht 1 (Konvention): der
 Cron-Prompt weist hori-wa an, vor dem Send das Verdikt zu prüfen — via

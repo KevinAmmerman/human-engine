@@ -187,13 +187,35 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(readLog(stateDir).length, 0);
     });
 
-    it("malformed envelope warns and passes through unchanged — no cancel, no log entry (fail-open)", async () => {
+    it("malformed envelope with [[fu: prefix in SHADOW → envelope stripped, draft delivered, malformed-envelope logged (Plan 546 AMENDMENT 3)", async () => {
       const { dm, stateDir, log } = track(makeDm());
       const broken = "[[fu:{\"id\":broken…}]]\nDraft text";
       const result = await dm.onMessageSending({ content: broken }, { sessionKey: SK });
-      assert.equal(result, undefined, "malformed envelope must pass through");
+      assert.deepEqual(result, { content: "Draft text" }, "shadow must strip the envelope and deliver only the draft (never raw metadata)");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1, "the malformed attempt must be logged");
+      assert.equal(entries[0].gatePassed, false, "malformed envelope never passes the gate");
+      assert.ok(entries[0].gate.reasons.includes("malformed-envelope"), entries[0].gate.reasons.join(","));
+      assert.deepEqual(entries[0].gateVerdicts, {}, "no gate verdicts are computed for an unparseable envelope");
+      assert.equal(entries[0].suggestedText, "Draft text", "the draft is preserved for the user experience");
+    });
+
+    it("malformed envelope with [[fu: prefix in LIVE → cancel + malformed-envelope logged, never delivered (Plan 546 AMENDMENT 3)", async () => {
+      const { dm, stateDir, log } = track(makeDm({ cfg: makeCfg({ shadow: false }) }));
+      const broken = "[[fu:{\"id\":broken…}]]\nDraft text";
+      const result = await dm.onMessageSending({ content: broken }, { sessionKey: SK });
+      assert.deepEqual(result, { cancel: true }, "live must cancel a malformed followup attempt");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1, "the malformed attempt must be logged");
+      assert.equal(entries[0].mode, "live");
+      assert.ok(entries[0].gate.reasons.includes("malformed-envelope"), entries[0].gate.reasons.join(","));
+    });
+
+    it("plain text WITHOUT the [[fu: prefix stays untouched even if it mentions fu (parity #24 regression)", async () => {
+      const { dm, stateDir, log } = track(makeDm());
+      const result = await dm.onMessageSending({ content: "Das sind keine Metadaten, nur normaler Text." }, { sessionKey: SK });
+      assert.equal(result, undefined, "normal text must never be touched");
       assert.equal(readLog(stateDir).length, 0);
-      assert.ok(log._warns.some((m) => m.includes("malformed followup envelope")), log._warns.join("\n"));
     });
 
     it("repeated envelope sends with the same id in shadow: first delivers, second is cancelled as duplicate (Plan 536 AMENDMENT 2)", async () => {
@@ -675,6 +697,21 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ confidence: 1.5 }))).error, "bad-confidence");
       assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ dueWindow: null }))).error, "bad-due-window");
       assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ source: "" }))).error, "bad-source");
+    });
+
+    it("Plan 546 AMENDMENT 4: kind variants are normalized before validation (care → care_check_in, soft-followup → soft_followup)", () => {
+      for (const variant of ["care", "care-check-in", "care_checkin", "CARE", " Care "]) {
+        const parsed = parseFollowupEnvelope(envelopeText(makeEnvelope({ id: "fu-20260904-k" + variant.length, kind: variant })));
+        assert.equal(parsed.ok, true, "variant '" + variant + "' must validate after normalization");
+        assert.equal(parsed.envelope.kind, "care_check_in", "variant '" + variant + "' must normalize to care_check_in");
+      }
+      for (const variant of ["soft-followup", "softfollowup", "SOFT_FOLLOWUP"]) {
+        const parsed = parseFollowupEnvelope(envelopeText(makeEnvelope({ id: "fu-20260904-s" + variant.length, kind: variant })));
+        assert.equal(parsed.ok, true, "variant '" + variant + "' must validate after normalization");
+        assert.equal(parsed.envelope.kind, "soft_followup", "variant '" + variant + "' must normalize to soft_followup");
+      }
+      // Unknown kinds still rejected (→ malformed policy).
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ kind: "open_loop" }))).error, "bad-kind");
     });
 
     it("lastUserRefMs is mandatory for soft_followup only (§3 Q3)", () => {
@@ -1221,6 +1258,92 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(entries.length, 1);
       assert.equal(entries[0].scope, PROD_SCOPE, "scope must match the seeded known scope");
       assert.equal(log._warns.length, 0, "no warn for a known-scope match");
+    });
+
+    it("INCIDENT 2 REGRESSION: to=telegram:968721694 (channel prefix) + 2 agents + kind care → normalized care_check_in, care gates run, stripped delivery, logged, sentIds set, NO raw output", async () => {
+      // Real production shape (incident 2026-09-04 ~12:46 UTC): OpenClaw
+      // delivers `to` WITH a channel prefix (`telegram:968721694`), the ctx has
+      // NO sessionKey, and cfg.agents names TWO agents. hori-wa owns the DM
+      // scope, kletter does not → unambiguous scope resolution across agents.
+      // The cron wrote `kind:"care"` (invalid schema) which must be normalized
+      // to `care_check_in` so the care gates run and delivery is STRIPPED.
+      const UID = "968721694";
+      const incidentScope = "hori-wa::agent:hori-wa:telegram:direct:" + UID;
+      const multiCfg = { ...makeCfg(), agents: ["hori-wa-public-group-kletter", "hori-wa"] };
+      writeState(tmpDir, { scopes: { [incidentScope]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [] });
+      const { dm, stateDir, log } = track(makeDm({ cfg: multiCfg }));
+      const envelope = makeEnvelope({ id: "fu-20260904-momentum-tagebuch", kind: "care", sensitivity: "care", confidence: 0.9, lastUserRefMs: T0 - 60 * 60 * 1000 });
+      const event = { to: "telegram:" + UID, content: envelopeText(envelope), metadata: { channel: "telegram", accountId: "bot-1" } };
+      const result = await dm.onMessageSending(event, { channelId: "telegram", accountId: "bot-1" });
+      assert.ok(result && result.content, "delivery must not be suppressed for the valid momentum case");
+      assert.equal(result.content, "Kommt ihr heute noch am Projekt voran?", "delivery must be the stripped draft");
+      assert.ok(!result.content.includes("[[fu:"), "delivered content must NOT contain the RAW envelope metadata");
+      assert.ok(!result.content.includes("968721694"), "delivered content must NOT leak the target uid");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1, "one candidate logged");
+      assert.equal(entries[0].candidateId, "fu-20260904-momentum-tagebuch");
+      assert.equal(entries[0].kind, "care_check_in", "kind care must be normalized to care_check_in");
+      assert.equal(entries[0].candidate.kind, "care_check_in");
+      assert.equal(entries[0].scope, incidentScope, "scope must resolve to hori-wa's DM lane");
+      assert.equal(entries[0].gatePassed, true, "care gates must have run and passed for this candidate");
+      assert.equal(log._warns.length, 0, "no cannot-derive warn — scope resolved across agents");
+      dm.stop();
+      const state = JSON.parse(fs.readFileSync(path.join(stateDir, "dm-proactive-state.json"), "utf8"));
+      assert.ok(state.sentIds.includes("fu-20260904-momentum-tagebuch"), "delivered id must be recorded in sentIds");
+    });
+
+    it("multi-agent: DM scope owner unambiguous across agents resolves even when single-agent fallback is absent", async () => {
+      // hori-wa owns the DM scope, kletter owns only a group scope — the target
+      // is resolvable to hori-wa despite cfg.agents.length === 2.
+      const UID = "968721694";
+      const incidentScope = "hori-wa::agent:hori-wa:telegram:direct:" + UID;
+      const kletterGroupScope = "hori-wa-public-group-kletter::agent:hori-wa-public-group-kletter:telegram:direct:555000";
+      const multiCfg = { ...makeCfg(), agents: ["hori-wa-public-group-kletter", "hori-wa"] };
+      writeState(tmpDir, { scopes: { [incidentScope]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 }, [kletterGroupScope]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [] });
+      const { dm, stateDir, log } = track(makeDm({ cfg: multiCfg }));
+      const event = { to: "telegram:" + UID, content: envelopeText(makeEnvelope({ id: "fu-20260904-uniq" })), metadata: { channel: "telegram" } };
+      const result = await dm.onMessageSending(event, { channelId: "telegram" });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "unambiguous DM owner must resolve");
+      assert.equal(log._warns.length, 0, "no warn for unambiguous owner");
+    });
+
+    it("multi-agent: target owned by TWO agents → warn + fail-open (never guess)", async () => {
+      const UID = "968721694";
+      const s1 = "hori-wa::agent:hori-wa:telegram:direct:" + UID;
+      const s2 = "hori-wa-public-group-kletter::agent:hori-wa-public-group-kletter:telegram:direct:" + UID;
+      const multiCfg = { ...makeCfg(), agents: ["hori-wa-public-group-kletter", "hori-wa"] };
+      writeState(tmpDir, { scopes: { [s1]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 }, [s2]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [] });
+      const { dm, stateDir, log } = track(makeDm({ cfg: multiCfg }));
+      const event = { to: "telegram:" + UID, content: envelopeText(makeEnvelope({ id: "fu-20260904-ambig" })), metadata: { channel: "telegram" } };
+      const result = await dm.onMessageSending(event, { channelId: "telegram" });
+      assert.equal(result, undefined, "ambiguous multi-owner target must fail open (not delivered raw)");
+      assert.equal(readLog(stateDir).length, 0);
+      assert.ok(log._warns.some((m) => m.includes("cannot derive DM scope")), log._warns.join("\n"));
+    });
+
+    it("bare uid WITHOUT channel prefix still resolves (backward compat with Plan 536)", async () => {
+      const { dm, stateDir } = track(makeDm());
+      const event = { to: "5551234", content: envelopeText(makeEnvelope({ id: "fu-20260904-bare" })), metadata: { channel: "telegram" } };
+      const result = await dm.onMessageSending(event, { channelId: "telegram" });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "bare uid must still derive via single-agent fallback");
+      const entries = readLog(stateDir);
+      assert.equal(entries[0].scope, "hori-wa::agent:hori-wa:telegram:direct:5551234");
+    });
+
+    it("group targets with a channel prefix (telegram:-100…) are still rejected, not derived as DM", async () => {
+      const { dm, stateDir, log } = track(makeDm());
+      const event = { to: "telegram:-1001234567890", content: envelopeText(makeEnvelope({ id: "fu-20260904-group" })), metadata: { channel: "telegram" } };
+      const result = await dm.onMessageSending(event, { channelId: "telegram" });
+      assert.equal(result, undefined, "prefixed negative chat id must never be derived as a DM");
+      assert.equal(readLog(stateDir).length, 0);
+    });
+
+    it(":topic: suffix target is rejected as a DM (group sub-thread)", async () => {
+      const { dm, stateDir, log } = track(makeDm());
+      const event = { to: "telegram:12345:topic:678", content: envelopeText(makeEnvelope({ id: "fu-20260904-topic" })), metadata: { channel: "telegram" } };
+      const result = await dm.onMessageSending(event, { channelId: "telegram" });
+      assert.equal(result, undefined, ":topic: target must never be derived as a DM");
+      assert.equal(readLog(stateDir).length, 0);
     });
   });
 });
