@@ -87,6 +87,17 @@ Two files live next to the SOUL.md, NOT under `state/`:
 `social-learning-requests.jsonl`. `.gitignore` excludes `state/`, `logs/`, and
 `*.log`.
 
+## Host/channel config dependencies (OpenClaw config, not plugin config)
+
+The WhatsApp pipeline silently degrades without these channel-level keys —
+all live-verified 2026-09-04:
+
+| Key | Required value | Missing-value symptom |
+|-----|----------------|----------------------|
+| `channels.whatsapp.pluginHooks.messageReceived` | `true` | `message_received` hook never fires: no quote-reply detection (`replyToAgent` stays false), no sender cache, no social-memory ingest |
+| `channels.whatsapp.contextVisibility` | `"allowlist_quote"` | `"allowlist"` drops quotes from senders outside the allowlist (incl. the bot's own messages — i.e. every quote-reply TO the agent) before hooks see them |
+| `channels.whatsapp.groupAllowFrom` | all group members who should be processed | Senders outside are dropped BEFORE the inbound log: no ack, no session entry, no gate — completely silent |
+
 ## Secrets
 
 No secrets or credentials. The plugin uses the host's built-in LLM exclusively.

@@ -73,13 +73,24 @@ fires per outbound payload with the real reply text and supports
    system context.
 5. **Agent run** produces a reply.
 6. **`reply_dispatch`** hook (naturalize): on speak turns, stashes the
-   dispatcher and lets payloads flow.
+   dispatcher on a per-session FIFO queue (max 8) WITHOUT completing a
+   previous one; entries carry `consumed: false` and bind their epoch at
+   first capture.
 7. **`reply_payload_sending`** hook (naturalize): captures the real reply
    text (`{cancel: true}` suppresses the original payload), debounces
-   multiple payloads into one draft.
+   multiple payloads into one draft. System fallback payloads
+   (`NO_VISIBLE_REPLY_FALLBACK_TEXT`, `QUEUE_CAP_REJECTION_TEXT` — the core
+   injects these on tool-call-turn races) are cancelled, never captured.
+   The draft binds FIFO to the OLDEST unconsumed dispatcher.
 8. **Flush**: the draft is humanized by the local LLM into 1–5 bubbles and
-   re-delivered via `dispatcher.sendBlockReply` with timing-engine delays
-   (typing WPM, night mode). Raw-draft fallback on LLM error or supersede.
+   re-delivered via the bound dispatcher's `sendBlockReply` with
+   timing-engine delays (typing WPM, night mode). Raw-draft fallback on LLM
+   error or supersede. `markComplete` after the last bubble.
+   - **Silence cleanup**: when a later message is decided `stay_silent`,
+     `onSilence` completes/removes only UNconsumed queue entries — a pending
+     reply on an older dispatcher survives a later message's silence (Plan
+     545; the eager displacement-completion it replaced silently dropped
+     replies).
 9. **Proactive funnel** (independent of the reactive gate, off by default):
    a 30-min unref'd tick runs candidate triggers (unanswered question,
    stalled exchange, context match, follow-up commitment) through an
@@ -91,12 +102,15 @@ fires per outbound payload with the real reply text and supports
     [design/dm-proactive-v2.md](../design/dm-proactive-v2.md)):
     `message_sending` parses a `[[fu:{…}]]` first-line envelope
     (`parseFollowupEnvelope`); plain text passes through untouched
-    (fail-open). Envelope candidates run through the shared
+    (fail-open). Production ctx carries NO `sessionKey` — the DM scope is
+    derived from `event.to` + channel via `deriveDmFromEvent()` (Plan 536).
+    Envelope candidates run through the shared
     `lib/dm-gate-core.js` rules (deadline grace, DayFit bands via
     `~/.openclaw/state/kevin-activity.json`, byKind cadence from
     `state/dm-proactive-state.json`, sentIds idempotency, care/soft tiers).
-    In `shadow:true` only `state/dm-proactive.jsonl` v2 entries are written
-    (14-day retention); live sends dispatch with the same core. Inbound
+    In `shadow:true` gate-passed candidates deliver with the envelope
+    stripped and a `state/dm-proactive.jsonl` v2 entry (14-day retention);
+    gate-fail and duplicate cancel + log in BOTH modes (Plan 536). Inbound
     replies backfill `outcome.repliedWithin48h`. The followup-cron MUST
     pre-check via `bin/followup-gate.mjs check` (same gate-core, exit
     0=pass / 1=block / 2=no-envelope / 3=usage).

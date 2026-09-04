@@ -36,8 +36,10 @@ built-in LLM with no cloud dependencies.
   if regeneration fails.
 - Runs an opt-in proactive turn-taking funnel (shadow-first).
 - Renders due DM follow-ups from `[[fu:…]]` envelopes through a shared
-  gate-core (shadow-first, sentIds idempotency, byKind cadence, outcome
-  backfill) — see [design/dm-proactive-v2.md](./design/dm-proactive-v2.md).
+  gate-core (shadow delivers gate-passed candidates envelope-stripped;
+  gate-fail/duplicate cancel; sentIds idempotency, byKind cadence, outcome
+  backfill; DM scope derived from `event.to` — production ctx has no
+  `sessionKey`) — see [design/dm-proactive-v2.md](./design/dm-proactive-v2.md).
 - Supports DM fail-open and group fail-closed safety modes.
 - Provides a parity-matrix contract for all behavioral capabilities.
 
@@ -96,10 +98,34 @@ built-in LLM with no cloud dependencies.
   **chronologically stable-sorted** (ts-less entries sort last), then
   `slice(-20)` — the current message must be the last line or decide quality
   degrades (live-verified false stay_silent, Plan 529).
+- **Layers merge named-first** (observed → peek → hydrated → current): the
+  dedup is first-wins and speaker-agnostic, so the named copy must win over
+  the hydrated generic-`[User]` copy — otherwise the decide prompt shows
+  anonymous chatter (live-verified, Plan 543). Hydrated lines now carry real
+  sender labels via `message.__openclaw.senderName` when present.
+- **Reply payloads bind FIFO to dispatchers** (Plan 545): captures bind to
+  the OLDEST unconsumed armed dispatcher, displacement no longer completes
+  the previous dispatcher eagerly, and silence (`onSilence`) cleans up only
+  unconsumed entries. Regressing to latest-binding loses replies when a
+  later message is silenced (live-verified silent loss, incident 12:01).
+- **System fallback payloads are never captured** (Plan 540): the core can
+  inject `NO_VISIBLE_REPLY_FALLBACK_TEXT` / `QUEUE_CAP_REJECTION_TEXT`
+  during tool-call-turn races; `isSystemFallbackText` cancels them at
+  capture.
+- **Channel-config dependencies (OpenClaw config, NOT plugin config)** —
+  without these the WhatsApp pipeline silently loses data:
+  - `channels.whatsapp.pluginHooks.messageReceived: true` — without it the
+    `message_received` hook NEVER fires for WhatsApp: no quote-reply
+    detection (replyToAgent), no sender cache, no social-memory ingest.
+  - `channels.whatsapp.contextVisibility: "allowlist_quote"` — `"allowlist"`
+    drops quotes from senders outside the allowlist (including the bot's own
+    messages, i.e. every quote-reply TO the agent) before they reach hooks.
+  - `channels.whatsapp.groupAllowFrom` — senders outside it are dropped
+    BEFORE the inbound log: no ack, no session entry, no gate. Silent.
 - Tests use inline fakes plus `test/helpers/sdk-hook-ctx.js` for SDK-shaped
   hook contexts (no shared fake-api helper).
 - Parity matrix at `test/parity-matrix.mjs` is the behavioral contract — must
-  stay 42/42 before any release.
+  stay 46/46 before any release.
 
 ## Source map
 

@@ -2,7 +2,7 @@
 
 ```
 human-engine/
-  index.js                  — Plugin entry: registers hooks, wires modules; readSessionTranscript (ts backfill + NO_REPLY filter)
+  index.js                  — Plugin entry: registers hooks, wires modules; readSessionTranscript (ts backfill, NO_REPLY filter, senderName mapping); onSilence wiring
   openclaw.plugin.json      — Plugin manifest with config schema (v0.4.0)
   package.json              — npm package (name: human-engine, ES module)
   package-lock.json         — Dependency lock (no external deps)
@@ -16,8 +16,8 @@ human-engine/
     design-dm-proactive-v2.md — DM-proactive v2 binding design (Plan 526, Option A)
     media-findings.md       — Media handling findings
   lib/
-    gate.js                 — Turn-taking gate (speak/stay-silent, chronological transcript merge, decide-ctx log)
-    naturalize.js           — Bubble naturalization (split + time replies, persistOwnReply)
+    gate.js                 — Turn-taking gate (speak/stay-silent, named-first chronological transcript merge, decide-ctx log, onSilence)
+    naturalize.js           — Bubble naturalization (split + time replies, persistOwnReply, FIFO dispatcher queue, system-fallback filter)
     local-engine.js         — Local LLM engine (decide + naturalize calls)
     config.js               — Default config + one-level deep merge
     voice-card.js           — Communication-style profile learning
@@ -82,11 +82,16 @@ human-engine/
 
 ## Git evidence
 
-- Last commit: `a878dd2`
+- Last commit: `b5fa7ec`
 - Active branch: `main`
 - Recent churn: Wave-91 hardening (21 plans 496-516: burst dedup,
   dispatcher displacement, meta-commentary/pure-commentary, gateway_stop
   cleanup, fail-closed hardening), Plan 528 (persistOwnReply), Plan 529
   (chronological decide-context merge + ts backfill + NO_REPLY filter),
   dm-proactive v2 AP(a)-(e) (Plans 530-534: envelope adapter, followup-gate
-  CLI, DayFit bands, byKind cadence, shadow-log v2, outcome backfill)
+  CLI, DayFit bands, byKind cadence, shadow-log v2, outcome backfill),
+  Plan 536 (dm scope from event target), Plan 540 (system-fallback payload
+  suppression), Plan 543 (named-first transcript dedup + senderName mapping
+  + topical follow-up rule), Plan 544 (second-person addressee rule),
+  Plan 545 (FIFO dispatcher binding — fixes silent reply loss on
+  displacement+silence)
