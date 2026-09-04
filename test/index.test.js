@@ -7,7 +7,7 @@ import { join } from "node:path";
 process.env.HUMAN_ENGINE_STATE_DIR = mkdtempSync(join(tmpdir(), "he-test-state-"));
 
 await import("./helpers/ensure-plugin-sdk-shim.mjs");
-const { transcriptEventTsMs, isNoReplyAssistantText } = await import("../index.js");
+const { transcriptEventTsMs, isNoReplyAssistantText, resolveTranscriptSpeaker } = await import("../index.js");
 
 describe("readSessionTranscript helpers (index.js)", () => {
   it("no_reply filter: drops exact assistant NO_REPLY artifacts only", () => {
@@ -26,5 +26,18 @@ describe("readSessionTranscript helpers (index.js)", () => {
     assert.equal(transcriptEventTsMs({ message: { timestamp: 1788483745000 } }), 1788483745000, "message-level ms timestamp resolves");
     assert.equal(transcriptEventTsMs({}), undefined, "no timestamp → undefined");
     assert.equal(transcriptEventTsMs({ timestamp: "not a date" }), undefined, "unparseable string → undefined");
+  });
+
+  it("sender label: user messages use __openclaw.senderName when present, fallback to User (Plan 543)", () => {
+    assert.equal(resolveTranscriptSpeaker("user", { __openclaw: { senderName: "Anna" } }, "Hori"), "Anna", "named sender used for user role");
+    assert.equal(resolveTranscriptSpeaker("user", { __openclaw: { senderName: "  Leni  " } }, "Hori"), "Leni", "sender name trimmed");
+    assert.equal(resolveTranscriptSpeaker("user", { __openclaw: {} }, "Hori"), "User", "missing senderName falls back to User");
+    assert.equal(resolveTranscriptSpeaker("user", {}, "Hori"), "User", "no __openclaw block falls back to User");
+  });
+
+  it("sender label: assistant messages always use the agent name (Plan 543)", () => {
+    assert.equal(resolveTranscriptSpeaker("assistant", { __openclaw: { senderName: "Anna" } }, "Hori"), "Hori", "assistant ignores senderName");
+    assert.equal(resolveTranscriptSpeaker("assistant", {}, "Agent"), "Agent", "assistant defaults to agent name");
+    assert.equal(resolveTranscriptSpeaker("assistant", {}, ""), "Agent", "assistant falls back to Agent when unnamed");
   });
 });

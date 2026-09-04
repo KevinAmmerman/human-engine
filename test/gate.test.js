@@ -321,6 +321,56 @@ describe("gate", () => {
       ], "merged transcript is chronological with the current message last");
     });
 
+    it("named-first dedup: named peek copy wins over anonymous hydrated copy, exactly one line survives (Plan 543)", async () => {
+      state.pushTranscriptPeek(CHAT_SK, "[Anna] shared remark", undefined, 1500);
+      let captured;
+      const namedGate = makeGate({
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [{ speaker: "User", text: "shared remark", ts: 1500 }],
+      });
+
+      await namedGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "current" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const matches = transcript.filter((t) => t.text === "shared remark");
+      assert.equal(matches.length, 1, "duplicate text deduped to exactly one line");
+      assert.equal(matches[0].speaker, "Anna", "named peek copy survives dedup, not the anonymous hydrated copy");
+    });
+
+    it("hydrated-only turn stays as gap-filler with speaker User and its real ts (Plan 543)", async () => {
+      let captured;
+      const gapGate = makeGate({
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [{ speaker: "User", text: "hydrated only turn", ts: 900 }],
+      });
+
+      await gapGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "current" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const entry = transcript.find((t) => t.text === "hydrated only turn");
+      assert.ok(entry, "hydrated-only turn present");
+      assert.equal(entry.speaker, "User", "hydrated-only turn keeps User fallback speaker");
+      assert.equal(entry.ts, 900, "hydrated-only turn keeps its real ts");
+    });
+
+    it("decide-ctx lastSpeaker reflects the named copy over the anonymous hydrated copy (Plan 543)", async () => {
+      const lines = [];
+      const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
+      state.pushTranscriptPeek(CHAT_SK, "[Leni] topical follow-up", undefined, Date.now() - 500);
+      let captured;
+      const lastGate = makeGate({
+        log,
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [{ speaker: "User", text: "topical follow-up", ts: Date.now() - 500 }],
+      });
+
+      await lastGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "topical follow-up" }), makeDefaultCtx());
+      const line = lines.find((l) => l.includes("decide-ctx"));
+      assert.ok(line, "decide-ctx log line present");
+      assert.ok(line.includes("lastSpeaker=Leni"), "lastSpeaker reflects the named copy, not User");
+    });
+
     it("ts-less entries sort after all ts entries, stable among themselves", async () => {
       state.pushTranscriptPeek(CHAT_SK, "[Nico] no-ts one");
       state.pushTranscriptPeek(CHAT_SK, "[Nico] no-ts two");
@@ -336,7 +386,7 @@ describe("gate", () => {
 
       await tslessGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "neu hier" }), makeDefaultCtx());
       const texts = (captured.transcript || []).map((t) => t.text);
-      assert.deepEqual(texts, ["with ts", "neu hier", "hydrated ts-less", "no-ts one", "no-ts two"]);
+      assert.deepEqual(texts, ["with ts", "neu hier", "no-ts one", "no-ts two", "hydrated ts-less"]);
     });
 
     it("merge + slice(-20) cuts the oldest lines and keeps the current message last", async () => {

@@ -92,6 +92,8 @@ const MATRIX = [
     tags: ["chronological merge", "no_reply filter", "ts backfill"] },
   { id: 43, behavior: "system fallback payloads (no-visible-reply / queue-cap) suppressed in capture",
     tags: ["suppressed system fallback payload"] },
+  { id: 44, behavior: "named-first transcript dedup (named copy wins over anonymous) + topical follow-up rule",
+    tags: ["named peek copy wins", "topical pick-ups"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

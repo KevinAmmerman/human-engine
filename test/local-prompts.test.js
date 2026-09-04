@@ -56,6 +56,13 @@ describe("local-prompts", () => {
       assert.ok(p.systemPrompt.includes("a generic compliment is worse than silence"));
     });
 
+    it("follow-up rule explicitly covers topical pick-ups (Plan 543)", () => {
+      const p = buildDecidePrompt({ agentName: "Bot" });
+      assert.ok(p.systemPrompt.includes("reaction to what you said"), "base follow-up phrasing retained");
+      assert.ok(p.systemPrompt.includes("a remark picking up a specific topic you raised"), "topical pick-up covered");
+      assert.ok(p.systemPrompt.includes("same place, route, plan or question"), "topical anchors named");
+    });
+
     it("decide prompt contains the age rule", () => {
       const p = buildDecidePrompt({ agentName: "Bot" });
       assert.ok(p.systemPrompt.includes("Message ages are shown like (vor 3h)"));

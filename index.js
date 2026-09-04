@@ -32,6 +32,13 @@ export function isNoReplyAssistantText(role, text) {
   return role === "assistant" && /^\s*NO_REPLY\s*$/i.test(String(text || ""));
 }
 
+export function resolveTranscriptSpeaker(role, message, agentName) {
+  if (role === "assistant") return agentName || "Agent";
+  const raw = message?.__openclaw?.senderName;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return "User";
+}
+
 export default definePluginEntry({
   id: "human-engine",
   name: "Human Engine",
@@ -94,7 +101,7 @@ export default definePluginEntry({
           text = text.trim();
           if (!text) continue;
           if (isNoReplyAssistantText(role, text)) continue;
-          const speaker = role === "assistant" ? (cfg.agentName || "Agent") : "User";
+          const speaker = resolveTranscriptSpeaker(role, msg, cfg.agentName || "Agent");
           const entry = { speaker, text: text.slice(0, 300) };
           const ts = transcriptEventTsMs(e);
           if (ts !== undefined) entry.ts = ts;
