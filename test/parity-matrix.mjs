@@ -86,6 +86,8 @@ const MATRIX = [
     tags: ["quiet hours 23:30 block unless the deadline is <2h away"] },
   { id: 40, behavior: "dm-proactive: live send via subagent.run with idempotencyKey, budget bumped only after send",
     tags: ["sends via subagent.run deliver with idempotency key", "budget not bumped after failed send"] },
+  { id: 41, behavior: "own replies survive restart in decide context (observed store, merged transcript)",
+    tags: ["own replies survive restart"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
@@ -151,7 +153,7 @@ function check() {
     }
   }
 
-  const total = 40;
+  const total = MATRIX.length;
   console.log(`\nParity matrix: ${covered + skipped}/${total} covered (${covered} tested, ${skipped} skipped)`);
   console.log(results.join("\n") + "\n");
 

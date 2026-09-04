@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach } from "node:test";
 import { createGate } from "../lib/gate.js";
+import { createObservedStore } from "../lib/observed-store.js";
 import * as state from "../lib/state.js";
 
 const cfg = {
@@ -310,6 +311,106 @@ describe("gate", () => {
       assert.equal(appends[0].speaker, "Nico");
       assert.equal(appends[0].text, "Hello bot");
       assert.ok(typeof appends[0].ts === "number");
+    });
+
+    it("own replies survive restart in decide context (fresh observed store reload)", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-own-restart-"));
+      try {
+        const pre = createObservedStore({ stateDir: tmpDir, log: { info() {}, warn() {}, debug() {} } });
+        pre.appendObserved(CHAT_SK, { speaker: "Anna", text: "frage von vor dem restart", ts: 1000 });
+        pre.appendObserved(CHAT_SK, { speaker: "OpenClaw", text: "meine antwort von vor dem restart", ts: 2000 });
+        pre.appendObserved(CHAT_SK, { speaker: "Nico", text: "antwort auf die alte antwort", ts: 3000 });
+
+        const fresh = createObservedStore({ stateDir: tmpDir, log: { info() {}, warn() {}, debug() {} } });
+        let captured;
+        const restartGate = makeGate({
+          observedStore: fresh,
+          engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        });
+
+        await restartGate.onBeforeAgentReply(
+          makeReplyEvent({ cleanedBody: "neue nachricht nach dem restart" }),
+          makeDefaultCtx(),
+        );
+        const transcript = captured.transcript || [];
+        const texts = transcript.map((t) => t.text);
+        const own = transcript.find((t) => t.text === "meine antwort von vor dem restart");
+        assert.ok(own, "own pre-restart line present in decide transcript");
+        assert.equal(own.speaker, "OpenClaw");
+        assert.equal(own.ts, 2000, "own line keeps its chronological ts");
+        assert.ok(texts.indexOf("frage von vor dem restart") < texts.indexOf("meine antwort von vor dem restart"), "own line lands chronologically, not appended at the end");
+        assert.ok(texts.indexOf("meine antwort von vor dem restart") < texts.indexOf("antwort auf die alte antwort"), "own line stays before later member lines");
+        assert.equal(texts[texts.length - 1], "neue nachricht nach dem restart", "current prompt is last");
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("own line present in both peek and observed store renders exactly once in the merged transcript", async () => {
+      state.pushTranscriptPeek(CHAT_SK, "[Anna] frage an die gruppe");
+      state.pushTranscriptPeek(CHAT_SK, "[OpenClaw] ich war vorher da");
+      let captured;
+      const dupGate = makeGate({
+        observedStore: {
+          readObserved: () => [
+            { speaker: "OpenClaw", text: "ich war vorher da", ts: 500 },
+          ],
+          appendObserved: () => {},
+        },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+
+      await dupGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "neue nachricht" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const occurrences = transcript.filter((t) => t.text === "ich war vorher da");
+      assert.equal(occurrences.length, 1, "own line in peek AND store appears exactly once");
+    });
+
+    it("decide-ctx log line carries counts + speaker label only, session key redacted (group path)", async () => {
+      const lines = [];
+      const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
+      const groupSk = "agent:test-agent:whatsapp:group:120363000000001@g.us";
+      const now = Date.now();
+      state.pushTranscriptPeek(groupSk, "[Nico] frage an alle", undefined, now - 5000);
+      state.pushTranscriptPeek(groupSk, "[OpenClaw] meine antwort", undefined, now - 3000);
+      let captured;
+      const ctxGate = makeGate({
+        log,
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+
+      await ctxGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx({ sessionKey: groupSk }));
+      assert.ok(captured, "decide ran");
+      const line = lines.find((l) => l.includes("human-engine: decide-ctx"));
+      assert.ok(line, "decide-ctx log line present");
+      assert.ok(line.includes("…0001"), "session key redacted to last 4 digits");
+      assert.ok(!line.includes("120363000000001"), "full session key must not appear");
+      assert.ok(line.includes("lines=3"), "counts the merged transcript lines");
+      assert.ok(line.includes("own=1"), "counts own lines by agentName");
+      assert.ok(line.includes("lastSpeaker=Nico"), "last speaker label present");
+      assert.ok(/lastAgeMs=\d+/.test(line), "last age in ms present");
+      assert.ok(!line.includes("Hello bot"), "no message text in the log");
+      assert.ok(!line.includes("frage an alle"), "no message text in the log");
+      assert.ok(!line.includes("meine antwort"), "no message text in the log");
+    });
+
+    it("no decide-ctx log line for DM sessions (group path only)", async () => {
+      const lines = [];
+      const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
+      const dmGate = makeGate({
+        log,
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+
+      await dmGate.onBeforeAgentReply(
+        makeReplyEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:telegram:direct:120363000000001" }),
+      );
+      assert.equal(lines.filter((l) => l.includes("decide-ctx")).length, 0, "DM decide stays log-silent for decide-ctx");
     });
 
     it("handles speak decision (returns undefined, stashes epoch with timestamp)", async () => {

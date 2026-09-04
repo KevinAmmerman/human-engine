@@ -143,4 +143,27 @@ describe("state", () => {
       assert.deepEqual(out[1], { speaker: "Ada", text: "b", ts: 500 });
     });
   });
+
+  describe("own-line persist consistency (plan 517)", () => {
+    it("own peek line and observed-store row share speaker + text so the merge needs no special casing", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const { createObservedStore } = await import("../lib/observed-store.js");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "state-own-line-"));
+      try {
+        const agentName = "OpenClaw";
+        const text = "Klare Antwort: nasser Fels ist ein No-Go";
+        pushTranscriptPeek("tp-own-517", `[${agentName}] ${text}`);
+        const peekEntry = getTranscriptPeek("tp-own-517", 1)[0];
+        const store = createObservedStore({ stateDir: tmpDir, log: { info() {}, warn() {}, debug() {} } });
+        store.appendObserved("tp-own-517", { speaker: agentName, text, ts: Date.now() });
+        const storeEntry = store.readObserved("tp-own-517", 1)[0];
+        assert.equal(peekEntry.speaker, storeEntry.speaker, "peek speaker matches persisted speaker");
+        assert.equal(peekEntry.text, storeEntry.text, "peek text matches persisted text");
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
 });

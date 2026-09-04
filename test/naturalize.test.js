@@ -58,6 +58,15 @@ function makeSocialMemoryStub() {
   };
 }
 
+function makeObservedStoreStub() {
+  const appends = [];
+  return {
+    appendObserved: (sk, row) => appends.push({ sk, ...row }),
+    readObserved: () => [],
+    _appends: appends,
+  };
+}
+
 function makePersona() {
   return {
     buildPersonaPrompt() { return "prompt"; },
@@ -230,6 +239,64 @@ describe("naturalize", () => {
       );
       const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
       assert.equal(peek.filter((l) => l.includes("NO_REPLY")).length, 0);
+    });
+
+    it("plan 517: persists own reply to the observed store with speaker=agentName, capped text and ts", () => {
+      const store = makeObservedStoreStub();
+      const nat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(), observedStore: store,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() });
+      const longText = "X".repeat(350);
+      nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: longText } },
+        makeDefaultCtx(),
+      );
+      assert.equal(store._appends.length, 1);
+      assert.equal(store._appends[0].sk, CHAT_SK);
+      assert.equal(store._appends[0].speaker, "OpenClaw");
+      assert.equal(store._appends[0].text, "X".repeat(300), "text capped at 300 like the peek push");
+      assert.ok(typeof store._appends[0].ts === "number");
+    });
+
+    it("plan 517: persisted own entry mirrors the peek line (same speaker + text), so the merge dedups without special casing", () => {
+      const store = makeObservedStoreStub();
+      const nat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(), observedStore: store,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() });
+      nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "Klare Antwort: nasser Fels ist ein No-Go" } },
+        makeDefaultCtx(),
+      );
+      const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
+      assert.equal(peek.length, 1);
+      assert.ok(peek[0].startsWith("[OpenClaw] "));
+      assert.equal(store._appends[0].speaker, "OpenClaw");
+      assert.equal(store._appends[0].text, peek[0].slice("[OpenClaw] ".length));
+    });
+
+    it("plan 517: does not persist NO_REPLY or non-final payloads to the observed store", () => {
+      const store = makeObservedStoreStub();
+      const nat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(), observedStore: store,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 1, ts: Date.now() });
+      nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "NO_REPLY" } },
+        makeDefaultCtx(),
+      );
+      nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "block", payload: { text: "partial" } },
+        makeDefaultCtx(),
+      );
+      assert.equal(store._appends.length, 0);
     });
 
     it("passes through NO_REPLY payloads", () => {
