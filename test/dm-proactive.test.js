@@ -10,12 +10,11 @@ import { localDayKey } from "../lib/proactive.js";
 import { setRng, resetRng } from "../lib/proactive.js";
 import * as state from "../lib/state.js";
 import { dayFitFactor, resetDayFitWarn } from "../lib/dayfit.js";
+import { SK, SCOPE, readLog, assertV2EntryShape, LOG_RETENTION_DAYS } from "./helpers/dm-proactive-fixtures.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dm-proactive-test-"));
 const PLUGIN_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const BIN_GATE = path.join(PLUGIN_ROOT, "bin", "followup-gate.mjs");
-const SK = "agent:hori-wa:telegram:direct:999999999"; // fake session key (public repo)
-const SCOPE = "hori-wa::" + SK;
 const T0 = new Date(2026, 7, 24, 14, 0).getTime();
 
 const BASE_DM = {
@@ -124,15 +123,6 @@ function makeDm(overrides = {}) {
     activityFilePath: overrides.activityFilePath,
   });
   return { dm, cfg, clock, runtime, socialMemory, log, stateDir };
-}
-
-function readLog(stateDir) {
-  try {
-    return fs.readFileSync(path.join(stateDir, "dm-proactive.jsonl"), "utf8")
-      .trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-  } catch {
-    return [];
-  }
 }
 
 function writeState(stateDir, data) {
@@ -825,17 +815,13 @@ describe("dm-proactive", { concurrency: false }, () => {
       const { dm, stateDir } = track(makeDm());
       await dm.onMessageSending({ content: env("fu-20260904-shape-001") }, { sessionKey: SK });
       const e = readLog(stateDir)[0];
-      assert.equal(typeof e.ts, "number");
-      assert.equal(typeof e.day, "string");
-      assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(e.day), "day must be yyyy-mm-dd");
+      assertV2EntryShape(assert, e);
       assert.equal(e.candidateId, "fu-20260904-shape-001");
       assert.equal(e.kind, "soft_followup");
       assert.equal(e.scope, SCOPE);
       assert.equal(e.source, "followup-cron");
-      assert.ok(e.gateVerdicts && typeof e.gateVerdicts === "object");
       assert.equal(e.gatePassed, true);
       assert.equal(e.gate.pass, true);
-      assert.deepEqual(e.outcome, { repliedWithin48h: null });
       assert.ok(e.envelope && e.envelope.id === "fu-20260904-shape-001");
       assert.equal(e.mode, "shadow");
       // shadow carries renderPreview, and legacy render also populated
@@ -901,7 +887,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(forOther.outcome.repliedWithin48h, null, "other scope must stay unanswered");
     });
 
-    it("retention: a 20-day synthetic log is pruned to 14 days; 7-day and 14-day windows stay fully intact", async () => {
+    it("retention: a 20-day synthetic log is pruned to LOG_RETENTION_DAYS; 7-day and 14-day windows stay fully intact", async () => {
       const now = new Date(2026, 8, 4, 12, 0).getTime(); // 2026-09-04 Berlin
       const stateDir = path.join(tmpDir, "retention-20d");
       fs.mkdirSync(stateDir, { recursive: true });
@@ -927,10 +913,10 @@ describe("dm-proactive", { concurrency: false }, () => {
       const oldest = days[0];
       const newest = days[days.length - 1];
       const windowDays = new Set(days).size;
-      // 14-day window: 2026-08-22 .. 2026-09-04 (14 distinct day keys, 15 entries incl. trigger)
-      assert.ok(windowDays <= 14, `expected ≤ 14 distinct days, got ${windowDays}`);
-      assert.ok(entries.length <= 15, `expected ≤ 15 entries, got ${entries.length}`);
-      assert.equal(oldest, "2026-08-22", "oldest kept day must be exactly 14 days back");
+      // window: now-(R-1) .. now (R distinct day keys, R+1 entries incl. trigger)
+      assert.ok(windowDays <= LOG_RETENTION_DAYS, `expected ≤ ${LOG_RETENTION_DAYS} distinct days, got ${windowDays}`);
+      assert.ok(entries.length <= LOG_RETENTION_DAYS + 1, `expected ≤ ${LOG_RETENTION_DAYS + 1} entries, got ${entries.length}`);
+      assert.equal(oldest, "2026-08-22", "oldest kept day must be exactly LOG_RETENTION_DAYS days back");
       assert.equal(newest, "2026-09-04", "newest day must be the append day");
       // the 7-day window (2026-08-29..) is a subset → must be fully intact
       const sevenStart = localDayKey(now - 7 * DAY);
@@ -971,6 +957,67 @@ describe("dm-proactive", { concurrency: false }, () => {
       const res = evaluateDmGate(candidateFromEnvelope(makeEnvelope(), "draft", SK, "hori-wa"), { dcfg: BASE_DM, now: T0 });
       assert.equal(res.pass, true, res.reasons.join(","));
       assert.equal(res.verdicts["min-gap"], true);
+    });
+  });
+
+  describe("open-loop age gating (Plan 534 / design §3 Q3)", () => {
+    // Helper: build a soft_followup candidate with a given lastUserRefMs age.
+    function softWithRef(ageMs) {
+      return candidateFromEnvelope(
+        makeEnvelope({ id: "fu-20260904-ol-" + ageMs, lastUserRefMs: T0 - ageMs }),
+        "draft",
+        SK,
+        "hori-wa",
+      );
+    }
+    const DAY = 24 * 60 * 60 * 1000;
+    // Full DayFit (value 1.0) so the 7-14d band passes on DayFit; the DayFit
+    // bands themselves are covered separately (see DayFit gating describe).
+    const fullDayFit = { value: 1.0, reason: "dayfit-full" };
+
+    it("≤ 7 days since last user ref: soft-tier allowed (normal open loop)", () => {
+      const res = evaluateDmGate(softWithRef(2 * DAY), { dcfg: BASE_DM, now: T0, dayFit: fullDayFit });
+      assert.equal(res.pass, true, res.reasons.join(","));
+      assert.equal(res.verdicts["open-loop-stale"], true);
+      assert.equal(res.verdicts["open-loop-dayfit"], true);
+    });
+
+    it("7-14 days: soft-tier allowed ONLY at full DayFit", () => {
+      // 10 days old — full DayFit passes.
+      const full = evaluateDmGate(softWithRef(10 * DAY), { dcfg: BASE_DM, now: T0, dayFit: fullDayFit });
+      assert.equal(full.pass, true, full.reasons.join(","));
+      // 10 days old + reduced DayFit (0.5) → blocked (open-loop-dayfit).
+      const reduced = evaluateDmGate(softWithRef(10 * DAY), { dcfg: BASE_DM, now: T0, dayFit: { value: 0.5, reason: "dayfit-reduced" } });
+      assert.equal(reduced.pass, false);
+      assert.ok(reduced.reasons.includes("open-loop-dayfit"), reduced.reasons.join(","));
+    });
+
+    it("> 14 days since last user ref: soft-tier excluded (open-loop-stale), even at full DayFit", () => {
+      const res = evaluateDmGate(softWithRef(20 * DAY), { dcfg: BASE_DM, now: T0, dayFit: fullDayFit });
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("open-loop-stale"), res.reasons.join(","));
+      assert.equal(res.verdicts["open-loop-stale"], false);
+    });
+
+    it("hard reminder is exempt from open-loop gating even at > 14 days", () => {
+      const hard = candidateFromEnvelope(
+        makeEnvelope({ id: "fu-20260904-ol-hard", kind: "reminder", lastUserRefMs: T0 - 20 * DAY }),
+        "draft",
+        SK,
+        "hori-wa",
+      );
+      const res = evaluateDmGate(hard, { dcfg: BASE_DM, now: T0, dayFit: fullDayFit });
+      assert.equal(res.pass, true, res.reasons.join(","));
+      assert.equal(res.verdicts["open-loop-stale"], true, "hard reminders must never be open-loop-stale");
+    });
+
+    it("no lastUserRefMs → fail-open, no open-loop restriction", () => {
+      const noRef = candidateFromEnvelope(makeEnvelope({ id: "fu-20260904-ol-noref" }), "draft", SK, "hori-wa");
+      // drop the ref (candidateFromEnvelope only copies it when numeric)
+      delete noRef.lastUserRefMs;
+      const res = evaluateDmGate(noRef, { dcfg: BASE_DM, now: T0, dayFit: fullDayFit });
+      assert.equal(res.pass, true, res.reasons.join(","));
+      assert.equal(res.verdicts["open-loop-stale"], true);
     });
   });
 
