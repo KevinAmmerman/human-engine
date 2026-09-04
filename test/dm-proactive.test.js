@@ -816,6 +816,139 @@ describe("dm-proactive", { concurrency: false }, () => {
     });
   });
 
+  describe("shadow-log v2 (Plan 533 AP d)", () => {
+    function env(id, overrides = {}) {
+      return envelopeText(makeEnvelope({ id, ...overrides }));
+    }
+
+    it("entry shape v2: day, candidateId, kind, scope, source, gateVerdicts, gatePassed, outcome, envelope + separated renderPreview/render", async () => {
+      const { dm, stateDir } = track(makeDm());
+      await dm.onMessageSending({ content: env("fu-20260904-shape-001") }, { sessionKey: SK });
+      const e = readLog(stateDir)[0];
+      assert.equal(typeof e.ts, "number");
+      assert.equal(typeof e.day, "string");
+      assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(e.day), "day must be yyyy-mm-dd");
+      assert.equal(e.candidateId, "fu-20260904-shape-001");
+      assert.equal(e.kind, "soft_followup");
+      assert.equal(e.scope, SCOPE);
+      assert.equal(e.source, "followup-cron");
+      assert.ok(e.gateVerdicts && typeof e.gateVerdicts === "object");
+      assert.equal(e.gatePassed, true);
+      assert.equal(e.gate.pass, true);
+      assert.deepEqual(e.outcome, { repliedWithin48h: null });
+      assert.ok(e.envelope && e.envelope.id === "fu-20260904-shape-001");
+      assert.equal(e.mode, "shadow");
+      // shadow carries renderPreview, and legacy render also populated
+      assert.equal(typeof e.renderPreview, "string");
+      assert.equal(typeof e.render.draft, "string");
+    });
+
+    it("exactly ONE log entry per candidate (append invariant :364-370)", async () => {
+      const { dm, stateDir } = track(makeDm());
+      for (let i = 0; i < 3; i++) {
+        await dm.onMessageSending({ content: env("fu-20260904-one-" + i) }, { sessionKey: SK });
+      }
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 3);
+      const ids = entries.map((x) => x.candidateId);
+      assert.equal(new Set(ids).size, 3, "each candidate logged exactly once");
+    });
+
+    it("shadow vs live render fields are separated: renderPreview only in shadow, render only in live", async () => {
+      // shadow
+      const s = track(makeDm({ stateDir: path.join(tmpDir, "sep-shadow") }));
+      await s.dm.onMessageSending({ content: env("fu-20260904-sep-shadow") }, { sessionKey: SK });
+      const se = readLog(s.stateDir)[0];
+      assert.ok("renderPreview" in se, "shadow must carry renderPreview");
+      assert.equal(se.mode, "shadow");
+
+      // live (shadow:false)
+      const runtime = makeRuntime({ llmText: "Rendertext live" });
+      const l = track(makeDm({ stateDir: path.join(tmpDir, "sep-live"), cfg: makeCfg({ shadow: false, minGapMinutes: 0 }), runtime }));
+      await l.dm.onMessageSending({ content: env("fu-20260904-sep-live") }, { sessionKey: SK });
+      const le = readLog(l.stateDir)[0];
+      assert.ok(!("renderPreview" in le), "live must NOT carry renderPreview");
+      assert.equal(le.mode, "live");
+      assert.equal(typeof le.render.draft, "string");
+    });
+
+    it("outcome backfill: a reply sets repliedWithin48h on the attributed scope's last entry (consistent with 532 attribution)", async () => {
+      const { dm, clock, stateDir } = track(makeDm());
+      // shadow delivery records the attribution marker
+      await dm.onMessageSending({ content: env("fu-20260904-bf-001") }, { sessionKey: SK });
+      assert.equal(readLog(stateDir)[0].outcome.repliedWithin48h, null);
+      // an inbound ≤ 48 h later backfills the same candidate
+      clock.t += 1 * 60 * 60 * 1000;
+      await dm.onMessageReceived({ content: "Ja, passt." }, { sessionKey: SK });
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1, "backfill must not add or remove entries");
+      const matched = entries.filter((e) => e.candidateId === "fu-20260904-bf-001");
+      assert.equal(matched.length, 1);
+      assert.equal(matched[0].outcome.repliedWithin48h, true);
+    });
+
+    it("outcome backfill only touches the attributed scope's entry, not other scopes", async () => {
+      const otherSk = "agent:hori-wa:telegram:direct:999999998"; // fake
+      const { dm, clock, stateDir } = track(makeDm());
+      await dm.onMessageSending({ content: env("fu-20260904-other-a") }, { sessionKey: otherSk });
+      await dm.onMessageSending({ content: env("fu-20260904-other-b") }, { sessionKey: SK });
+      clock.t += 1 * 60 * 60 * 1000;
+      await dm.onMessageReceived({ content: "Antwort" }, { sessionKey: SK });
+      const entries = readLog(stateDir);
+      const forSk = entries.find((e) => e.candidateId === "fu-20260904-other-b");
+      assert.equal(forSk.outcome.repliedWithin48h, true);
+      const forOther = entries.find((e) => e.candidateId === "fu-20260904-other-a");
+      assert.equal(forOther.outcome.repliedWithin48h, null, "other scope must stay unanswered");
+    });
+
+    it("retention: a 20-day synthetic log is pruned to 14 days; 7-day and 14-day windows stay fully intact", async () => {
+      const now = new Date(2026, 8, 4, 12, 0).getTime(); // 2026-09-04 Berlin
+      const stateDir = path.join(tmpDir, "retention-20d");
+      fs.mkdirSync(stateDir, { recursive: true });
+      const logFile = path.join(stateDir, "dm-proactive.jsonl");
+      const lines = [];
+      const DAY = 24 * 60 * 60 * 1000;
+      for (let i = 20; i >= 0; i--) {
+        const ts = now - i * DAY;
+        lines.push(JSON.stringify({
+          ts,
+          day: localDayKey(ts),
+          candidateId: "fu-" + i,
+          scope: SCOPE,
+          outcome: { repliedWithin48h: null },
+        }));
+      }
+      fs.writeFileSync(logFile, lines.join("\n") + "\n", "utf8");
+      const dm = track(makeDm({ now0: now, stateDir })).dm;
+      // appending triggers the prune
+      await dm.handleCandidate(makeCandidate({ id: "fu-20260904-prune-trigger" }));
+      const entries = readLog(stateDir);
+      const days = entries.map((e) => e.day).sort();
+      const oldest = days[0];
+      const newest = days[days.length - 1];
+      const windowDays = new Set(days).size;
+      // 14-day window: 2026-08-22 .. 2026-09-04 (14 distinct day keys, 15 entries incl. trigger)
+      assert.ok(windowDays <= 14, `expected ≤ 14 distinct days, got ${windowDays}`);
+      assert.ok(entries.length <= 15, `expected ≤ 15 entries, got ${entries.length}`);
+      assert.equal(oldest, "2026-08-22", "oldest kept day must be exactly 14 days back");
+      assert.equal(newest, "2026-09-04", "newest day must be the append day");
+      // the 7-day window (2026-08-29..) is a subset → must be fully intact
+      const sevenStart = localDayKey(now - 7 * DAY);
+      const sevenDays = new Set(entries.filter((e) => e.day >= sevenStart).map((e) => e.day));
+      assert.equal(sevenDays.size, 8, "7-day window must be fully intact (8 distinct days incl. today)");
+    });
+
+    it("JSONL stays parse-bar after prune and backfill (no corruption, valid JSON per line)", async () => {
+      const { dm, clock, stateDir } = track(makeDm());
+      for (let i = 0; i < 5; i++) await dm.onMessageSending({ content: env("fu-20260904-parse-" + i) }, { sessionKey: SK });
+      clock.t += 1 * 60 * 60 * 1000;
+      await dm.onMessageReceived({ content: "hallo" }, { sessionKey: SK });
+      const raw = fs.readFileSync(path.join(stateDir, "dm-proactive.jsonl"), "utf8");
+      const parsed = raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      assert.equal(parsed.length, 5, "all lines must parse");
+    });
+  });
+
   describe("shared gate-core verdicts (lib/dm-gate-core.js)", () => {
     it("exposes per-check verdicts alongside reasons", () => {
       const quietNow = new Date(2026, 7, 24, 23, 30).getTime();
