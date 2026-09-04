@@ -96,6 +96,8 @@ const MATRIX = [
     tags: ["named peek copy wins", "topical pick-ups"] },
   { id: 45, behavior: "directly-addressed decide rule incl. second-person addressee",
     tags: ["second-person addressee", "directly-addressed rule"] },
+  { id: 46, behavior: "FIFO dispatcher binding survives later-message silence",
+    tags: ["oldest unconsumed dispatcher", "silence completes only unconsumed", "displacement no longer completes"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

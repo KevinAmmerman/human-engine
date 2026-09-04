@@ -654,12 +654,11 @@ describe("naturalize", () => {
       assert.equal(dispatcher.markComplete.mock.callCount(), 1);
     });
 
-    it("flush skips when no dispatcher is stashed at flush time", async () => {
-      const logs = [];
+    it("plan 545: a later null dispatch does not kill a captured reply's route (FIFO)", async () => {
       const flushNat = createNaturalize({
         cfg, state, engine: makeEngine(), persona: makePersona(),
         socialMemory: makeSocialMemoryStub(),
-        log: { info(m) { logs.push(m); }, warn(m) { logs.push(m); }, debug() {} },
+        log: { info() {}, warn() {}, debug() {} },
       });
       const dispatcher = makeDispatcher();
       armSpeakTurn(flushNat, dispatcher);
@@ -670,11 +669,10 @@ describe("naturalize", () => {
       );
 
       await new Promise((r) => setTimeout(r, 1500));
-      assert.ok(logs.some((l) => l.includes("flush skipped")));
-      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2, "captured reply still delivers via its bound dispatcher");
     });
 
-    it("plan 501: completes the displaced dispatcher exactly once on re-arm", () => {
+    it("plan 545: displacement no longer completes the previous dispatcher (FIFO keeps it alive)", () => {
       const displacedNat = createNaturalize({
         cfg, state, engine: makeEngine(), persona: makePersona(),
         socialMemory: makeSocialMemoryStub(),
@@ -686,7 +684,7 @@ describe("naturalize", () => {
       assert.equal(dispatcherA.markComplete.mock.callCount(), 0);
 
       armSpeakTurn(displacedNat, dispatcherB);
-      assert.equal(dispatcherA.markComplete.mock.callCount(), 1);
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 0, "displacement must NOT complete A");
       assert.equal(dispatcherB.markComplete.mock.callCount(), 0);
     });
 
@@ -805,6 +803,106 @@ describe("naturalize", () => {
         makeDefaultCtx(),
       );
       assert.equal(result, undefined);
+    });
+  });
+
+  describe("FIFO dispatcher queue (plan 545)", () => {
+    it("binds capture to the OLDEST unconsumed dispatcher; second stays unconsumed", async () => {
+      const fifoNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcherA = makeDispatcher();
+      const dispatcherB = makeDispatcher();
+      armSpeakTurn(fifoNat, dispatcherA);
+      armSpeakTurn(fifoNat, dispatcherB);
+
+      const result = fifoNat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "reply via A" } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(dispatcherA.sendBlockReply.mock.callCount() >= 1, "oldest dispatcher A delivered");
+      assert.equal(dispatcherB.sendBlockReply.mock.callCount(), 0, "second dispatcher stays unconsumed");
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 1);
+      assert.equal(dispatcherB.markComplete.mock.callCount(), 0);
+    });
+
+    it("silence after capture completes only the unconsumed dispatcher; first delivers", async () => {
+      const fifoNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcherA = makeDispatcher();
+      const dispatcherB = makeDispatcher();
+      armSpeakTurn(fifoNat, dispatcherA);
+      armSpeakTurn(fifoNat, dispatcherB);
+
+      fifoNat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "the good reply" } },
+        makeDefaultCtx(),
+      );
+      fifoNat.onSilence(CHAT_SK);
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(dispatcherA.sendBlockReply.mock.callCount() >= 1, "captured reply delivered via A");
+      assert.equal(dispatcherB.sendBlockReply.mock.callCount(), 0);
+      assert.equal(dispatcherB.markComplete.mock.callCount(), 1, "unconsumed B completed by silence");
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 1);
+    });
+
+    it("silence with no pending capture completes the dispatcher (hygiene)", async () => {
+      const fifoNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(fifoNat, dispatcher);
+
+      fifoNat.onSilence(CHAT_SK);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("capture with empty queue passes through (regression)", () => {
+      const fifoNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 42, ts: Date.now() });
+      const result = fifoNat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } },
+        makeDefaultCtx(),
+      );
+      assert.equal(result, undefined);
+    });
+
+    it("silence leaves a consumed-but-undelivered dispatcher alone (draft in flight)", async () => {
+      const fifoNat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcherA = makeDispatcher();
+      const dispatcherB = makeDispatcher();
+      armSpeakTurn(fifoNat, dispatcherA);
+      armSpeakTurn(fifoNat, dispatcherB);
+      fifoNat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "in flight" } },
+        makeDefaultCtx(),
+      );
+
+      fifoNat.onSilence(CHAT_SK);
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 0, "consumed A not completed by silence");
+      assert.equal(dispatcherB.markComplete.mock.callCount(), 1, "unconsumed B completed");
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(dispatcherA.sendBlockReply.mock.callCount() >= 1, "A's in-flight draft still delivered");
     });
   });
 
