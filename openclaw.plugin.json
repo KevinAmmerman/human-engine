@@ -120,7 +120,9 @@
           "minGapMinutes": { "type": "number", "default": 180 },
           "quietStart": { "type": "string", "default": "23:00" },
           "quietEnd": { "type": "string", "default": "07:00" },
-          "careBudgetPerDay": { "type": "number", "default": 1 }
+          "careBudgetPerDay": { "type": "number", "default": 1 },
+          "dayFitReduceHours": { "type": "number", "default": 4 },
+          "dayFitPauseHours": { "type": "number", "default": 12 }
         },
         "default": {}
       }

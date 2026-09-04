@@ -23,7 +23,7 @@ describe("config", () => {
     assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.9 });
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { speakEpochTtlMs: 300000 });
-    assert.deepEqual(cfg.dmProactive, { enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1 });
+    assert.deepEqual(cfg.dmProactive, { enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12 });
   });
 
   it("resolveConfig merges with defaults", () => {

@@ -9,6 +9,7 @@ import { parseFollowupEnvelope, evaluateDmGate, candidateFromEnvelope } from "..
 import { localDayKey } from "../lib/proactive.js";
 import { setRng, resetRng } from "../lib/proactive.js";
 import * as state from "../lib/state.js";
+import { dayFitFactor, resetDayFitWarn } from "../lib/dayfit.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dm-proactive-test-"));
 const PLUGIN_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -120,6 +121,7 @@ function makeDm(overrides = {}) {
     stateDir,
     log,
     now: () => clock.t,
+    activityFilePath: overrides.activityFilePath,
   });
   return { dm, cfg, clock, runtime, socialMemory, log, stateDir };
 }
@@ -483,6 +485,101 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(typeof entries[0].gate.pass, "boolean");
       assert.equal(typeof entries[0].render.draft, "string");
       assert.equal(entries[0].sent, false, "shadow dry run must never send");
+    });
+  });
+
+  describe("DayFit gating (Plan 531 §2.2)", () => {
+    const DF_DIR = path.join(tmpDir, "dayfit");
+    function writeActivity(activityAtMs) {
+      fs.mkdirSync(DF_DIR, { recursive: true });
+      fs.writeFileSync(path.join(DF_DIR, "kevin-activity.json"), JSON.stringify({ lastKnownKevinActivityAtMs: activityAtMs }), "utf8");
+    }
+    function makeDfDm(overrides = {}) {
+      return makeDm({
+        cfg: makeCfg({ shadow: false, minGapMinutes: 0, dayFitReduceHours: 4, dayFitPauseHours: 12 }),
+        activityFilePath: path.join(DF_DIR, "kevin-activity.json"),
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      resetDayFitWarn();
+      fs.rmSync(DF_DIR, { recursive: true, force: true });
+    });
+
+    it("soft_followup is reduced (cap halved) when DayFit = 0.5 (age 6h)", async () => {
+      writeActivity(T0 - 6 * 60 * 60 * 1000);
+      const { dm } = track(makeDfDm());
+      // budgetPerDay=2, reduced soft cap = ceil(2*0.5)=1
+      await dm.handleCandidate(makeCandidate({ id: "cm_df_reduced_1", kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+      const res = dm.evaluateGate(makeCandidate({ id: "cm_df_reduced_2", kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("budget"), res.reasons.join(","));
+    });
+
+    it("soft_followup blocked with dayfit-stale when DayFit = null (age 20h)", async () => {
+      writeActivity(T0 - 20 * 60 * 60 * 1000);
+      const { dm } = track(makeDfDm());
+      const res = dm.evaluateGate(makeCandidate({ id: "cm_df_stale", kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("dayfit-stale"), res.reasons.join(","));
+      assert.equal(res.verdicts["dayfit-stale"], false);
+    });
+
+    it("soft_followup blocked with dayfit-unknown when the activity file is missing", async () => {
+      // no file written → DF_DIR empty
+      const { dm } = track(makeDfDm());
+      const res = dm.evaluateGate(makeCandidate({ id: "cm_df_unknown", kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("dayfit-unknown"), res.reasons.join(","));
+      assert.equal(res.verdicts["dayfit-unknown"], false);
+    });
+
+    it("hard reminder (reminder) passes in ALL DayFit bands (full/reduced/stale/unknown)", async () => {
+      const bands = [
+        { name: "full", activity: T0 - 1 * 60 * 60 * 1000, file: true },
+        { name: "reduced", activity: T0 - 6 * 60 * 60 * 1000, file: true },
+        { name: "stale", activity: T0 - 20 * 60 * 60 * 1000, file: true },
+        { name: "unknown", activity: null, file: false },
+      ];
+      for (const b of bands) {
+        resetDayFitWarn();
+        fs.rmSync(DF_DIR, { recursive: true, force: true });
+        if (b.file) writeActivity(b.activity);
+        const { dm } = track(makeDfDm());
+        const res = dm.evaluateGate(makeCandidate({ id: "cm_hard_" + b.name, kind: "reminder", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+        assert.equal(res.pass, true, `reminder must pass in ${b.name} band: ${res.reasons.join(",")}`);
+        assert.ok(!res.reasons.includes("dayfit-stale") && !res.reasons.includes("dayfit-unknown"), b.name);
+      }
+    });
+
+    it("event reminder passes in stale band (DayFit-independent)", async () => {
+      writeActivity(T0 - 20 * 60 * 60 * 1000);
+      const { dm } = track(makeDfDm());
+      const res = dm.evaluateGate(makeCandidate({ id: "cm_event_stale", kind: "event", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+      assert.equal(res.pass, true, res.reasons.join(","));
+    });
+
+    it("care_check_in at care sensitivity passes in stale band (own rules, not DayFit)", async () => {
+      writeActivity(T0 - 20 * 60 * 60 * 1000);
+      const { dm } = track(makeDfDm());
+      const res = dm.evaluateGate(makeCandidate({ id: "cm_care_df", kind: "care_check_in", sensitivity: "care", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+      assert.equal(res.pass, true, res.reasons.join(","));
+    });
+
+    it("full DayFit (age 1h) allows soft_followup with normal cap", async () => {
+      writeActivity(T0 - 1 * 60 * 60 * 1000);
+      const { dm } = track(makeDfDm());
+      const res = dm.evaluateGate(makeCandidate({ id: "cm_df_full", kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } }));
+      assert.equal(res.pass, true, res.reasons.join(","));
+    });
+
+    it("dayFitFactor unit behavior is covered by dayfit.test.js", () => {
+      const p = path.join(DF_DIR, "kevin-activity.json");
+      fs.mkdirSync(DF_DIR, { recursive: true });
+      fs.writeFileSync(p, JSON.stringify({ lastKnownKevinActivityAtMs: Date.now() - 6 * 60 * 60 * 1000 }), "utf8");
+      const r = dayFitFactor({ now: Date.now(), filePath: p, cache: {} });
+      assert.equal(r.value, 0.5);
     });
   });
 
