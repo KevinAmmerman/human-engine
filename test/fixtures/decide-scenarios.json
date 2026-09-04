@@ -731,6 +731,28 @@
       "deterministic": false,
       "path": "llm",
       "rationale": "The URL is stripped by URL_RE, so the 'hori' substring inside the hostname cannot trip the hard trigger; decision falls to the LLM."
+    },
+    {
+      "name": "Second-person follow-up to agent's own statement (no name, no quote)",
+      "isDM": false,
+      "hasMedia": false,
+      "transcript": [
+        [
+          "Kevin",
+          "Hey, hast du eigentlich schon mal mit Max geredet?"
+        ],
+        [
+          "Yuki",
+          "Direkt geredet haben wir noch nicht — er kennt mich bisher nur aus der Gruppe, aber falls er was braucht: ich bin da."
+        ],
+        [
+          "Kevin",
+          "Ja, du kannst dich ja ihm mal vorstellen, oder nicht"
+        ]
+      ],
+      "expect": "speak",
+      "deterministic": false,
+      "rationale": "Message uses second-person address and continues the exchange with the agent; obviously directed at the agent despite no name/@mention (incident 2026-09-04 11:38)."
     }
   ]
 }

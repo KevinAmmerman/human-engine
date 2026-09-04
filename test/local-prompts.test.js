@@ -63,6 +63,12 @@ describe("local-prompts", () => {
       assert.ok(p.systemPrompt.includes("same place, route, plan or question"), "topical anchors named");
     });
 
+    it("directly-addressed rule covers second-person addressee (Plan 544)", () => {
+      const p = buildDecidePrompt({ agentName: "Bot" });
+      assert.ok(p.systemPrompt.includes("second-person address"), "second-person address wording present");
+      assert.ok(p.systemPrompt.includes("directed at you given the preceding exchange"), "preceding-exchange qualifier present");
+    });
+
     it("decide prompt contains the age rule", () => {
       const p = buildDecidePrompt({ agentName: "Bot" });
       assert.ok(p.systemPrompt.includes("Message ages are shown like (vor 3h)"));

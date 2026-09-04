@@ -94,6 +94,8 @@ const MATRIX = [
     tags: ["suppressed system fallback payload"] },
   { id: 44, behavior: "named-first transcript dedup (named copy wins over anonymous) + topical follow-up rule",
     tags: ["named peek copy wins", "topical pick-ups"] },
+  { id: 45, behavior: "directly-addressed decide rule incl. second-person addressee",
+    tags: ["second-person addressee", "directly-addressed rule"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
