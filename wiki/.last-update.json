@@ -1,7 +1,7 @@
 {
-  "commit": "b5160fd",
-  "timestamp": "2026-08-13T19:30:00.000Z",
-  "filesChanged": null,
+  "commit": "a878dd2",
+  "timestamp": "2026-09-04T02:05:00.000Z",
+  "filesChanged": ["wiki/quickstart.md", "wiki/architecture/overview.md", "wiki/source-map.md", "wiki/operations/build-test-lint.md", "wiki/operations/environment.md", "wiki/design/dm-proactive-v2.md"],
   "generator": "opencode-wiki-skill",
   "version": "1.0.0"
 }

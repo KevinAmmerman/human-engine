@@ -44,6 +44,15 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `proactive.probability` | number | `0.5` | Seeded probability floor |
 | `proactive.cooldownBaseMinutes` | number | `180` | Base cooldown after a send |
 | `proactive.triggers.*` | bool | `true` | Candidate triggers (unanswered_question, stalled_exchange, context_match, follow_up_commitment) |
+| `dmProactive.enabled` | bool | `false` | Enable DM follow-up rendering |
+| `dmProactive.shadow` | bool | `true` | Log would-be sends without delivering |
+| `dmProactive.budgetPerDay` | number | `2` | Max DM follow-ups per day |
+| `dmProactive.minGapMinutes` | number | `180` | Min gap between DM follow-ups |
+| `dmProactive.quietStart` / `dmProactive.quietEnd` | string | `"23:00"` / `"07:00"` | Quiet hours window (Europe/Berlin) |
+| `dmProactive.careBudgetPerDay` | number | `1` | Extra budget for care-tier candidates |
+| `dmProactive.dayFitReduceHours` | number | `4` | Reduce sends when DayFit band is this many hours stale |
+| `dmProactive.dayFitPauseHours` | number | `12` | Pause sends when DayFit band is this many hours stale |
+| `dmProactive.inferredCapPerDay` | number | `2` | Cap for inferred (non-envelope) candidates |
 
 There is no model-override key: every LLM call uses the host's built-in
 `llm.complete`. Nested objects deep-merge one level over defaults, so a
@@ -58,8 +67,15 @@ runtime, never committed. Files are written 0600, dirs 0700, via tmp+rename.
 |------|---------|
 | `state/social-learning-cache.json` | Voice card cache (disk-persisted) |
 | `state/social-memory/<agentId>/<sessionKey>.json` | Social memory profiles per agent × session |
-| `state/observed/<sessionKey>.jsonl` | Silenced-message observation log (plugin-local) |
+| `state/observed/<sessionKey>.jsonl` | Silenced-member AND agent-own-reply lines (Plan 528), 200-line rotation |
 | `state/proactive.json` | Proactive budgets/cooldowns (persisted) |
+| `state/dm-proactive-state.json` | DM-proactive v2: per-scope counts, `sentIds` LRU (max 512), `byKind` cadence |
+| `state/dm-proactive.jsonl` | DM-proactive shadow/live log v2 (14-day retention, outcome backfill) |
+
+One file is read (never written) from OUTSIDE the plugin dir:
+| Path | Purpose |
+|------|---------|
+| `~/.openclaw/state/kevin-activity.json` | DayFit input: `{ lastKnownKevinActivityAtMs }` (Plan 521) |
 
 Two files live next to the SOUL.md, NOT under `state/`:
 | Path | Purpose |

@@ -20,8 +20,11 @@ worker process.
 | Config | `lib/config.js` | Default config + one-level deep merge from OpenClaw API |
 | Voice card | `lib/voice-card.js` | Style-profile learning, onBeforePromptBuild injection |
 | Social memory | `lib/social-memory.js` | Person-centric fact extraction, cadence, recall (coalesced writes) |
-| Observed store | `lib/observed-store.js` | Plugin-local persistence of silenced messages to `state/observed/` |
+| Observed store | `lib/observed-store.js` | Plugin-local persistence of silenced + own-reply lines to `state/observed/` |
 | Proactive | `lib/proactive.js` | 3-stage proactive funnel (triggers → anti-annoyance → subagent.run) |
+| DM gate core | `lib/dm-gate-core.js` | Shared DM follow-up gate rules (hook + CLI, one source of truth) |
+| DM proactive v2 | `lib/dm-proactive.js` | Envelope adapter `[[fu:…]]` → gate → shadow/live dispatch, byKind cadence, outcome backfill |
+| DayFit | `lib/dayfit.js` | DayFit bands from `~/.openclaw/state/kevin-activity.json` (quiet-hours + day-key aware) |
 | Persona | `lib/persona.js` | Soul prompt + voice-card assembly |
 | Soul | `lib/soul.js` | SOUL.md section-merge enhancement via local LLM, auto-enhance on start |
 | Timing engine | `lib/timing-engine.js` | WPM-based delay calculation, night mode |
@@ -46,12 +49,17 @@ fires per outbound payload with the real reply text and supports
    sender name, pushes the transcript peek line, ingests into social memory
    (chat sessions only), and feeds the proactive inbound funnel.
 2. **`before_agent_reply`** hook (gate): runs the turn-taking decide on the
-   cleaned inbound body. Hard triggers (DM, media, agent-name mention,
-   agent-contact mention) short-circuit to `speak` with zero LLM calls;
-   otherwise the local LLM decides with persona + transcript context. The
-   transcript is merged from three layers — hydrated session transcript
-   (session-transcript-runtime SDK), the observed store
-   (`state/observed/`), and the in-memory peek (last 20 lines).
+   cleaned inbound body. Hard triggers (DM, media, agent-name/alias mention,
+   agent-contact mention, quote-reply to the agent's own message)
+   short-circuit to `speak` with zero LLM calls; otherwise the local LLM
+   decides with persona + transcript context. The transcript is merged from
+   three layers — hydrated session transcript (session-transcript-runtime
+   SDK, ts backfilled from `e.timestamp`/`e.message.timestamp`,
+   `NO_REPLY` assistant artifacts filtered), the observed store
+   (`state/observed/`, also holds the agent's own replies since Plan 528),
+   and the in-memory peek (last 20 lines) — tail-deduped, chronologically
+   stable-sorted, `slice(-20)`. Group decides log a PII-safe `decide-ctx`
+   line (line/own/speaker/age counts, redacted session key).
    - `speak` → speak epoch `{epoch, ts}` recorded, social memory recalled.
    - `stay_silent` → message persisted to the observed store and
      `{handled: true}` returned — the turn is silenced before the LLM call,
@@ -77,8 +85,21 @@ fires per outbound payload with the real reply text and supports
    stalled exchange, context match, follow-up commitment) through an
    anti-annoyance gate (budget, min gap, adaptive cooldown, quiet hours,
    seeded probability). In `shadow:true` it only logs; otherwise it
-   delivers via `api.runtime.subagent.run`, which does not re-enter
-   `before_agent_reply` — no gate loop.
+    delivers via `api.runtime.subagent.run`, which does not re-enter
+    `before_agent_reply` — no gate loop.
+10. **DM-proactive v2 funnel** (opt-in, shadow-first; see
+    [design/dm-proactive-v2.md](../design/dm-proactive-v2.md)):
+    `message_sending` parses a `[[fu:{…}]]` first-line envelope
+    (`parseFollowupEnvelope`); plain text passes through untouched
+    (fail-open). Envelope candidates run through the shared
+    `lib/dm-gate-core.js` rules (deadline grace, DayFit bands via
+    `~/.openclaw/state/kevin-activity.json`, byKind cadence from
+    `state/dm-proactive-state.json`, sentIds idempotency, care/soft tiers).
+    In `shadow:true` only `state/dm-proactive.jsonl` v2 entries are written
+    (14-day retention); live sends dispatch with the same core. Inbound
+    replies backfill `outcome.repliedWithin48h`. The followup-cron MUST
+    pre-check via `bin/followup-gate.mjs check` (same gate-core, exit
+    0=pass / 1=block / 2=no-envelope / 3=usage).
 
 ## Key dependencies
 
@@ -116,3 +137,8 @@ No external npm packages — all logic is self-contained.
   for traceability: `human-engine-decide`, `human-engine-humanize`,
   `human-engine-extract` (voice card), `human-engine-soul`,
   `human-engine-memory` (social memory).
+- **Decide context is chronological**: layers are merged tail-deduped then
+  stable-sorted by ts (ts-less entries last); the current message is the
+  final line. Regressing to layer concatenation re-introduces the
+  false-`stay_silent` bug where the prompt tail looked days old
+  (live-verified 2026-09-04, Plan 529).
