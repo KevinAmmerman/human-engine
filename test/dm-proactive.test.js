@@ -705,6 +705,117 @@ describe("dm-proactive", { concurrency: false }, () => {
     });
   });
 
+  describe("cadence state v2 (Plan 532 §2.3)", () => {
+    function makeCdDm(overrides = {}) {
+      return makeDm({
+        cfg: makeCfg({ shadow: false, minGapMinutes: 0, inferredCapPerDay: 2, ...overrides.cfg }),
+        ...overrides,
+      });
+    }
+    // helper: deliver a candidate and advance the clock to clear min-gap
+    async function deliver(dm, clock, cand, gapMs = 1) {
+      await dm.handleCandidate(cand);
+      clock.t += gapMs;
+    }
+    function softCand(id) {
+      return makeCandidate({ id, kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } });
+    }
+    function hardCand(id) {
+      return makeCandidate({ id, kind: "reminder", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 } });
+    }
+
+    it("v1 state (only scopes + sentIds) loads unchanged and state file gains byKind on first save (v2 shape)", async () => {
+      writeState(tmpDir, { scopes: { [SCOPE]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [] });
+      const { dm } = track(makeCdDm({ now0: T0 }));
+      await dm.handleCandidate(softCand("fu-20260824-cad-v1"));
+      dm.stop();
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.ok(data.scopes[SCOPE], "v1 scopes must remain readable");
+      assert.ok(data.byKind && typeof data.byKind === "object", "byKind must appear in v2 shape after first save");
+      assert.ok(data.byKind.soft_followup, "soft_followup byKind entry created");
+      assert.ok(Array.isArray(data.byKind.soft_followup.sends), "sends array present");
+    });
+
+    it("cap formula: ceil(inferredCapPerDay × dayFit × budgetMultiplier) — 2 × 0.5 × 0.5 = ceil(0.5) = 1", async () => {
+      // DayFit reduced (0.5): write activity 6h old.
+      const DF_DIR2 = path.join(tmpDir, "dayfit-cap");
+      fs.mkdirSync(DF_DIR2, { recursive: true });
+      fs.writeFileSync(path.join(DF_DIR2, "kevin-activity.json"), JSON.stringify({ lastKnownKevinActivityAtMs: T0 - 6 * 60 * 60 * 1000 }), "utf8");
+      // multiplier 0.5 via ignoreStreak = 2
+      writeState(tmpDir, { scopes: {}, byKind: { soft_followup: { budgetMultiplier: 1.0, sends: [{ ts: T0 - 2 * 86400000, scope: SCOPE, id: "fu-20260822-a" }, { ts: T0 - 86400000, scope: SCOPE, id: "fu-20260823-b" }], replyRate14d: 0.0, ignoreStreak: 2, paused: false } }, sentIds: [] });
+      const { dm, clock } = track(makeCdDm({ now0: T0, activityFilePath: path.join(DF_DIR2, "kevin-activity.json") }));
+      await deliver(dm, clock, softCand("fu-20260824-cap-1"));
+      const res = dm.evaluateGate(softCand("fu-20260824-cap-2"));
+      assert.equal(res.pass, false, "after 1 send with cap=1 the 2nd must block");
+      assert.ok(res.reasons.includes("budget"), res.reasons.join(","));
+    });
+
+    it("ignoreStreak ≥ 2 → budgetMultiplier 0.5 (soft cap halved)", async () => {
+      writeState(tmpDir, { scopes: {}, byKind: { soft_followup: { budgetMultiplier: 1.0, sends: [{ ts: T0 - 2 * 86400000, scope: SCOPE, id: "fu-20260822-a" }, { ts: T0 - 86400000, scope: SCOPE, id: "fu-20260823-b" }], replyRate14d: 0.0, ignoreStreak: 2, paused: false } }, sentIds: [] });
+      const { dm, clock } = track(makeCdDm({ now0: T0 }));
+      // full DayFit, cap 2, multiplier 0.5 → ceil(2*1*0.5)=1 → 1st send fills cap
+      await deliver(dm, clock, softCand("fu-20260824-ms-1"));
+      const res = dm.evaluateGate(softCand("fu-20260824-ms-2"));
+      assert.equal(res.pass, false);
+      assert.ok(res.reasons.includes("budget"), res.reasons.join(","));
+    });
+
+    it("ignoreStreak ≥ 4 → cadence-paused blocks soft-tier of the kind; hard reminders still pass", async () => {
+      writeState(tmpDir, { scopes: {}, byKind: { soft_followup: { budgetMultiplier: 1.0, sends: [{ ts: T0 - 4 * 86400000, scope: SCOPE, id: "a" }, { ts: T0 - 3 * 86400000, scope: SCOPE, id: "b" }, { ts: T0 - 2 * 86400000, scope: SCOPE, id: "c" }, { ts: T0 - 86400000, scope: SCOPE, id: "d" }], replyRate14d: 0.0, ignoreStreak: 4, paused: false } }, sentIds: [] });
+      const { dm } = track(makeCdDm({ now0: T0 }));
+      const softRes = dm.evaluateGate(softCand("fu-20260824-paused-soft"));
+      assert.equal(softRes.pass, false);
+      assert.ok(softRes.reasons.includes("cadence-paused"), softRes.reasons.join(","));
+      const hardRes = dm.evaluateGate(hardCand("fu-20260824-paused-hard"));
+      assert.equal(hardRes.pass, true, "hard reminder must pass despite paused kind: " + hardRes.reasons.join(","));
+      assert.ok(!hardRes.reasons.includes("cadence-paused"), "cadence-paused must not gate hard reminders");
+    });
+
+    it("reply attribution: inbound ≤ 48 h answers the last sent candidate, resets ignoreStreak, updates replyRate14d", async () => {
+      writeState(tmpDir, { scopes: {}, byKind: { soft_followup: { budgetMultiplier: 1.0, sends: [{ ts: T0 - 2 * 86400000, scope: SCOPE, id: "a" }, { ts: T0 - 86400000, scope: SCOPE, id: "b" }], replyRate14d: 0.0, ignoreStreak: 2, paused: false } }, sentIds: [] });
+      const { dm, clock } = track(makeCdDm({ now0: T0 }));
+      await deliver(dm, clock, softCand("fu-20260824-attrib"));
+      // inbound 1h later → attribution
+      clock.t += 1 * 60 * 60 * 1000;
+      await dm.onMessageReceived({ content: "Ja passt." }, { sessionKey: SK });
+      dm.stop();
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      const k = data.byKind.soft_followup;
+      assert.equal(k.ignoreStreak, 0, "reply must reset ignoreStreak");
+      assert.ok(k.replyRate14d > 0, "replyRate14d must update after an attributed reply");
+      const lastSend = k.sends[k.sends.length - 1];
+      assert.ok(lastSend.answeredAt, "last send must be marked answered");
+    });
+
+    it("sends list is pruned to the 14-day window on save", async () => {
+      writeState(tmpDir, { scopes: {}, byKind: { soft_followup: { budgetMultiplier: 1.0, sends: [{ ts: T0 - 30 * 86400000, scope: SCOPE, id: "old" }, { ts: T0 - 5 * 86400000, scope: SCOPE, id: "recent" }], replyRate14d: 0.0, ignoreStreak: 0, paused: false } }, sentIds: [] });
+      const { dm } = track(makeCdDm({ now0: T0 }));
+      await dm.handleCandidate(softCand("fu-20260824-prune"));
+      dm.stop();
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      const k = data.byKind.soft_followup;
+      const hasOld = k.sends.some((s) => s.id === "old");
+      assert.equal(hasOld, false, "sends older than 14 days must be pruned");
+      assert.ok(k.sends.some((s) => s.id === "recent"), "recent sends must survive");
+    });
+
+    it("hard reminder uses budgetPerDay (DoS fallback) and is exempt from inferredCap", async () => {
+      const { dm, clock } = track(makeCdDm({ now0: T0 }));
+      // budgetPerDay=2 (BASE_DM) is the hard-tier cap; soft inferredCap=2 with
+      // full multiplier also =2, so use a distinguishing check: hard reminders
+      // are NOT cadence-gated and use budgetPerDay. After 2 hard sends the 3rd blocks.
+      for (let i = 0; i < 2; i++) await deliver(dm, clock, hardCand("fu-20260824-hard-" + i));
+      const res3 = dm.evaluateGate(hardCand("fu-20260824-hard-2"));
+      assert.equal(res3.pass, false, "3rd hard reminder must block (budgetPerDay=2): " + res3.reasons.join(","));
+      assert.ok(res3.reasons.includes("budget"), res3.reasons.join(","));
+      // And hard reminders are never cadence-paused even when the kind is paused.
+      writeState(tmpDir, { scopes: {}, byKind: { reminder: { budgetMultiplier: 0, sends: [], replyRate14d: 0.0, ignoreStreak: 4, paused: true } }, sentIds: [] });
+      const { dm: dm2 } = track(makeCdDm({ now0: T0 }));
+      const resPaused = dm2.evaluateGate(hardCand("fu-20260824-hard-paused"));
+      assert.equal(resPaused.pass, true, "paused reminder kind must NOT gate a hard reminder: " + resPaused.reasons.join(","));
+    });
+  });
+
   describe("shared gate-core verdicts (lib/dm-gate-core.js)", () => {
     it("exposes per-check verdicts alongside reasons", () => {
       const quietNow = new Date(2026, 7, 24, 23, 30).getTime();

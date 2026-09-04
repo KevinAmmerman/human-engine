@@ -122,7 +122,8 @@
           "quietEnd": { "type": "string", "default": "07:00" },
           "careBudgetPerDay": { "type": "number", "default": 1 },
           "dayFitReduceHours": { "type": "number", "default": 4 },
-          "dayFitPauseHours": { "type": "number", "default": 12 }
+          "dayFitPauseHours": { "type": "number", "default": 12 },
+          "inferredCapPerDay": { "type": "number", "default": 2 }
         },
         "default": {}
       }
