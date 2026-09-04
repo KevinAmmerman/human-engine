@@ -196,12 +196,14 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.ok(log._warns.some((m) => m.includes("malformed followup envelope")), log._warns.join("\n"));
     });
 
-    it("repeated envelope sends with the same id in shadow deliver both, but the second is logged as duplicate", async () => {
+    it("repeated envelope sends with the same id in shadow: first delivers, second is cancelled as duplicate (Plan 536 AMENDMENT 2)", async () => {
       const { dm, stateDir } = track(makeDm());
-      await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
-      await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
+      const first = await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
+      assert.deepEqual(first, { content: "Kommt ihr heute noch am Projekt voran?" }, "first gate-pass shadow send strips the envelope");
+      const second = await dm.onMessageSending({ content: envelopeText() }, { sessionKey: SK });
+      assert.deepEqual(second, { cancel: true }, "duplicate must cancel in shadow too (pure idempotency — AMENDMENT 2)");
       const entries = readLog(stateDir);
-      assert.equal(entries.length, 2, "shadow never cancels — both cron sends deliver");
+      assert.equal(entries.length, 2, "both candidate deliveries are logged");
       assert.equal(entries[0].gate.reasons.includes("duplicate"), false);
       assert.equal(entries[1].gate.reasons.includes("duplicate"), true, entries[1].gate.reasons.join(","));
       assert.equal(entries[1].gate.verdicts.duplicate, false);
@@ -1103,6 +1105,122 @@ describe("dm-proactive", { concurrency: false }, () => {
       const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture], "Just a normal message.");
       assert.equal(code, 2);
       assert.equal(parseOut(stdout).error, "no-envelope");
+    });
+  });
+
+  describe("production message_sending shape (Plan 536 — incident 2026-09-04)", () => {
+    // OpenClaw 2026.8.1 PluginHookMessageContext = {channelId, accountId?,
+    // conversationId?} — NO sessionKey (types.d.ts:2094). The DM scope is
+    // derived from the event target. Fake contact id 999999999 (public repo).
+    const PROD_TO = "999999999";
+    const PROD_SK = "agent:hori-wa:telegram:direct:" + PROD_TO; // derived, matches cfg.agents single fallback
+    const PROD_SCOPE = "hori-wa::" + PROD_SK;
+
+    function prodEvent(content, to = PROD_TO, overrides = {}) {
+      return { to, content, metadata: { channel: "telegram", accountId: "bot-1" }, ...overrides };
+    }
+
+    it("message-tool outbound shape (ctx {channelId, accountId}, no sessionKey): envelope send is stripped and logged, scope derived from event", async () => {
+      const { dm, stateDir } = track(makeDm());
+      const result = await dm.onMessageSending(prodEvent(envelopeText()), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "shadow gate-pass delivers the stripped draft");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].candidateId, "fu-20260824-test-001");
+      assert.equal(entries[0].scope, PROD_SCOPE, "DM scope must be derived from event target");
+      assert.equal(entries[0].mode, "shadow");
+    });
+
+    it("session-delivery shape (ctx {channelId, conversationId}, no sessionKey): envelope send is stripped and logged", async () => {
+      const { dm, stateDir } = track(makeDm());
+      const result = await dm.onMessageSending(prodEvent(envelopeText()), { channelId: "telegram", conversationId: "c-1" });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" });
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].scope, PROD_SCOPE);
+    });
+
+    it("INCIDENT REGRESSION: 3 identical envelope sends (fresh state) → 1 stripped delivery, 2 cancels, 3 logs, sentIds set", async () => {
+      const { dm, stateDir } = track(makeDm({ cfg: makeCfg({ minGapMinutes: 180 }) }));
+      const event = prodEvent(envelopeText());
+      const ctx = { channelId: "telegram", accountId: "bot-1" };
+      const r1 = await dm.onMessageSending(event, ctx);
+      assert.deepEqual(r1, { content: "Kommt ihr heute noch am Projekt voran?" }, "first send must deliver with the envelope stripped");
+      assert.ok(!r1.content.includes("[[fu:"), "delivered content must NOT contain the envelope metadata");
+      const r2 = await dm.onMessageSending(event, ctx);
+      assert.deepEqual(r2, { cancel: true }, "second identical send must cancel (duplicate + min-gap)");
+      const r3 = await dm.onMessageSending(event, ctx);
+      assert.deepEqual(r3, { cancel: true }, "third identical send must cancel");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 3, "all three candidates must be logged");
+      assert.equal(entries[0].gatePassed, true, "only the first send passes the gate");
+      assert.equal(entries[1].gatePassed, false);
+      assert.equal(entries[2].gatePassed, false);
+      assert.ok(entries[1].gate.reasons.includes("duplicate"), entries[1].gate.reasons.join(","));
+      assert.ok(entries[2].gate.reasons.includes("duplicate"), entries[2].gate.reasons.join(","));
+      // sentIds must be set (the delivered id recorded)
+      dm.stop();
+      const state = JSON.parse(fs.readFileSync(path.join(stateDir, "dm-proactive-state.json"), "utf8"));
+      assert.ok(state.sentIds.includes("fu-20260824-test-001"), "delivered id must be recorded in sentIds");
+    });
+
+    it("shadow gate-fail (quiet hours) in production shape → cancel + log, no delivery, no sentId", async () => {
+      const now0 = new Date(2026, 7, 24, 23, 30).getTime(); // quiet hours
+      const { dm, stateDir, log } = track(makeDm({ now0 }));
+      const result = await dm.onMessageSending(prodEvent(envelopeText(makeEnvelope({ id: "fu-20260904-prod-quiet" }))), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(result, { cancel: true }, "shadow must suppress gate-fail (AMENDMENT 1)");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].gatePassed, false);
+      assert.ok(entries[0].gate.reasons.includes("quiet-hours"), entries[0].gate.reasons.join(","));
+      assert.ok(log._infos.some((m) => m.includes("reason=failed:quiet-hours")), log._infos.join("\n"));
+    });
+
+    it("normal text send without envelope in production shape → untouched (fail-open), no log", async () => {
+      const { dm, stateDir } = track(makeDm({ cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) }));
+      const result = await dm.onMessageSending(prodEvent("Hey Nico, hier die Antwort."), { channelId: "telegram", accountId: "bot-1" });
+      assert.equal(result, undefined, "normal agent text must never be touched");
+      assert.equal(readLog(stateDir).length, 0);
+    });
+
+    it("unknown target with a single configured agent derives via fallback (no warn)", async () => {
+      const { dm, stateDir, log } = track(makeDm());
+      const result = await dm.onMessageSending(prodEvent(envelopeText(), "5551234"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "single-agent fallback must derive the DM scope");
+      assert.equal(log._warns.length, 0, "no warn expected for the single-agent fallback");
+      const entries = readLog(stateDir);
+      assert.equal(entries[0].scope, "hori-wa::agent:hori-wa:telegram:direct:5551234");
+    });
+
+    it("group target (telegram negative chat id) → return, never touched", async () => {
+      const { dm, stateDir } = track(makeDm());
+      const result = await dm.onMessageSending(prodEvent(envelopeText(), "-1001234567890"), { channelId: "telegram", accountId: "bot-1" });
+      assert.equal(result, undefined, "group target must not be derived or touched");
+      assert.equal(readLog(stateDir).length, 0);
+    });
+
+    it("ambiguous target (no scope match, multiple agents) → warn + fail-open, no touch", async () => {
+      const multiCfg = { ...makeCfg(), agents: ["hori-wa", "hori-wa-public-group-kletter"] };
+      const { dm, stateDir, log } = track(makeDm({ cfg: multiCfg }));
+      const result = await dm.onMessageSending(prodEvent(envelopeText(), "5551234"), { channelId: "telegram", accountId: "bot-1" });
+      assert.equal(result, undefined, "ambiguous target must fail open");
+      assert.equal(readLog(stateDir).length, 0);
+      assert.ok(log._warns.some((m) => m.includes("cannot derive DM scope")), log._warns.join("\n"));
+    });
+
+    it("known scope suffix match (multi-agent config) derives the exact agentId from state — no fallback ambiguity", async () => {
+      // Seed a real scope key for hori-wa against this target, then use a
+      // multi-agent config so the single-agent fallback is NOT available —
+      // the derivation must still succeed via the state scope-suffix match.
+      const multiCfg = { ...makeCfg(), agents: ["hori-wa", "hori-wa-public-group-kletter"] };
+      writeState(tmpDir, { scopes: { [PROD_SCOPE]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [] });
+      const { dm, stateDir, log } = track(makeDm({ cfg: multiCfg }));
+      const result = await dm.onMessageSending(prodEvent(envelopeText(makeEnvelope({ id: "fu-20260904-prod-known" }))), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "known scope must derive even with multiple agents");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].scope, PROD_SCOPE, "scope must match the seeded known scope");
+      assert.equal(log._warns.length, 0, "no warn for a known-scope match");
     });
   });
 });

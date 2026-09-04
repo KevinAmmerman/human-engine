@@ -125,6 +125,34 @@ automation").
 Envelope-id = Retry → Live: cancel + Log „duplicate"; Shadow: Log. Der Cron
 wiederholt bewusst mit derselben id, bis delivered.
 
+> **Amendment 2026-09-04 (Incident — Plan 536, bindend)**
+>
+> Live-Incident (Kevin erhielt denselben Kandidaten 3× mit ungestripptem
+> Envelope, 07:46/09:47/10:04 Berlin) — drei Design-Korrekturen, die die
+> Fluss-Beschreibung oben in drei Punkten übersteuern:
+>
+> 1. **Hook-ctx-Realität**: Der Produktions-`message_sending`-ctx enthält
+>    KEIN `sessionKey` (OpenClaw 2026.8.1 `PluginHookMessageContext` =
+>    `{channelId, accountId?, conversationId?}` — dist/plugin-sdk/src/plugins/
+>    types.d.ts:2094; alle drei `runMessageSending`-Call-Sites übergeben
+>    keins). Der DM-Scope wird deshalb aus dem EVENT abgeleitet: `to` +
+>    `ctx.channelId`/`event.metadata.channel`, validiert gegen einen bekannten
+>    State-Scope-Suffix (`agent:<a>:<channel>:direct:<to>`) oder bei exakt
+>    einem konfigurierten Agent per Fallback. Kein Match/mehrdeutig → warn +
+>    fail-open (nie raten). Gruppen-Targets werden nie abgeleitet (return).
+>    Der frühere `ctx.sessionKey`-Pfad bleibt Erst-Wahl (falls irgendwo doch
+>    gesetzt). Normal-Send-Fail-open (Parity #24) unverändert.
+> 2. **Shadow supprimiert Gate-Fail/duplicate** (ersetzt „im Shadow nie:
+>    cancel"): Shadow liefert NUR noch gate-pass Kandidaten aus (Envelope-
+>    Strip + Log); Gate-Fail UND duplicate → `{cancel:true}` + Log. Grund:
+>    „Gating greift" + Q4 „0 Gate-Verletzungen" (§2.4) verlangen Suppression —
+>    ein Gate-Verletzer zu delivern spamt Kevin und verfälscht die Messgröße.
+> 3. **Dedup-Zeile oben korrigiert**: `sentIds`-Hit cancelt in BEIDEN Modi
+>    (Live + Shadow) + Log „duplicate". Grund: reine Idempotenz, keine
+>    Messgröße; der amnesische Isolated-Cron regeneriert ids strukturell
+>    (kann Delivery-State nicht sehen). Ein Kandidat = eine Delivery;
+>    Retries sind Logs, keine Sends.
+
 **Verdrahtung doppelt (Defense in Depth)**: Schicht 1 (Konvention): der
 Cron-Prompt weist hori-wa an, vor dem Send das Verdikt zu prüfen — via
 kleinem CLI (`bin/followup-gate.mjs check …`), das die SELBE Gate-Core-
