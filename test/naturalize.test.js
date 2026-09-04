@@ -808,6 +808,107 @@ describe("naturalize", () => {
     });
   });
 
+  describe("system fallback payload suppression (plan 540)", () => {
+    const FALLBACK = "No reply was generated for this message. This is usually a temporary model failure - please try again.";
+    const QUEUE_CAP = "This message was not queued because the session queue is full. Please try again after the current response finishes.";
+
+    function makeLoggingNat(logs) {
+      return createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info(m) { logs.push(m); }, warn() {}, debug() {} },
+      });
+    }
+
+    it("suppressed system fallback payload equal to the fallback string is not added to the draft", async () => {
+      const logs = [];
+      const nat = makeLoggingNat(logs);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: FALLBACK } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+      assert.ok(logs.some((l) => l.includes("suppressed system fallback payload") && l.includes("len=102")));
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0, "nothing delivered");
+    });
+
+    it("cancels a payload equal to the queue-cap string", async () => {
+      const nat = makeLoggingNat([]);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: QUEUE_CAP } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
+    });
+
+    it("cancels a fallback payload with trailing newline and extra spaces (normalization)", async () => {
+      const nat = makeLoggingNat([]);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      const padded = "  " + FALLBACK.replace("failure - please", "failure   -   please") + "\n\n ";
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: padded } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
+    });
+
+    it("still captures a real reply payload that has no fallback substring", async () => {
+      const logs = [];
+      const nat = makeLoggingNat(logs);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "Anna's real reply to the group" } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2, "real reply still captured and bubbled");
+      assert.equal(logs.some((l) => l.includes("suppressed system fallback payload")), false);
+    });
+
+    it("delivers a previously captured real payload when a subsequent fallback payload is filtered out", async () => {
+      const nat = makeLoggingNat([]);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "Real reply part" } },
+        makeDefaultCtx(),
+      );
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: FALLBACK } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0].text);
+      assert.ok(sent.includes("Bubble one"));
+      assert.ok(sent.every((t) => !t.includes("No reply was generated")));
+    });
+  });
+
   describe("meta-commentary strip (plan 345)", () => {
     const INCIDENT = [
       'Nico claims I\'m "his assistant." Light banter after my roast. He\'s',

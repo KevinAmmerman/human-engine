@@ -90,6 +90,8 @@ const MATRIX = [
     tags: ["own replies survive restart"] },
   { id: 42, behavior: "decide context ordering: chronological merge + NO_REPLY filter + ts backfill",
     tags: ["chronological merge", "no_reply filter", "ts backfill"] },
+  { id: 43, behavior: "system fallback payloads (no-visible-reply / queue-cap) suppressed in capture",
+    tags: ["suppressed system fallback payload"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
