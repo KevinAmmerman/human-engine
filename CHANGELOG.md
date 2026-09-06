@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.2 — group bubble TTS (plan 548b)
+
+- **Bubble TTS for group bubbles**: the human-engine plugin's own text bubbles
+  (naturalize delayed/dispatcher delivery) now carry the framework TTS audio
+  together with their text (HART: text + audio always together) — previously
+  the system-delivered TTS audio was discarded ("suppressed system fallback
+  payload") and the plugin re-sent text-only bubbles.
+- **Mechanism**: `onReplyDispatch` stashes a TTS context per armed dispatcher
+  (`buildTtsContext` from `sessionTtsAuto`/`ttsChannel`). `flush()` applies it
+  via the plugin SDK's `maybeApplyTtsToPayload` (`openclaw/plugin-sdk/tts-runtime`,
+  `kind:"final"`) before `sendBlockReply`, so the block payload keeps its text
+  and gains `mediaUrl` + `audioAsVoice` + `spokenText` + `trustedLocalMedia`
+  (framework marks it a tts supplement — no double synthesis).
+- **Scope**: groups only (`isGroup ? dstate.tts : null`); DM path untouched
+  (message-tool voiceText). Host rejection of the media payload retries
+  text-only so a reply is never lost. Missing SDK (unit-test shim) degrades to
+  text-only bubbles with a warn. No config change, no gateway restart needed.
+
 ## 0.4.1 — the dm-proactive & hardening wave
 
 Post-0.4.0 work: the whole DM-proactive module plus fix/security/perf commits
@@ -170,3 +188,4 @@ reply leaked), and the naturalize "draft" was the user's own message.
 
 - Initial port of the Hermes humalike plugin behavioral concepts.
 - Turn-taking gate, bubble naturalization, voice card, social memory.
+
