@@ -188,6 +188,8 @@ describe("harness — no-residue static proof", () => {
       "before_agent_run",
       "before_prompt_build",
       "before_prompt_build",
+      "before_prompt_build",
+      "message_received",
       "message_received",
       "message_received",
       "message_sending",

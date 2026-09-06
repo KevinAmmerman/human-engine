@@ -98,6 +98,14 @@ const MATRIX = [
     tags: ["second-person addressee", "directly-addressed rule"] },
   { id: 46, behavior: "FIFO dispatcher binding survives later-message silence",
     tags: ["oldest unconsumed dispatcher", "silence completes only unconsumed", "displacement no longer completes"] },
+  { id: 47, behavior: "Mood: stateful valence/energy per DM session, default off, injection via appendSystemContext",
+    tags: ["current mood state", "mood injection", "appendSystemContext"] },
+  { id: 48, behavior: "Mood: master switch + chat-type + agent scoping gate injection (dm-only, never groups)",
+    tags: ["mood disabled returns undefined", "mood group chat returns undefined", "mood unscoped agent"] },
+  { id: 49, behavior: "Mood: appraisal clamps shift per axis, note trimmed to 8 words, unparseable keeps state",
+    tags: ["maxshiftperupdate", "note trimmed", "mood appraisal unparseable"] },
+  { id: 50, behavior: "Mood: decay pulls valence/energy toward neutral after quiet period and clears note",
+    tags: ["mood decay", "halves valence"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

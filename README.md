@@ -122,6 +122,11 @@ All keys under `plugins.entries["human-engine"].config`:
 | `dmProactive.quietStart` | string | `"23:00"` | Quiet hours start (hard, with deadline exception) |
 | `dmProactive.quietEnd` | string | `"07:00"` | Quiet hours end (hard, with deadline exception) |
 | `dmProactive.careBudgetPerDay` | number | `1` | Max care sends per day (48h no-reply rule is hard) |
+| `mood.enabled` | bool | `false` | Stateful mood layer (dm-only, default off — shadow-first) |
+| `mood.refreshEvery` | number | `5` | Appraisal every N received DM messages |
+| `mood.refreshMinutes` | number | `0` | Time-based appraisal (0 = message-count only) |
+| `mood.decayHours` | number | `6` | Hours of quiet before mood drifts toward neutral |
+| `mood.maxShiftPerUpdate` | number | `1` | Max |Δvalence|/|Δenergy| per appraisal |
 
 Shadow-first: in `dmProactive.shadow:true` the module only logs to
 `state/dm-proactive.jsonl` and never sends. In live mode
@@ -152,6 +157,7 @@ All under `<plugin-dir>/state/`, created at runtime and never committed
 |------|---------|
 | `state/social-learning-cache.json` | Voice card cache (disk-persisted) |
 | `state/social-memory/<agentId>/<sessionKey>.json` | Person-centric memory profiles per agent × session |
+| `state/mood/<agentId>/<sessionKey>.json` | Per-session mood state (valence/energy/note) |
 | `state/observed/<sessionKey>.jsonl` | Silenced-message observation log (plugin-local) |
 | `state/proactive.json` | Proactive budgets/cooldowns (persisted) |
 | `<soul-dir>/.soul_auto_enhanced` | Marker that auto-enhance has run (next to SOUL.md) |
