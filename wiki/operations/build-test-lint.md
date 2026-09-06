@@ -5,7 +5,7 @@ All commands verified during wiki refresh. Run from the project root.
 | Purpose | Command | Expected on success |
 |---------|---------|---------------------|
 | Install | `npm install` | exit 0 |
-| Test | `npm test` | 811 pass, 0 fail |
+| Test | `npm test` | 820 pass, 0 fail |
 | Parity matrix | `node test/parity-matrix.mjs --check` | `46/46 covered` |
 | E2E test | `node test/e2e-local.test.js` | exit 0 |
 | Followup-gate CLI | `node bin/followup-gate.mjs check --file <env.json>` | JSON verdict, exit 0 |

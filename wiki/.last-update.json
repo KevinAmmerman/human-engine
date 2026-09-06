@@ -1,7 +1,13 @@
 {
-  "commit": "b5fa7ec",
-  "timestamp": "2026-09-04T12:50:00.000Z",
-  "filesChanged": ["wiki/quickstart.md", "wiki/architecture/overview.md", "wiki/source-map.md", "wiki/operations/build-test-lint.md", "wiki/operations/environment.md"],
-  "generator": "opencode-wiki-skill",
+  "commit": "fcee7b5",
+  "timestamp": "2026-09-06T01:30:00Z",
+  "filesChanged": [
+    "wiki/quickstart.md",
+    "wiki/architecture/overview.md",
+    "wiki/source-map.md",
+    "wiki/design/dm-proactive-v2.md",
+    "wiki/operations/build-test-lint.md"
+  ],
+  "generator": "yuki-wiki-update",
   "version": "1.0.0"
 }

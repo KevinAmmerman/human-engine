@@ -15,7 +15,7 @@ worker process.
 |--------|------|------|
 | Plugin entry | `index.js` | Hook registration, module wiring, log prefix |
 | Gate | `lib/gate.js` | Decides speak/stay-silent via local engine per message |
-| Naturalize | `lib/naturalize.js` | Splits reply into bubbles, adds timing delays |
+| Naturalize | `lib/naturalize.js` | Splits reply into bubbles, adds timing delays, attaches group TTS audio per bubble |
 | Local engine | `lib/local-engine.js` | LLM-based decide + naturalize via host's `llm.complete` |
 | Config | `lib/config.js` | Default config + one-level deep merge from OpenClaw API |
 | Voice card | `lib/voice-card.js` | Style-profile learning, onBeforePromptBuild injection |
@@ -86,6 +86,16 @@ fires per outbound payload with the real reply text and supports
    re-delivered via the bound dispatcher's `sendBlockReply` with
    timing-engine delays (typing WPM, night mode). Raw-draft fallback on LLM
    error or supersede. `markComplete` after the last bubble.
+   - **Group TTS attachment (Plan 548b)**: for group sessions with
+     session TTS enabled, each bubble payload runs through the framework
+     TTS runtime (`maybeApplyTtsToPayload`, kind `"final"`, payload keeps
+     `text` and gains `mediaUrl` + `audioAsVoice` — one voice message per
+     bubble, no text alone, HART). The TTS context is stashed per
+     dispatcher at `reply_dispatch` (`buildTtsContext`: `sessionTtsAuto`,
+     channel from `ttsChannel` or the session key). Any TTS failure or
+     missing SDK shim degrades to text-only; `deliverWithRetry` retries
+     text-only if the host rejects the media-carrying payload — the reply
+     is never lost. The DM path is untouched (no TTS ever applied there).
    - **Silence cleanup**: when a later message is decided `stay_silent`,
      `onSilence` completes/removes only UNconsumed queue entries — a pending
      reply on an older dispatcher survives a later message's silence (Plan
@@ -103,8 +113,13 @@ fires per outbound payload with the real reply text and supports
     `message_sending` parses a `[[fu:{…}]]` first-line envelope
     (`parseFollowupEnvelope`); plain text passes through untouched
     (fail-open). Production ctx carries NO `sessionKey` — the DM scope is
-    derived from `event.to` + channel via `deriveDmFromEvent()` (Plan 536).
-    Envelope candidates run through the shared
+    derived from `event.to` (channel-prefix-stripped) + channel via
+    `deriveDmFromEvent()` (Plan 536/546); cross-agent target resolution
+    when several agents are configured. Kind is normalized
+    (`normalizeFollowupKind`: `care` → `care_check_in`). Content starting
+    with `[[fu:` is NEVER delivered raw — malformed envelopes are
+    stripped+logged (shadow) or cancelled (live) (Plan 546). Envelope
+    candidates run through the shared
     `lib/dm-gate-core.js` rules (deadline grace, DayFit bands via
     `~/.openclaw/state/kevin-activity.json`, byKind cadence from
     `state/dm-proactive-state.json`, sentIds idempotency, care/soft tiers).

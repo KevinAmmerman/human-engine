@@ -16,6 +16,10 @@ protocol.
 1. **Envelope source adapter** — `lib/dm-proactive.js` `onMessageSending`
    parses a first line `[[fu:{…}]]` via `parseFollowupEnvelope`
    (`lib/dm-gate-core.js`). Plain text passes through untouched (fail-open).
+   Kind is normalized before validation (`normalizeFollowupKind`:
+   `care` → `care_check_in`, case/trim tolerant — Plan 546). Content that
+   STARTS with `[[fu:` is NEVER delivered raw: malformed envelopes are
+   stripped+logged in shadow, cancelled in live (Plan 546 amendment 3).
 2. **Gate-core** — `evaluateDmGate(candidate, ctx)` is the single source of
    truth, consumed by BOTH the hook and the CLI. Rules: deadline grace,
    care/soft tiers, DayFit bands, byKind cadence, budget.
@@ -57,7 +61,7 @@ false`, `shadow: true`, `budgetPerDay: 2`, `minGapMinutes: 180`,
 
 ## Verification
 
-- `test/dm-proactive.test.js` (88 tests) + `test/helpers/dm-proactive-fixtures.js`
+- `test/dm-proactive.test.js` (97 tests) + `test/helpers/dm-proactive-fixtures.js`
 - Parity matrix rows #37-#40 (v2) in `test/parity-matrix.mjs`
 - Log markers (prefix `human-engine:`): `dm-proactive SHADOW`,
   `dm-proactive SENT`, `dm-proactive cannot send`,
@@ -90,3 +94,34 @@ Design amendments recorded in `docs/design-dm-proactive-v2.md` §2.1
 ("Amendment 2026-09-04"). Incident details: `~/plans/README.md` (Wave 94,
 Plan 536). Regression test: "INCIDENT REGRESSION: 3 identical envelope
 sends → 1 stripped delivery, 2 cancels, 3 logs, sentIds set".
+
+## Incident 2 + fix (Plan 546, 2026-09-04, commit `e9faeab`)
+
+Same day, after re-enable: two more raw-envelope deliveries
+(`to=telegram:968721694` in the journal — "cannot derive DM scope …
+pass-through"). Plan 536 had assumed a bare UID for `event.to`, but
+OpenClaw delivers it WITH the channel prefix (no `direct:` segment), so
+the state-suffix match failed and the single-agent fallback didn't apply
+(two configured agents). Fixes (design amendments 3+4):
+
+1. **`to` normalization** — `stripChannelPrefix` (mirrors OpenClaw's
+   `stripChannelPrefix`) before the state-scope match; group detection
+   (`-100…`, `:topic:`, `@g.us`, `:group:`, `:slash:`) runs BEFORE the
+   strip. Bare-UID backwards compat kept.
+2. **Cross-agent scope resolution** — if the state match is empty, the
+   configured agents owning a scope for this target are collected; exactly
+   one wins (hori-wa owns the DM scope, the group agent doesn't), 0 or ≥2
+   → warn + fail-open.
+3. **`[[fu:` prefix policy (amendment 3)** — content starting with
+   `[[fu:` is never delivered raw: malformed envelopes are stripped+logged
+   in shadow, cancelled in live. Plain text (no prefix) stays untouched.
+4. **Kind normalization (amendment 4)** — `care` → `care_check_in` etc.
+   in `normalizeFollowupKind`; unknown kinds stay invalid (→ policy 3).
+
+Kevin's feedback: the candidate CONTENT was good — only the metadata leak
+mattered. Cron re-enabled 13:17 UTC with sentIds seeded for both delivered
+incident ids (`fu-20260904-netcup-vps-wechsel`,
+`fu-20260904-momentum-tagebuch`); shadow window restarted; first natural
+run after re-enable fast-pathed correctly (13:45 UTC). Regression test:
+"INCIDENT 2 REGRESSION: to=telegram:968721694 …" (prefix + 2 agents +
+kind `care` → normalized, gated, stripped delivery).

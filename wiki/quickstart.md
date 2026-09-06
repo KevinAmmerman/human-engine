@@ -16,6 +16,9 @@ built-in LLM with no cloud dependencies.
 
 - Decides when the agent should speak or stay silent (turn-taking gate).
 - Naturalizes multi-bubble replies with human-like typing timing.
+- Attaches framework TTS audio to group bubbles (HART: each bubble carries its
+  text AND its own voice-note audio in one payload — never voice-only, degrades
+  to text-only on host reject); DM path untouched (Plan 548b, commit `fcee7b5`).
 - Maintains per-agent persona prompts with soul auto-enhance.
 - Learns a voice card (communication-style profile) per session.
 - Extracts and recalls person-centric social memory on cadence.
@@ -37,9 +40,11 @@ built-in LLM with no cloud dependencies.
 - Runs an opt-in proactive turn-taking funnel (shadow-first).
 - Renders due DM follow-ups from `[[fu:…]]` envelopes through a shared
   gate-core (shadow delivers gate-passed candidates envelope-stripped;
-  gate-fail/duplicate cancel; sentIds idempotency, byKind cadence, outcome
-  backfill; DM scope derived from `event.to` — production ctx has no
-  `sessionKey`) — see [design/dm-proactive-v2.md](./design/dm-proactive-v2.md).
+  gate-fail/duplicate cancel; `[[fu:`-prefixed content is never delivered
+  raw; kind normalization `care`→`care_check_in`; sentIds idempotency,
+  byKind cadence, outcome backfill; DM scope derived from `event.to`
+  with channel-prefix stripping — production ctx has no `sessionKey`)
+  — see [design/dm-proactive-v2.md](./design/dm-proactive-v2.md).
 - Supports DM fail-open and group fail-closed safety modes.
 - Provides a parity-matrix contract for all behavioral capabilities.
 
@@ -49,7 +54,7 @@ built-in LLM with no cloud dependencies.
 |------|------|
 | `index.js` | Plugin entry point; registers hooks, wires modules, readSessionTranscript (ts backfill + NO_REPLY filter) |
 | `lib/gate.js` | Turn-taking gate: decide speak/stay-silent per message; chronological transcript merge |
-| `lib/naturalize.js` | Bubble naturalization: split, time, and dispatch replies; persistOwnReply |
+| `lib/naturalize.js` | Bubble naturalization: split, time, dispatch replies (per-bubble TTS via framework `maybeApplyTtsToPayload`, kind `final`); persistOwnReply |
 | `lib/local-engine.js` | Local LLM engine for decide + naturalize decisions |
 | `lib/dm-gate-core.js` | Shared DM follow-up gate rules (hook + CLI, one source of truth) |
 | `lib/dm-proactive.js` | DM-proactive v2: envelope adapter, cadence, shadow log, dispatch |

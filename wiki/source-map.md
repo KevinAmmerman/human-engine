@@ -17,7 +17,7 @@ human-engine/
     media-findings.md       — Media handling findings
   lib/
     gate.js                 — Turn-taking gate (speak/stay-silent, named-first chronological transcript merge, decide-ctx log, onSilence)
-    naturalize.js           — Bubble naturalization (split + time replies, persistOwnReply, FIFO dispatcher queue, system-fallback filter)
+    naturalize.js           — Bubble naturalization (split + time replies, per-bubble group TTS, persistOwnReply, FIFO dispatcher queue, system-fallback filter)
     local-engine.js         — Local LLM engine (decide + naturalize calls)
     config.js               — Default config + one-level deep merge
     voice-card.js           — Communication-style profile learning
