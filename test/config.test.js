@@ -16,7 +16,7 @@ describe("config", () => {
     assert.equal(cfg.styleStats, true);
     assert.equal(cfg.socialLearning.refreshEvery, 5);
     assert.equal(cfg.socialLearning.refreshMinutes, 0);
-    assert.deepEqual(cfg.socialMemory, { enabled: true, extractEvery: 25, extractMinutes: 0, maxPeople: 50, recallLimit: 800 });
+    assert.deepEqual(cfg.socialMemory, { enabled: true, extractEvery: 25, extractMinutes: 0, maxPeople: 50, recallLimit: 800, personStore: false });
     assert.equal(cfg.autoconfig, false);
     assert.equal(cfg.socialLearning.perSessionCard, true);
     assert.deepEqual(cfg.decide, { temperature: 0.2 });
