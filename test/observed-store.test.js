@@ -159,6 +159,61 @@ describe("observed-store", { concurrency: false }, () => {
     });
   });
 
+  describe("tail-read", () => {
+    it("reads only the last `last` rows in order for a 400-line file", () => {
+      const sk = "tail-400";
+      for (let i = 0; i < 400; i++) store.appendObserved(sk, { speaker: "S", text: "m" + i, ts: i });
+
+      const rows = store.readObserved(sk, 20);
+      assert.equal(rows.length, 20);
+      assert.deepEqual(rows.map((r) => r.text), Array.from({ length: 20 }, (_, k) => "m" + (380 + k)));
+      assert.deepEqual(rows.map((r) => r.ts), Array.from({ length: 20 }, (_, k) => 380 + k));
+    });
+
+    it("skips up to `last` corrupt lines among the tail and still returns `last` valid rows", () => {
+      const sk = "tail-corrupt";
+      const file = fileFor(sk);
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      const lines = [];
+      for (let i = 0; i < 25; i++) lines.push(JSON.stringify({ speaker: "S", text: "m" + i, ts: i }));
+      lines[22] = "corrupt-one";
+      lines[23] = "corrupt-two";
+      lines[24] = "corrupt-three";
+      fs.writeFileSync(file, lines.join("\n") + "\n", { mode: 0o600 });
+
+      const rows = store.readObserved(sk, 20);
+      assert.equal(rows.length, 20);
+      assert.equal(rows[rows.length - 1].text, "m21");
+    });
+
+    it("serves cached reads and invalidates the cache after an append", () => {
+      const sk = "tail-cache";
+      for (let i = 0; i < 10; i++) store.appendObserved(sk, { speaker: "S", text: "m" + i, ts: i });
+
+      const first = store.readObserved(sk, 20);
+      const second = store.readObserved(sk, 20);
+      assert.deepEqual(second, first, "identical result from cache");
+
+      store.appendObserved(sk, { speaker: "S", text: "neu", ts: 100 });
+      const third = store.readObserved(sk, 20);
+      assert.equal(third.length, 11);
+      assert.equal(third[third.length - 1].text, "neu");
+    });
+
+    it("returns rotated data correctly after a cache fill and rotation", () => {
+      const sk = "tail-rotation";
+      for (let i = 0; i < 400; i++) store.appendObserved(sk, { speaker: "S", text: "m" + i, ts: i });
+      store.readObserved(sk, 20);
+
+      for (let i = 400; i < 410; i++) store.appendObserved(sk, { speaker: "S", text: "m" + i, ts: i });
+
+      const rows = store.readObserved(sk, 20);
+      assert.equal(rows.length, 20);
+      assert.equal(rows[0].text, "m390");
+      assert.equal(rows[rows.length - 1].text, "m409");
+    });
+  });
+
   describe("error handling", () => {
     it("readObserved returns [] for a missing session dir", () => {
       assert.deepEqual(store.readObserved("no-such-session"), []);
