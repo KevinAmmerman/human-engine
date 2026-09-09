@@ -10,6 +10,7 @@ import { createSocialMemory } from "../lib/social-memory.js";
 import { resolveConfig } from "../lib/config.js";
 import * as state from "../lib/state.js";
 import { setRng, resetRng } from "../lib/timing-engine.js";
+import { createVoiceCard } from "../lib/voice-card.js";
 
 function makeFakeTiming() {
   return {
@@ -507,6 +508,130 @@ describe("e2e-local", () => {
       const profileB = socialMemory.getOrLoadProfile("agent-b::agent:agent-b:whatsapp:group:7@g.us");
       assert.ok(!profileB.people.Bob, "Bob is self for agent-b");
       assert.ok(profileB.people.Alice, "Alice is a person in agent-b's scope");
+    });
+  });
+
+  describe("social card isolation", () => {
+    let tmpDir;
+    let stateDir;
+    let vc;
+
+    function fakeEngineFor(agentId) {
+      return {
+        extractVoiceCard: async () => ({ prompt_block: `# Voice Card for ${agentId}` }),
+      };
+    }
+
+    beforeEach(async () => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-vc-"));
+      stateDir = path.join(tmpDir, "state");
+      fs.mkdirSync(stateDir, { recursive: true });
+      vc = await import("../lib/voice-card.js");
+      vc.stateByAgent.forEach((b) => Object.keys(b.cache).forEach((k) => delete b.cache[k]));
+      vc.stateByAgent.forEach((b) => Object.keys(b.counter).forEach((k) => delete b.counter[k]));
+      vc.refreshing.clear();
+    });
+
+    afterEach(() => {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    });
+
+    function buildHandler(engine, socialCfg) {
+      const { onBeforePromptBuild } = createVoiceCard({
+        cfg: { enabled: true, socialLearning: { enabled: true, refreshEvery: 1, refreshMinutes: 0, ...socialCfg } },
+        engine,
+        stateDir,
+        log: { info() {}, warn() {} },
+      });
+      return onBeforePromptBuild;
+    }
+
+    it("Case A: two agents get distinct, injected voice cards (social card isolation)", async () => {
+      const onBefore = buildHandler({
+        extractVoiceCard: async ({ transcript }) => {
+          const who = transcript[0].text.includes("agent-a") ? "agent-a" : "agent-b";
+          return { prompt_block: `# Voice Card for ${who}` };
+        },
+      });
+      const evt = { messages: [{ role: "user", content: "[User] hi agent-a" }] };
+      const evtB = { messages: [{ role: "user", content: "[User] hi agent-b" }] };
+      const skA = "agent:agent-a:whatsapp:group:isoA@g.us";
+      const skB = "agent:agent-b:whatsapp:group:isoB@g.us";
+      onBefore(evt, { sessionKey: skA });
+      onBefore(evtB, { sessionKey: skB });
+      await new Promise((r) => setTimeout(r, 80));
+      const rA = onBefore(evt, { sessionKey: skA });
+      const rB = onBefore(evtB, { sessionKey: skB });
+      assert.ok(rA.appendSystemContext.includes("# Voice Card for agent-a"), "agent-a gets its own card");
+      assert.ok(rB.appendSystemContext.includes("# Voice Card for agent-b"), "agent-b gets its own card");
+      assert.ok(!rA.appendSystemContext.includes("# Voice Card for agent-b"), "agent-a must not see agent-b's card");
+    });
+
+    it("Case B: eviction is isolated per agent (agent-b flood does not evict agent-a)", async () => {
+      const onBefore = buildHandler({ extractVoiceCard: async () => ({ prompt_block: "# Card" }) });
+      const skA = "agent:agent-a:whatsapp:group:isoKeep@g.us";
+      onBefore({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: skA });
+      await new Promise((r) => setTimeout(r, 60));
+      const pre = onBefore({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: skA });
+      assert.ok(pre.appendSystemContext.includes("# Card"), "agent-a card cached before flood");
+
+      for (let i = 0; i < 260; i++) {
+        onBefore(
+          { messages: [{ role: "user", content: "[User] hi" }] },
+          { sessionKey: `agent:agent-b:whatsapp:group:flood${i}@g.us` },
+        );
+      }
+      await new Promise((r) => setTimeout(r, 120));
+      const post = onBefore({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: skA });
+      assert.ok(post.appendSystemContext.includes("# Card"), "agent-a's card survives agent-b's 260-refresh flood");
+      assert.equal(
+        vc.stateByAgent.get("agent-b").cache["agent:agent-b:whatsapp:group:flood0@g.us"],
+        undefined,
+        "agent-b's own oldest card evicted",
+      );
+    });
+
+    it("Case C: restart persistence — cards reload from disk (v2)", async () => {
+      const onBefore = buildHandler({ extractVoiceCard: async () => ({ prompt_block: "# Card A" }) });
+      const skA = "agent:agent-a:whatsapp:group:isoRestart@g.us";
+      const skB = "agent:agent-b:whatsapp:group:isoRestart@g.us";
+      onBefore({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: skA });
+      onBefore({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: skB });
+      await new Promise((r) => setTimeout(r, 80));
+
+      vc.stateByAgent.forEach((b) => Object.keys(b.cache).forEach((k) => delete b.cache[k]));
+      vc.stateByAgent.forEach((b) => Object.keys(b.counter).forEach((k) => delete b.counter[k]));
+      vc.refreshing.clear();
+
+      const onBefore2 = buildHandler({ extractVoiceCard: async () => ({ prompt_block: "# NEW" }) });
+      const rA = onBefore2({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: skA });
+      const rB = onBefore2({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: skB });
+      assert.ok(rA.appendSystemContext.includes("# Card A"), "agent-a card persisted across restart");
+      assert.ok(rB.appendSystemContext.includes("# Card A"), "agent-b card persisted across restart (both buckets from same stateDir)");
+    });
+
+    it("Case D: v1 flat file migrates on load and both agents get cards", async () => {
+      fs.writeFileSync(
+        path.join(stateDir, "social-learning-cache.json"),
+        JSON.stringify({
+          cache: {
+            "agent:agent-a:whatsapp:group:m@g.us": "# v1 Card A",
+            "agent:agent-b:whatsapp:group:m@g.us": "# v1 Card B",
+            "__global__": "# contaminated",
+          },
+          counter: {},
+        }),
+        { mode: 0o600 },
+      );
+      const onBefore = buildHandler({ extractVoiceCard: async () => null });
+      const rA = onBefore({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: "agent:agent-a:whatsapp:group:m@g.us" });
+      const rB = onBefore({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: "agent:agent-b:whatsapp:group:m@g.us" });
+      assert.ok(rA.appendSystemContext.includes("# v1 Card A"), "agent-a card injected from migrated v1");
+      assert.ok(rB.appendSystemContext.includes("# v1 Card B"), "agent-b card injected from migrated v1");
+      const onDisk = JSON.parse(fs.readFileSync(path.join(stateDir, "social-learning-cache.json"), "utf8"));
+      assert.equal(onDisk.version, 2, "file rewritten as v2");
+      assert.equal(onDisk.agents["agent-a"].cache["agent:agent-a:whatsapp:group:m@g.us"], "# v1 Card A");
+      assert.equal(onDisk.agents["agent-b"].cache["agent:agent-b:whatsapp:group:m@g.us"], "# v1 Card B");
     });
   });
 });
