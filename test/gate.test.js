@@ -356,7 +356,7 @@ describe("gate", () => {
     it("decide-ctx lastSpeaker reflects the named copy over the anonymous hydrated copy (Plan 543)", async () => {
       const lines = [];
       const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
-      state.pushTranscriptPeek(CHAT_SK, "[Leni] topical follow-up", undefined, Date.now() - 500);
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] topical follow-up", undefined, Date.now() - 500);
       let captured;
       const lastGate = makeGate({
         log,
@@ -366,9 +366,72 @@ describe("gate", () => {
       });
 
       await lastGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "topical follow-up" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      assert.equal(transcript.filter((t) => t.text === "topical follow-up").length, 1, "named/anonymous/current copies collapse to exactly one line");
       const line = lines.find((l) => l.includes("decide-ctx"));
       assert.ok(line, "decide-ctx log line present");
-      assert.ok(line.includes("lastSpeaker=Leni"), "lastSpeaker reflects the named copy, not User");
+      assert.ok(line.includes("lastSpeaker=Nico"), "lastSpeaker reflects the named copy, not User");
+    });
+
+    it("speaker-aware dedup: distinct named speakers with identical text both survive (observed vs current)", async () => {
+      let captured;
+      const dupGate = makeGate({
+        observedStore: {
+          readObserved: () => [{ speaker: "Ada", text: "ok", ts: 1000 }],
+          appendObserved: () => {},
+        },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [],
+      });
+
+      await dupGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "ok" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const occ = transcript.filter((t) => t.text === "ok");
+      assert.equal(occ.length, 2, "two distinct speakers with identical text are NOT collapsed");
+      assert.ok(occ.some((t) => t.speaker === "Ada"), "first speaker present");
+      assert.ok(occ.some((t) => t.speaker === "Nico"), "current speaker present");
+    });
+
+    it("speaker-aware dedup: distinct speakers with identical media marker [image] both survive", async () => {
+      let captured;
+      const mediaGate = makeGate({
+        observedStore: {
+          readObserved: () => [{ speaker: "Ada", text: "[image]", ts: 1000 }],
+          appendObserved: () => {},
+        },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [],
+      });
+      mediaGate.onMessageReceived({ media: [{ kind: "image" }], content: "" }, makeDefaultCtx());
+
+      await mediaGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      const occ = transcript.filter((t) => t.text === "[image]");
+      assert.equal(occ.length, 2, "media markers from distinct speakers are NOT collapsed");
+      assert.ok(occ.some((t) => t.speaker === "Ada"), "first speaker marker present");
+      assert.ok(occ.some((t) => t.speaker === "Nico"), "current speaker marker present");
+    });
+
+    it("speaker-aware dedup: same speaker + same text in peek and current collapses to one line", async () => {
+      state.pushTranscriptPeek(CHAT_SK, "[Nico] danke", undefined, 1000);
+      let captured;
+      const sameGate = makeGate({
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        readTranscript: async () => [],
+      });
+
+      await sameGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke" }), makeDefaultCtx());
+      const transcript = captured.transcript || [];
+      assert.equal(transcript.filter((t) => t.text === "danke").length, 1, "same speaker same text still dedupes");
+    });
+
+    it("speaker-aware dedup: pushPeekDedup keeps distinct speakers with same media marker (full-line equality)", async () => {
+      gate.onBeforeAgentRun({ prompt: "[image]" }, makeDefaultCtx({ senderName: undefined, senderId: "4915000000001" }));
+      gate.onBeforeAgentRun({ prompt: "[image]" }, makeDefaultCtx({ senderName: undefined, senderId: "4915000000002" }));
+      const peek = state.transcriptPeekBySession.get(CHAT_SK);
+      const imageLines = peek.filter((l) => l.endsWith("] [image]"));
+      assert.equal(imageLines.length, 2, "both distinct-speaker media markers survive in the peek layer");
     });
 
     it("ts-less entries sort after all ts entries, stable among themselves", async () => {

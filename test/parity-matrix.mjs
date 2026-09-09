@@ -116,6 +116,8 @@ const MATRIX = [
     tags: ["new agent in 3 files", "profile exists but agent not in agents allowlist"] },
   { id: 56, behavior: "host agent-run-failed fallback payloads (⚠️ Agent run failed (model: …)) are suppressed at capture like Plan-540 fallbacks — never captured, never humanized, never delivered",
     tags: ["agent-run-failed suppression"] },
+  { id: 57, behavior: "transcript dedup is speaker-aware: distinct speakers with identical text or media markers are never collapsed; anonymous-vs-named cross-layer dedup (Plan 543) preserved",
+    tags: ["speaker-aware dedup: distinct named speakers", "speaker-aware dedup: distinct speakers with identical media marker", "speaker-aware dedup: same speaker", "named-first dedup", "decide-ctx lastSpeaker"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
