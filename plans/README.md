@@ -33,7 +33,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [009](009-speaker-aware-transcript-dedup.md) | Speaker-aware Transcript-Dedup (verschiedene Speaker kollidieren nicht mehr) | P1 | S–M | — | TODO |
+| [009](009-speaker-aware-transcript-dedup.md) | Speaker-aware Transcript-Dedup (verschiedene Speaker kollidieren nicht mehr) | P1 | S–M | — | DONE (executed+approved, 925/0, Parity 57/57; Plan-543-Test-Szenario reviewer-alignment: Peek/Current gleicher Speaker) |
 | [010](010-untrusted-wrapping-completion.md) | Untrusted-Wrapping: Regenerate-Prompt + Persona-Pfad + Mood-Note | P1 | S | — | TODO |
 | [011](011-social-memory-ingest-cadence.md) | Social-Memory-Ingest-Kadenz (kein 2–3×-Count pro Nachricht) | P1 | S | — | TODO |
 | [012](012-log-redaction-state-perms.md) | Log-Redaction + State-Dir-Perms 0700 | P1 | S | — | TODO |
