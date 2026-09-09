@@ -1174,8 +1174,8 @@ describe("dm-proactive", { concurrency: false }, () => {
     });
 
     it("check blocks a duplicate sentId from the plugin state", async () => {
-      fs.writeFileSync(stateFixture, JSON.stringify({ scopes: {}, sentIds: ["fu-20260824-test-001"] }), "utf8");
-      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--now", String(T0)], envelopeText());
+      fs.writeFileSync(stateFixture, JSON.stringify({ version: 3, scopes: {}, sentIds: { __legacy__: ["fu-20260824-test-001"] } }), "utf8");
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--now", String(T0)], envelopeText());
       assert.equal(code, 1);
       const out = parseOut(stdout);
       assert.equal(out.pass, false);
@@ -1204,6 +1204,27 @@ describe("dm-proactive", { concurrency: false }, () => {
       const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture], "Just a normal message.");
       assert.equal(code, 2);
       assert.equal(parseOut(stdout).error, "no-envelope");
+    });
+
+    it("check blocks an agent outside the dmProactive allowlist with agent-not-scoped (exit 1)", async () => {
+      fs.writeFileSync(cfgFixture, JSON.stringify({ agents: ["hori-wa"], dmProactive: { ...BASE_DM, agents: ["hori-wa"] } }), "utf8");
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--agent", "other-agent", "--now", String(T0)], envelopeText());
+      assert.equal(code, 1);
+      const out = parseOut(stdout);
+      assert.equal(out.pass, false);
+      assert.ok(out.reasons.includes("agent-not-scoped"), out.reasons.join(","));
+    });
+
+    it("check passes a scoped agent (agent-not-scoped NOT raised) and reads its own sentIds bucket", async () => {
+      fs.writeFileSync(cfgFixture, JSON.stringify({ agents: ["hori-wa", "other-agent"], dmProactive: { ...BASE_DM, agents: ["hori-wa", "other-agent"] } }), "utf8");
+      // hori-wa's bucket holds the id → duplicate; other-agent's does not → pass.
+      fs.writeFileSync(stateFixture, JSON.stringify({ version: 3, scopes: {}, sentIds: { "hori-wa": ["fu-20260824-test-001"] } }), "utf8");
+      const blocked = await runGate(["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--now", String(T0)], envelopeText());
+      assert.equal(blocked.code, 1);
+      const outBlocked = parseOut(blocked.stdout);
+      assert.ok(outBlocked.reasons.includes("duplicate"), "agent's own bucket must block its duplicate");
+      const passed = await runGate(["--config", cfgFixture, "--state", stateFixture, "--agent", "other-agent", "--now", String(T0)], envelopeText());
+      assert.equal(passed.code, 0, "scoped agent with a clean bucket must pass: " + parseOut(passed.stdout).reasons.join(","));
     });
   });
 

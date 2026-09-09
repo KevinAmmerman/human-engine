@@ -22,7 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseFollowupEnvelope, evaluateDmGate, candidateFromEnvelope } from "../lib/dm-gate-core.js";
-import { resolveConfig } from "../lib/config.js";
+import { resolveConfig, isScopedDmAgent, resolveAgentConfig } from "../lib/config.js";
 
 const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -109,18 +109,44 @@ async function main(argv) {
 
   const sessionKey = opts.session || null;
   const agentId = opts.agent || null;
+
+  // Plan 005: the CLI decides only pre-send — never delivers anything raw.
+  // If the agent is not in the DM-proactive allowlist, block (agent-not-scoped).
+  if (agentId && !isScopedDmAgent(cfg, agentId)) {
+    emit({
+      valid: true,
+      pass: false,
+      reasons: ["agent-not-scoped"],
+      verdicts: {},
+      candidate: null,
+      scope: null,
+      reason: "agent-not-scoped",
+    }, 1);
+  }
+
   const scope = sessionKey ? (agentId || "?") + "::" + sessionKey : null;
   const counter = scope && state?.scopes?.[scope] ? state.scopes[scope] : null;
-  const sentIds = Array.isArray(state?.sentIds) ? state.sentIds : [];
+  // Plan 005: read the sentIds pool per agent — the agent's own bucket first,
+  // then the migrated `__legacy__` bucket (transition dedup stays effective).
+  // Mirror of the dm-proactive bucket logic (Plan 005 mirror — see lib/dm-proactive.js).
+  const SENT_IDS_MAX = 512;
+  const LEGACY_BUCKET = "__legacy__";
+  function bucketList(bucketObj, name) {
+    const b = bucketObj?.[name];
+    return Array.isArray(b) ? b.slice(0, SENT_IDS_MAX) : [];
+  }
+  const agentSent = bucketList(state?.sentIds, agentId || LEGACY_BUCKET);
+  const legacySent = bucketList(state?.sentIds, LEGACY_BUCKET);
+  const duplicate = agentSent.includes(parsed.envelope.id) || legacySent.includes(parsed.envelope.id);
 
   const candidate = candidateFromEnvelope(parsed.envelope, parsed.draftText, sessionKey, agentId);
   const gate = evaluateDmGate(candidate, {
     dcfg: cfg?.dmProactive || {},
     now,
     counter,
-    agentName: cfg?.agentName || null,
+    agentName: resolveAgentConfig(cfg, agentId).agentName || "Agent",
     newestSpeaker: null, // no transcript context in the CLI — hook-only check
-    duplicate: sentIds.includes(parsed.envelope.id),
+    duplicate,
   });
 
   emit({
