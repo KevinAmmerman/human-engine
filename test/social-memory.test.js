@@ -95,6 +95,28 @@ describe("social-memory", { concurrency: false }, () => {
       const profile = sm.getOrLoadProfile(scope);
       assert.ok(profile.people.Horibert);
     });
+
+    it("resolves self-name per agentId (two agents, two names)", () => {
+      const cfg = makeCfg();
+      cfg.agentName = "GlobalAgent";
+      cfg.agentProfiles = {
+        "agent-a": { agentName: "Alice" },
+        "agent-b": { agentName: "Bob" },
+      };
+      sm = createSocialMemory({ cfg, stateDir: tmpDir, log: makeLog() });
+      // agent-a scope: "Alice" is self → no record; "Bob" IS a person.
+      sm.ingest("agent-a::scope", { speaker: "Alice", text: "hi", ts: 100 });
+      sm.ingest("agent-a::scope", { speaker: "Bob", text: "hi", ts: 101 });
+      const profileA = sm.getOrLoadProfile("agent-a::scope");
+      assert.ok(!profileA.people.Alice, "Alice is self for agent-a, must be filtered");
+      assert.ok(profileA.people.Bob, "Bob is a person in agent-a's scope");
+      // agent-b scope: "Bob" is self → no record; "Alice" IS a person.
+      sm.ingest("agent-b::scope", { speaker: "Bob", text: "hi", ts: 100 });
+      sm.ingest("agent-b::scope", { speaker: "Alice", text: "hi", ts: 101 });
+      const profileB = sm.getOrLoadProfile("agent-b::scope");
+      assert.ok(!profileB.people.Bob, "Bob is self for agent-b, must be filtered");
+      assert.ok(profileB.people.Alice, "Alice is a person in agent-b's scope");
+    });
   });
 
   describe("ingest bounds", () => {

@@ -1,5 +1,5 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { resolveConfig } from "./lib/config.js";
+import { resolveConfig, resolveAgentConfig } from "./lib/config.js";
 import { createGate } from "./lib/gate.js";
 import { createNaturalize, clearAllBubbleTimers } from "./lib/naturalize.js";
 import { buildPersonaPrompt, buildPersonaPromptWithMemory, buildSoulPrompt } from "./lib/persona.js";
@@ -101,7 +101,7 @@ export default definePluginEntry({
           text = text.trim();
           if (!text) continue;
           if (isNoReplyAssistantText(role, text)) continue;
-          const speaker = resolveTranscriptSpeaker(role, msg, cfg.agentName || "Agent");
+          const speaker = resolveTranscriptSpeaker(role, msg, resolveAgentConfig(cfg, agentIdFromSessionKey(sessionKey))?.agentName || cfg.agentName || "Agent");
           const entry = { speaker, text: text.slice(0, 300) };
           const ts = transcriptEventTsMs(e);
           if (ts !== undefined) entry.ts = ts;
@@ -174,7 +174,7 @@ export default definePluginEntry({
         if (sub && !sub.startsWith("enhance")) {
           return { text: "Usage: /soul enhance \u2014 run persona enhancement." };
         }
-        const reply = await enhanceAndWrite(cfg, engine);
+        const reply = await enhanceAndWrite(ctx?.agentId ? resolveAgentConfig(cfg, ctx.agentId) : cfg, engine);
         return { text: reply };
       },
     });
