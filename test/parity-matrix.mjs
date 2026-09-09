@@ -106,7 +106,7 @@ const MATRIX = [
     tags: ["maxshiftperupdate", "note trimmed", "mood appraisal unparseable"] },
   { id: 50, behavior: "Mood: decay pulls valence/energy toward neutral after quiet period and clears note",
     tags: ["mood decay", "halves valence"] },
-  { id: 52, behavior: "naturalize.disableDM: DM replies pass through as one raw message (no bubbles, no cancel, own reply persisted) while group arming/bubbling is unchanged",
+  { id: 51, behavior: "naturalize.disableDM: DM replies pass through as one raw message (no bubbles, no cancel, own reply persisted) while group arming/bubbling is unchanged",
     tags: ["disabledm"] },
 ];
 
