@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { buildPersonaPrompt, buildPersonaPromptWithMemory, setVoiceCardGetter } from "../lib/persona.js";
 import { transcriptPeekBySession } from "../lib/state.js";
 import { ANTI_TELL_BLOCK } from "../lib/anti-tell.js";
@@ -71,6 +74,19 @@ describe("persona", () => {
     it("returns null with no soul, no voice card, anti-tell disabled, and small sample", () => {
       const result = buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: true }, "sk-empty");
       assert.equal(result, null);
+    });
+
+    it("two soulPaths yield two contents in the same process", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "soul-multi-"));
+      const soulA = path.join(tmpDir, "A.md");
+      const soulB = path.join(tmpDir, "B.md");
+      fs.writeFileSync(soulA, "I am ALICE.\n");
+      fs.writeFileSync(soulB, "I am BOB.\n");
+      const resA = buildPersonaPrompt({ soulPath: soulA, antiTell: false, styleStats: false }, "sk-soulA");
+      const resB = buildPersonaPrompt({ soulPath: soulB, antiTell: false, styleStats: false }, "sk-soulB");
+      assert.equal(resA, "I am ALICE.");
+      assert.equal(resB, "I am BOB.");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     });
   });
 
