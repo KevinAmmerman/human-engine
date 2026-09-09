@@ -174,7 +174,7 @@ export default definePluginEntry({
         if (sub && !sub.startsWith("enhance")) {
           return { text: "Usage: /soul enhance \u2014 run persona enhancement." };
         }
-        const reply = await enhanceAndWrite(ctx?.agentId ? resolveAgentConfig(cfg, ctx.agentId) : cfg, engine);
+        const reply = await enhanceAndWrite(ctx?.agentId ? resolveAgentConfig(cfg, ctx.agentId) : cfg, engine, ctx?.agentId);
         return { text: reply };
       },
     });
