@@ -633,5 +633,60 @@ describe("e2e-local", () => {
       assert.equal(onDisk.agents["agent-a"].cache["agent:agent-a:whatsapp:group:m@g.us"], "# v1 Card A");
       assert.equal(onDisk.agents["agent-b"].cache["agent:agent-b:whatsapp:group:m@g.us"], "# v1 Card B");
     });
+
+    it("Case E: naturalize flush persona uses the AGENT's soul (per-agent, not global)", async () => {
+      const soulA = path.join(tmpDir, "soul-a.md");
+      const soulB = path.join(tmpDir, "soul-b.md");
+      fs.writeFileSync(soulA, "I am ALICE'S SOUL.\n");
+      fs.writeFileSync(soulB, "I am BOB'S SOUL.\n");
+      const cfg = resolveConfig({
+        pluginConfig: {
+          agents: ["agent-a", "agent-b"],
+          agentName: "GlobalAgent",
+          agentProfiles: {
+            "agent-a": { agentName: "Alice", soulPath: soulA },
+            "agent-b": { agentName: "Bob", soulPath: soulB },
+          },
+        },
+      });
+
+      let capturedRespond;
+      const engine = {
+        respond: async (opts) => { capturedRespond = opts; return { superseded: true }; },
+        currentEpoch: () => 0,
+      };
+      const persona = {
+        buildPersonaPromptWithMemory(cfg2, state2, sk) {
+          try { return fs.readFileSync(cfg2.soulPath, "utf8").trim(); } catch { return null; }
+        },
+      };
+      const naturalize = createNaturalize({
+        cfg,
+        state,
+        engine,
+        persona,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      const skB = "agent:agent-b:whatsapp:group:soulB@g.us";
+      state.speakEpochBySession.set(skB, { epoch: 1, ts: Date.now() });
+      state.chatTypeBySession.set(skB, "group");
+
+      const dispatcher = { sendBlockReply: mock.fn(() => true), markComplete: mock.fn() };
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        { agentId: "agent-b", sessionKey: skB, channelId: "ch", chatId: "ch", senderId: "u", dispatcher, abortSignal: undefined },
+      );
+      const payloadResult = naturalize.onReplyPayloadSending(
+        { sessionKey: skB, kind: "final", channel: "whatsapp", payload: { text: "This is the draft reply" } },
+        { agentId: "agent-b", sessionKey: skB },
+      );
+      assert.deepEqual(payloadResult, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(capturedRespond, "flush should invoke engine.respond");
+      assert.ok(capturedRespond.persona.includes("I am BOB'S SOUL."), "agent-b flush persona uses agent-b's soul");
+      assert.ok(!capturedRespond.persona.includes("I am ALICE'S SOUL."), "agent-b flush persona must not use agent-a's soul");
+    });
   });
 });
