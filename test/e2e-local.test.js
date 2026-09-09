@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { createLocalEngine, getState } from "../lib/local-engine.js";
 import { createNaturalize, clearAllBubbleTimers } from "../lib/naturalize.js";
+import { createGate } from "../lib/gate.js";
+import { createSocialMemory } from "../lib/social-memory.js";
+import { resolveConfig } from "../lib/config.js";
 import * as state from "../lib/state.js";
 import { setRng, resetRng } from "../lib/timing-engine.js";
 
@@ -38,6 +44,7 @@ describe("e2e-local", () => {
     state.observedBySession.clear();
     state.memoryBySession.clear();
     state.transcriptPeekBySession?.clear?.();
+    state.peekMetaBySession?.clear?.();
   });
 
   afterEach(() => {
@@ -280,6 +287,226 @@ describe("e2e-local", () => {
 
       assert.equal(result.decision, "speak");
       assert.ok(result.epoch > 0);
+    });
+  });
+
+  describe("multi-agent isolation", () => {
+    let tmpDir;
+    let fileA;
+    let fileB;
+    let soulA;
+    let soulB;
+    let cfg;
+
+    function makeEngine() {
+      return createLocalEngine({
+        cfg: {},
+        llm: {
+          complete: async () => ({ text: "STAY_SILENT" }),
+        },
+        timing: makeFakeTiming(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+    }
+
+    function makeSoulPersona() {
+      return {
+        buildPersonaPrompt(cfg, sk) { return "test persona"; },
+        buildPersonaPromptWithMemory() { return "test persona + memory"; },
+        buildSoulPrompt(cfg) {
+          try { return fs.readFileSync(cfg.soulPath, "utf8").trim(); } catch { return null; }
+        },
+      };
+    }
+
+    function makeSocialMemory() {
+      return createSocialMemory({ cfg, stateDir: tmpDir, log: { info() {}, warn() {}, debug() {} } });
+    }
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-multi-"));
+      fileA = path.join(tmpDir, "contacts-a.md");
+      fileB = path.join(tmpDir, "contacts-b.md");
+      fs.writeFileSync(fileA, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 999000001 | +4900000001 | Alice | |\n");
+      fs.writeFileSync(fileB, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 999000002 | +4900000002 | Bob | |\n");
+      soulA = path.join(tmpDir, "soul-a.md");
+      soulB = path.join(tmpDir, "soul-b.md");
+      fs.writeFileSync(soulA, "I am ALICE'S SOUL.\n");
+      fs.writeFileSync(soulB, "I am BOB'S SOUL.\n");
+      cfg = resolveConfig({
+        pluginConfig: {
+          agents: ["agent-a", "agent-b"],
+          agentName: "GlobalAgent",
+          agentProfiles: {
+            "agent-a": { agentName: "Alice", contactsPath: fileA, soulPath: soulA },
+            "agent-b": { agentName: "Bob", contactsPath: fileB, soulPath: soulB },
+          },
+        },
+      });
+    });
+
+    afterEach(() => {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    });
+
+    it("Case A: hard-trigger separation by agent name", async () => {
+      const engine = makeEngine();
+      const gate = createGate({
+        cfg,
+        state,
+        engine,
+        persona: makeSoulPersona(),
+        socialMemory: makeSocialMemory(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const skB = "agent:agent-b:whatsapp:group:1@g.us";
+      state.chatTypeBySession.set(skB, "group");
+
+      // "hey Alice" in agent-b's group must NOT speak (Alice is not Bob's name).
+      const wrongName = await gate.onBeforeAgentReply(
+        { cleanedBody: "hey Alice, what do you think" },
+        { agentId: "agent-b", sessionKey: skB, senderId: "u", senderName: "Nico" },
+      );
+      assert.deepEqual(wrongName, { handled: true }, "wrong agent name must stay silent");
+
+      // "hey Bob" in agent-b's group must speak via hard trigger.
+      const correctName = await gate.onBeforeAgentReply(
+        { cleanedBody: "hey Bob, what do you think" },
+        { agentId: "agent-b", sessionKey: skB, senderId: "u", senderName: "Nico" },
+      );
+      assert.equal(correctName, undefined, "correct agent name should speak");
+    });
+
+    it("Case B: quote-reply recognition is per agent", async () => {
+      const engine = makeEngine();
+      const gate = createGate({
+        cfg,
+        state,
+        engine,
+        persona: makeSoulPersona(),
+        socialMemory: makeSocialMemory(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      // agent-a's group: a quote of Alice's OWN message must be replyToAgent for agent-a.
+      const skA = "agent:agent-a:whatsapp:group:2@g.us";
+      state.chatTypeBySession.set(skA, "group");
+      state.transcriptPeekBySession.set(skA, ["[Alice] klar und sonnig am Berg, perfekt fuer den Klettersteig"]);
+      state.peekMetaBySession.set(skA, [Date.now()]);
+      let capturedA;
+      const gateA = createGate({
+        cfg,
+        state,
+        engine: {
+          async decide(opts) { capturedA = opts; return { decision: "speak", epoch: 1 }; },
+        },
+        persona: makeSoulPersona(),
+        socialMemory: makeSocialMemory(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      gateA.onMessageReceived(
+        { text: "danke" },
+        { agentId: "agent-a", sessionKey: skA, senderId: "user-A", replyToBody: "klar und sonnig am Berg, perfekt fuer den Klettersteig" },
+      );
+      await gateA.onBeforeAgentReply(
+        { cleanedBody: "danke!" },
+        { agentId: "agent-a", sessionKey: skA, senderId: "user-A" },
+      );
+      assert.equal(capturedA.replyToAgent, true, "agent-a sees its own quote as reply-to-agent");
+
+      // agent-b's group: the SAME quote body must NOT be replyToAgent (Alice is a person to Bob).
+      const skB = "agent:agent-b:whatsapp:group:3@g.us";
+      state.chatTypeBySession.set(skB, "group");
+      state.transcriptPeekBySession.set(skB, ["[Alice] klar und sonnig am Berg, perfekt fuer den Klettersteig"]);
+      state.peekMetaBySession.set(skB, [Date.now()]);
+      let capturedB;
+      const gateB = createGate({
+        cfg,
+        state,
+        engine: {
+          async decide(opts) { capturedB = opts; return { decision: "speak", epoch: 1 }; },
+        },
+        persona: makeSoulPersona(),
+        socialMemory: makeSocialMemory(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      gateB.onMessageReceived(
+        { text: "danke" },
+        { agentId: "agent-b", sessionKey: skB, senderId: "user-B", replyToBody: "klar und sonnig am Berg, perfekt fuer den Klettersteig" },
+      );
+      // "hey Bob" hard-triggers so decide runs; the quoted Alice line must still
+      // resolve replyToAgent=false for agent-b.
+      await gateB.onBeforeAgentReply(
+        { cleanedBody: "hey Bob, danke!" },
+        { agentId: "agent-b", sessionKey: skB, senderId: "user-B" },
+      );
+      assert.equal(capturedB.replyToAgent, false, "agent-b must NOT treat Alice's quote as reply-to-agent");
+    });
+
+    it("Case C: persona/SOUL is per agent", async () => {
+      const engine = makeEngine();
+      const gate = createGate({
+        cfg,
+        state,
+        engine,
+        persona: makeSoulPersona(),
+        socialMemory: makeSocialMemory(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const skA = "agent:agent-a:whatsapp:group:4@g.us";
+      state.chatTypeBySession.set(skA, "group");
+      let captured;
+      const gateA = createGate({
+        cfg,
+        state,
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; },
+        },
+        persona: makeSoulPersona(),
+        socialMemory: makeSocialMemory(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      await gateA.onBeforeAgentReply(
+        { cleanedBody: "hello" },
+        { agentId: "agent-a", sessionKey: skA, senderId: "u", senderName: "Nico" },
+      );
+      assert.equal(captured.persona, "I am ALICE'S SOUL.", "agent-a should get Alice's soul");
+
+      const skB = "agent:agent-b:whatsapp:group:5@g.us";
+      state.chatTypeBySession.set(skB, "group");
+      let capturedB;
+      const gateB = createGate({
+        cfg,
+        state,
+        engine: {
+          async decide(opts) { capturedB = opts; return { decision: "stay_silent", epoch: 1 }; },
+        },
+        persona: makeSoulPersona(),
+        socialMemory: makeSocialMemory(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      await gateB.onBeforeAgentReply(
+        { cleanedBody: "hello" },
+        { agentId: "agent-b", sessionKey: skB, senderId: "u", senderName: "Nico" },
+      );
+      assert.equal(capturedB.persona, "I am BOB'S SOUL.", "agent-b should get Bob's soul");
+    });
+
+    it("Case D: self-filter is per agent", () => {
+      const socialMemory = makeSocialMemory();
+      // agent-a's scope: "Alice" is self → filtered; "Bob" is a person.
+      socialMemory.ingest("agent-a::agent:agent-a:whatsapp:group:6@g.us", { speaker: "Alice", text: "hi", ts: 100 });
+      socialMemory.ingest("agent-a::agent:agent-a:whatsapp:group:6@g.us", { speaker: "Bob", text: "hi", ts: 101 });
+      const profileA = socialMemory.getOrLoadProfile("agent-a::agent:agent-a:whatsapp:group:6@g.us");
+      assert.ok(!profileA.people.Alice, "Alice is self for agent-a");
+      assert.ok(profileA.people.Bob, "Bob is a person in agent-a's scope");
+
+      // agent-b's scope: "Bob" is self → filtered; "Alice" is a person.
+      socialMemory.ingest("agent-b::agent:agent-b:whatsapp:group:7@g.us", { speaker: "Bob", text: "hi", ts: 100 });
+      socialMemory.ingest("agent-b::agent:agent-b:whatsapp:group:7@g.us", { speaker: "Alice", text: "hi", ts: 101 });
+      const profileB = socialMemory.getOrLoadProfile("agent-b::agent:agent-b:whatsapp:group:7@g.us");
+      assert.ok(!profileB.people.Bob, "Bob is self for agent-b");
+      assert.ok(profileB.people.Alice, "Alice is a person in agent-b's scope");
     });
   });
 });
