@@ -3,7 +3,7 @@ import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createProactive, setRng, resetRng } from "../lib/proactive.js";
+import { createProactive, setRng, resetRng, localDayKey } from "../lib/proactive.js";
 import * as state from "../lib/state.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proactive-test-"));
@@ -553,7 +553,10 @@ describe("proactive", { concurrency: false }, () => {
       assert.ok(fs.existsSync(file), "proactive.json should exist");
       assert.equal(fs.statSync(file).mode & 0o777, 0o600);
       const data = JSON.parse(fs.readFileSync(file, "utf8"));
-      assert.ok(data.counters[SCOPE], "counter persisted for scope");
+      assert.equal(data.version, 2, "state must be written with version 2");
+      assert.ok(data.agents, "state must be per-agent buckets");
+      const bucket = data.agents["hori"] || data.agents["?"];
+      assert.ok(bucket && bucket.counters[SCOPE], "counter persisted for scope in the agent bucket");
     });
 
     it("stop() clears pending timers", async () => {
@@ -566,6 +569,42 @@ describe("proactive", { concurrency: false }, () => {
       clock.t += 10 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("v1 flat state migrates to v2 per-agent buckets (split at first ::)", async () => {
+      const scopeA = "agentA::agent:agentA:whatsapp:group:999@g.us";
+      const legacyNoAgent = "agent:agentX:whatsapp:group:999@g.us";
+      fs.mkdirSync(tmpDir, { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, "proactive.json"), JSON.stringify({
+        counters: { [scopeA]: { day: localDayKey(T0), count: 1, recogDay: localDayKey(T0), recogCount: 0, lastSentAt: T0 }, [legacyNoAgent]: { day: localDayKey(T0), count: 1, recogDay: localDayKey(T0), recogCount: 0, lastSentAt: T0 } },
+        cooldowns: { [scopeA]: { until: T0 + 1000, multiplier: 1 } },
+        engagements: {},
+      }), "utf8");
+      const { proactive } = track(makeProactive({ cfg: makeCfg() }));
+      proactive.save();
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "proactive.json"), "utf8"));
+      assert.equal(data.version, 2, "state must be rewritten with version 2");
+      assert.ok(data.agents.agentA, "agentA bucket created");
+      assert.ok(data.agents.agentA.counters[scopeA], "agentA counter moved into its bucket");
+      assert.ok(data.agents.agentA.cooldowns[scopeA], "agentA cooldown moved into its bucket");
+      assert.ok(data.agents.__legacy__, "scope with no :: agentId goes to __legacy__");
+      assert.ok(data.agents.__legacy__.counters[legacyNoAgent], "legacy counter preserved");
+    });
+
+    it("eviction in agent-b's bucket does not evict agent-a's cooldown", async () => {
+      setRng(() => 0.1);
+      const scopeA = "agentA::agent:agentA:whatsapp:group:999@g.us";
+      const { proactive } = track(makeProactive({
+        cfg: makeCfg({ minGapMinutes: 0, triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false } }),
+      }));
+      // Put a cooldown on agent-a, then overflow agent-b's bucket (>256 scopes)
+      // so capObject evicts agent-b's oldest entries.
+      proactive.applyIgnored(scopeA);
+      for (let i = 0; i < 300; i++) {
+        proactive.applyIgnored("agentB::agent:agentB:whatsapp:group:extra-" + i + "@g.us");
+      }
+      const evA = proactive.evaluate(makeCandidate("unanswered_question", { scopeKey: scopeA, sessionKey: "agent:agentA:whatsapp:group:999@g.us" }));
+      assert.ok(evA.reasons.includes("cooldown"), "agent-a's cooldown must survive agent-b's eviction: " + evA.reasons.join(","));
     });
   });
 });
