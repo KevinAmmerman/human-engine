@@ -65,6 +65,19 @@ describe("persona", () => {
       assert.ok(result.includes("# Custom Voice Card"));
     });
 
+    it("voice card getter receives (sessionKey, agentId) — agentId forwarded", () => {
+      let seen;
+      setVoiceCardGetter((sk, agentId) => { seen = [sk, agentId]; return "# VC"; });
+      buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "sk-3", "agent-x");
+      assert.deepEqual(seen, ["sk-3", "agent-x"]);
+    });
+
+    it("voice card getter returns null when agent has no card", () => {
+      setVoiceCardGetter(() => null);
+      const result = buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "sk-4", "agent-y");
+      assert.equal(result, null);
+    });
+
     it("includes soul when available", () => {
       const soulPath = "/nonexistent";
       const result = buildPersonaPrompt({ soulPath, antiTell: false, styleStats: false }, "sk-soul");
