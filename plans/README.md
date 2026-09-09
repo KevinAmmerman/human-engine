@@ -19,6 +19,8 @@ eigene Budgets, alles isoliert pro Agent und pro Channel, E2E-getestet.
 | 004 | Social Cards pro Agent (Voice-Card-Cache v2, per-agent Eviction) | P1 | M | 002, 003 | DONE (executed+approved nach 1 Revise, branch `advisor/004-social-cards-per-agent`, 884/0, Parity 52/52, E2E 5 Cases) |
 | 005 | Proactive/DM-Proactive-State pro Agent + `dmProactive.agents` + DayFit-Pfad | P1 | L | 001, 002, 003 | DONE (executed+approved, branch `advisor/005-proactive-tenancy`, 901/0, Parity 54/54, E2E 5 Cases) |
 | 006 | Onboarding-Runbook + Autoconfig-Validierung + Vertrags-Matrix + Rollout-Checkliste | P2 | M | 001–005 | DONE (executed+approved, branch `advisor/006-onboarding-hardening`, 915/0, Parity 55/55, E2E onboarding 3 Cases) |
+| 007 | Fallback-Filter: „⚠️ Agent run failed" nie capturen (Prod-Incident 2026-09-09) | P1 | S | — | DONE (executed+approved, branch `advisor/007-fallback-filter`, 919/0, Parity 56/56, gemerged+deployed 17:30) |
+| 008 | `agentId` an alle llm.complete-Calls (korrektes Routing/Audit im Flush-Pfad) | P2 | M | 001/003 | DONE (executed+approved, branch `advisor/008-llm-caller-agentid`, 921/0, Parity 56/56) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
