@@ -122,6 +122,8 @@ const MATRIX = [
     tags: ["carries the untrusted-data directive in the system prompt", "wraps the transcript block in group chat log markers", "includes voice card when available", "includes memory when present", "renderInjection resolves semantic labels"] },
   { id: 59, behavior: "decide verdict parsing tolerates model noise (fences/JSON/prose) via token extraction, exact-match fast path first",
     tags: ["decide verdict parsing tolerates model noise"] },
+  { id: 60, behavior: "dm-proactive budget is per-agent namespaced with per-agent eviction (Plan 005 parity for budget)",
+    tags: ["per-agent eviction: agent-a overflow", "budget is namespaced per agent"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
