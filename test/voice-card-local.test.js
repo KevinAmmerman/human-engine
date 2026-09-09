@@ -168,9 +168,9 @@ describe("voice-card-local", () => {
     });
 
     const vc = await import("../lib/voice-card.js");
-    Object.keys(vc.cache).forEach((k) => delete vc.cache[k]);
+    vc.stateByAgent.forEach((b) => Object.keys(b.cache).forEach((k) => delete b.cache[k]));
     vc.refreshing.clear();
-    Object.keys(vc.counter).forEach((k) => delete vc.counter[k]);
+    vc.stateByAgent.forEach((b) => Object.keys(b.counter).forEach((k) => delete b.counter[k]));
 
     const { onBeforePromptBuild } = vc.createVoiceCard({
       cfg: { enabled: true, socialLearning: {} },

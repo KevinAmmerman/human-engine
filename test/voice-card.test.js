@@ -32,15 +32,28 @@ describe("voice-card", () => {
   });
 
   function clearCache() {
-    Object.keys(vc.cache).forEach((k) => delete vc.cache[k]);
+    vc.stateByAgent.forEach((b) => {
+      Object.keys(b.cache).forEach((k) => delete b.cache[k]);
+    });
   }
 
   function clearCounter() {
-    Object.keys(vc.counter).forEach((k) => delete vc.counter[k]);
+    vc.stateByAgent.forEach((b) => {
+      Object.keys(b.counter).forEach((k) => delete b.counter[k]);
+    });
   }
 
   function clearRefreshing() {
     vc.refreshing.clear();
+  }
+
+  function seedBucket(agentId) {
+    let b = vc.stateByAgent.get(agentId);
+    if (!b) {
+      b = { cache: {}, counter: {} };
+      vc.stateByAgent.set(agentId, b);
+    }
+    return b;
   }
 
   describe("parseMessages", () => {
@@ -173,48 +186,98 @@ describe("voice-card", () => {
     beforeEach(clearCache);
 
     it("getCard returns null when empty", () => {
-      assert.equal(vc.getCard("session-x"), null);
+      assert.equal(vc.getCard("session-x", false, "test-agent"), null);
     });
 
-    it("global card shared by all sessions", () => {
-      vc.cache["__global__"] = "global card";
-      assert.equal(vc.getCard("session-x"), "global card");
-      assert.equal(vc.getCard("session-y"), "global card");
+    it("perSessionCard=false global card is per-agent only", () => {
+      seedBucket("test-agent").cache["__global__:test-agent"] = "global card";
+      assert.equal(vc.getCard("session-x", false, "test-agent"), "global card");
+      assert.equal(vc.getCard("session-y", false, "test-agent"), "global card");
+      assert.equal(vc.getCard("session-x", false, "other-agent"), null);
     });
 
     it("per-session card isolated", () => {
-      vc.cache["session-a"] = "card a";
-      assert.equal(vc.getCard("session-a", true), "card a");
-      assert.equal(vc.getCard("session-b", true), null);
+      seedBucket("test-agent").cache["session-a"] = "card a";
+      assert.equal(vc.getCard("session-a", true, "test-agent"), "card a");
+      assert.equal(vc.getCard("session-b", true, "test-agent"), null);
     });
   });
 
   describe("cache persistence", () => {
-    it("save and load round-trip", () => {
+    it("save and load round-trip (v2 per-agent buckets)", () => {
       const tmpDir2 = fs.mkdtempSync(path.join(os.tmpdir(), "vc-cache-"));
       const cacheStateDir = path.join(tmpDir2, "state");
       fs.mkdirSync(cacheStateDir, { recursive: true });
 
-      const vc2 = vc.createVoiceCard({
+      vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
         stateDir: cacheStateDir,
-        log: { info() {} },
+        log: { info() {}, warn() {} },
       });
 
-      vc.cache["test-key"] = "test value";
-      vc.counter["test-session"] = 3;
+      seedBucket("test-agent").cache["test-key"] = "test value";
+      seedBucket("test-agent").counter["test-session"] = 3;
       vc.saveCache();
 
       const filePath = path.join(cacheStateDir, "social-learning-cache.json");
       assert.ok(fs.existsSync(filePath));
+      const onDisk = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      assert.equal(onDisk.version, 2);
+      assert.equal(onDisk.agents["test-agent"].cache["test-key"], "test value");
+      assert.equal(onDisk.agents["test-agent"].counter["test-session"], 3);
 
       clearCache();
       clearCounter();
 
       vc.loadCache();
-      assert.equal(vc.cache["test-key"], "test value");
-      assert.equal(vc.counter["test-session"], 3);
+      assert.equal(vc.stateByAgent.get("test-agent").cache["test-key"], "test value");
+      assert.equal(vc.stateByAgent.get("test-agent").counter["test-session"], 3);
+
+      fs.rmSync(tmpDir2, { recursive: true, force: true });
+    });
+
+    it("migrates a v1 flat file to v2 on load (agent keys into buckets, __global__ dropped)", () => {
+      const tmpDir2 = fs.mkdtempSync(path.join(os.tmpdir(), "vc-v1-"));
+      const cacheStateDir = path.join(tmpDir2, "state");
+      fs.mkdirSync(cacheStateDir, { recursive: true });
+      const filePath = path.join(cacheStateDir, "social-learning-cache.json");
+
+      const warned = [];
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({
+          cache: {
+            "agent:test:whatsapp:group:g1@g.us": "card test",
+            "__global__": "global card",
+          },
+          counter: { "agent:test:whatsapp:group:g1@g.us": 4 },
+        }),
+        { mode: 0o600 },
+      );
+
+      clearCache();
+      clearCounter();
+
+      vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: {} },
+        engine: makeEngine(),
+        stateDir: cacheStateDir,
+        log: { info() {}, warn() {} },
+      });
+      const bucket = vc.stateByAgent.get("test");
+      assert.equal(bucket.cache["agent:test:whatsapp:group:g1@g.us"], "card test");
+      assert.equal(bucket.counter["agent:test:whatsapp:group:g1@g.us"], 4);
+      assert.equal(vc.stateByAgent.get("test").cache["__global__"], undefined, "global card dropped");
+
+      const onDisk = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      assert.equal(onDisk.version, 2, "file rewritten as v2");
+
+      clearCache();
+      clearCounter();
+      vc.loadCache();
+      const bucket2 = vc.stateByAgent.get("test");
+      assert.equal(bucket2.cache["agent:test:whatsapp:group:g1@g.us"], "card test", "second load idempotent");
 
       fs.rmSync(tmpDir2, { recursive: true, force: true });
     });
@@ -242,7 +305,7 @@ describe("voice-card", () => {
     });
 
     it("returns appendSystemContext when card is cached", () => {
-      vc.cache[CHAT_SK] = "# Voice Card";
+      seedBucket("test-agent").cache[CHAT_SK] = "# Voice Card";
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
@@ -292,7 +355,7 @@ describe("voice-card", () => {
         { sessionKey: "s-disabled" },
       );
       assert.equal(result, undefined);
-      assert.equal(vc.counter["s-disabled"], undefined);
+      assert.equal(vc.stateByAgent.get("__legacy__")?.counter?.["s-disabled"], undefined);
     });
 
     it("returns undefined and does not count when socialLearning.enabled is false", () => {
@@ -308,7 +371,7 @@ describe("voice-card", () => {
         { sessionKey: "s-sl-disabled" },
       );
       assert.equal(result, undefined);
-      assert.equal(vc.counter["s-sl-disabled"], undefined);
+      assert.equal(vc.stateByAgent.get("__legacy__")?.counter?.["s-sl-disabled"], undefined);
     });
 
     it("refreshes on the Nth build per configured refreshEvery", async () => {
@@ -334,7 +397,7 @@ describe("voice-card", () => {
     it("does not refresh below refreshEvery cadence after card exists", async () => {
       clearCounter();
       clearRefreshing();
-      vc.cache[CHAT_SK] = "# seeded card";
+      seedBucket("test-agent").cache[CHAT_SK] = "# seeded card";
       let extractCalls = 0;
       const engine = { extractVoiceCard: async () => { extractCalls++; return null; } };
       const { onBeforePromptBuild } = vc.createVoiceCard({
@@ -352,7 +415,7 @@ describe("voice-card", () => {
 
     it("returns undefined and does not count for unscoped agent", () => {
       clearCounter();
-      vc.cache["__global__"] = "# Voice Card";
+      seedBucket("test-agent").cache["__global__:test-agent"] = "# Voice Card";
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, agents: ["agent-a"], socialLearning: {} },
         engine: makeEngine(),
@@ -364,7 +427,7 @@ describe("voice-card", () => {
         { sessionKey: "s-unscoped", agentId: "agent-b" },
       );
       assert.equal(result, undefined);
-      assert.equal(vc.counter["s-unscoped"], undefined);
+      assert.equal(vc.stateByAgent.get("__legacy__")?.counter?.["s-unscoped"], undefined);
     });
 
     it("increments counter on each call", () => {
@@ -379,17 +442,17 @@ describe("voice-card", () => {
         { messages: [{ role: "user", content: "a" }] },
         { sessionKey: CHAT_SK },
       );
-      assert.equal(vc.counter[CHAT_SK], 1);
+      assert.equal(vc.stateByAgent.get("test-agent").counter[CHAT_SK], 1);
       onBeforePromptBuild(
         { messages: [{ role: "user", content: "b" }] },
         { sessionKey: CHAT_SK },
       );
-      assert.equal(vc.counter[CHAT_SK], 2);
+      assert.equal(vc.stateByAgent.get("test-agent").counter[CHAT_SK], 2);
     });
 
     it("does not count or return a card for heartbeat sessions", () => {
       clearCounter();
-      vc.cache[HEARTBEAT_SK] = "# Heartbeat Card";
+      seedBucket("a").cache[HEARTBEAT_SK] = "# Heartbeat Card";
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
@@ -401,7 +464,7 @@ describe("voice-card", () => {
         { sessionKey: HEARTBEAT_SK },
       );
       assert.equal(result, undefined);
-      assert.equal(vc.counter[HEARTBEAT_SK], undefined);
+      assert.equal(vc.stateByAgent.get("a")?.counter?.[HEARTBEAT_SK], undefined);
     });
 
     it("uses per-session cards by default (distinct cache keys per group sk)", () => {
@@ -409,8 +472,8 @@ describe("voice-card", () => {
       clearCounter();
       const skA = "agent:test-agent:whatsapp:group:aaa@g.us";
       const skB = "agent:test-agent:whatsapp:group:bbb@g.us";
-      vc.cache[skA] = "# Card A";
-      vc.cache[skB] = "# Card B";
+      vc.stateByAgent.get("test-agent").cache[skA] = "# Card A";
+      vc.stateByAgent.get("test-agent").cache[skB] = "# Card B";
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: {} },
         engine: makeEngine(),
@@ -423,7 +486,7 @@ describe("voice-card", () => {
       assert.ok(rB.appendSystemContext.includes("# Card B"));
     });
 
-    it("evicts oldest cache/counter entries beyond MAX_ENTRIES (256)", async () => {
+    it("evicts oldest cache/counter entries beyond MAX_ENTRIES (256) per bucket", async () => {
       clearCache();
       clearCounter();
       clearRefreshing();
@@ -439,10 +502,32 @@ describe("voice-card", () => {
         onBeforePromptBuild({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: sk });
       }
       await new Promise((r) => setTimeout(r, 120));
-      assert.ok(Object.keys(vc.cache).length <= 256, `cache keys=${Object.keys(vc.cache).length}`);
-      assert.ok(Object.keys(vc.counter).length <= 256, `counter keys=${Object.keys(vc.counter).length}`);
-      assert.equal(vc.cache["agent:test-agent:whatsapp:group:evict0@g.us"], undefined, "oldest evicted");
-      assert.equal(vc.cache["agent:test-agent:whatsapp:group:evict259@g.us"], "# Card", "newest retained");
+      const bucket = vc.stateByAgent.get("test-agent");
+      assert.ok(Object.keys(bucket.cache).length <= 256, `cache keys=${Object.keys(bucket.cache).length}`);
+      assert.ok(Object.keys(bucket.counter).length <= 256, `counter keys=${Object.keys(bucket.counter).length}`);
+      assert.equal(bucket.cache["agent:test-agent:whatsapp:group:evict0@g.us"], undefined, "oldest evicted");
+      assert.equal(bucket.cache["agent:test-agent:whatsapp:group:evict259@g.us"], "# Card", "newest retained");
+    });
+
+    it("evicts oldest per-agent without touching another agent's bucket", async () => {
+      clearCache();
+      clearCounter();
+      clearRefreshing();
+      const engine = { extractVoiceCard: async () => ({ prompt_block: "# Card" }) };
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { enabled: true, refreshEvery: 1, refreshMinutes: 0 } },
+        engine,
+        stateDir,
+        log: { info() {} },
+      });
+      seedBucket("test-agent").cache["agent:test-agent:whatsapp:group:keep@g.us"] = "# Card A";
+      for (let i = 0; i < 260; i++) {
+        const sk = `agent:agent-b:whatsapp:group:evict${i}@g.us`;
+        onBeforePromptBuild({ messages: [{ role: "user", content: "[User] hi" }] }, { sessionKey: sk });
+      }
+      await new Promise((r) => setTimeout(r, 120));
+      assert.equal(vc.stateByAgent.get("test-agent").cache["agent:test-agent:whatsapp:group:keep@g.us"], "# Card A", "other agent card survives");
+      assert.equal(vc.stateByAgent.get("agent-b").cache["agent:agent-b:whatsapp:group:evict0@g.us"], undefined, "evicted agent's oldest dropped");
     });
 
     it("logRequests writes a 0600 log with redacted session id", async () => {
@@ -472,16 +557,16 @@ describe("voice-card", () => {
       assert.ok(!content.includes("4917000000001"), "session id must not contain the full number");
     });
 
-    it("uses the global card when perSessionCard is explicitly false", () => {
+    it("uses the per-agent global card when perSessionCard is explicitly false", () => {
       clearCache();
       clearCounter();
-      vc.cache["__global__"] = "# Global Card";
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: { perSessionCard: false } },
         engine: makeEngine(),
         stateDir,
         log: { info() {} },
       });
+      seedBucket("test-agent").cache["__global__:test-agent"] = "# Global Card";
       const result = onBeforePromptBuild(
         { messages: [{ role: "user", content: "hi" }] },
         { sessionKey: CHAT_SK },
@@ -489,15 +574,35 @@ describe("voice-card", () => {
       assert.ok(result.appendSystemContext.includes("# Global Card"));
       assert.ok(result.appendSystemContext.includes("<<<GROUP CHAT LOG (untrusted)>>>"));
     });
+
+    it("perSessionCard=false keeps two agents' cards distinct", () => {
+      clearCache();
+      clearCounter();
+      const { onBeforePromptBuild } = vc.createVoiceCard({
+        cfg: { enabled: true, socialLearning: { perSessionCard: false } },
+        engine: makeEngine(),
+        stateDir,
+        log: { info() {} },
+      });
+      seedBucket("agent-a").cache["__global__:agent-a"] = "# Card A";
+      seedBucket("agent-b").cache["__global__:agent-b"] = "# Card B";
+      const skA = "agent:agent-a:whatsapp:group:g@g.us";
+      const skB = "agent:agent-b:whatsapp:group:g@g.us";
+      const rA = onBeforePromptBuild({ messages: [{ role: "user", content: "hi" }] }, { sessionKey: skA });
+      const rB = onBeforePromptBuild({ messages: [{ role: "user", content: "hi" }] }, { sessionKey: skB });
+      assert.ok(rA.appendSystemContext.includes("# Card A"));
+      assert.ok(rB.appendSystemContext.includes("# Card B"));
+      assert.ok(!rA.appendSystemContext.includes("# Card B"));
+    });
   });
 
   describe("voice card injected into persona prompt", () => {
     beforeEach(clearCache);
 
     it("buildPersonaPrompt includes voice card when cached", () => {
-      vc.cache["__global__"] = "# Voice Card Prompt";
-      setVoiceCardGetter((sk) => vc.getCard(sk));
-      const result = buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "s1");
+      seedBucket("test-agent").cache["__global__:test-agent"] = "# Voice Card Prompt";
+      setVoiceCardGetter((sk, agentId) => vc.getCard(sk, false, agentId));
+      const result = buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "s1", "test-agent");
       assert.ok(result.includes("# Voice Card Prompt"));
     });
 
