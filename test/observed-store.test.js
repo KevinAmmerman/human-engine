@@ -220,7 +220,7 @@ describe("observed-store", { concurrency: false }, () => {
     });
 
     it("redacts long digit runs from session keys in error logs", () => {
-      const sk = "agent:test:whatsapp:group:4917624677323@g.us";
+      const sk = "agent:test:whatsapp:group:999000111222333@g.us";
       const blocker = path.join(tmpDir, "not-a-dir");
       fs.writeFileSync(blocker, "file", { mode: 0o600 });
       const errLog = makeLog();
