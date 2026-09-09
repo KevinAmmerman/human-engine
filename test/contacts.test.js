@@ -131,6 +131,10 @@ describe("contacts", () => {
     fs.writeFileSync(file, "| 999000001 | +4900000001 | Alice |\n");
     assert.equal(resolveContactName(loadContacts(file), "999000001"), "Alice");
     fs.writeFileSync(file, "| 999000002 | +4900000002 | Bob |\n");
+    // Coarse filesystem mtime can be identical for two rapid writes — force a
+    // strictly newer mtime so the cache detects the change.
+    const future = Date.now() + 5000;
+    fs.utimesSync(file, new Date(future), new Date(future));
     const map = loadContacts(file);
     assert.equal(resolveContactName(map, "999000001"), null, "old entry gone after reload");
     assert.equal(resolveContactName(map, "999000002"), "Bob", "new entry present after reload");
