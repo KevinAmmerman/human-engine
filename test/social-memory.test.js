@@ -503,6 +503,28 @@ describe("social-memory", { concurrency: false }, () => {
       const profile = sm.getOrLoadProfile(scope);
       assert.ok(Object.keys(profile.people).length <= 2);
     });
+
+    it("extract-path drops the oldest lastSeenTs once the merged profile exceeds maxPeople", async () => {
+      const llm = {
+        complete: mock.fn(async () => ({ text: JSON.stringify({ people: {} }) })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ maxPeople: 2, extractEvery: 1 }), llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::evict-extract-path";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Oldest: { facts: [], preferences: [], situation: "", lastSeenTs: 10, mentionCount: 0 },
+        Middle: { facts: [], preferences: [], situation: "", lastSeenTs: 50, mentionCount: 0 },
+        Newest: { facts: [], preferences: [], situation: "", lastSeenTs: 100, mentionCount: 0 },
+      };
+
+      await sm.extract(scope);
+
+      const loaded = sm.getOrLoadProfile(scope);
+      const names = Object.keys(loaded.people);
+      assert.equal(names.length, 2, "extract must evict down to maxPeople");
+      assert.ok(!names.includes("Oldest"), "oldest lastSeenTs must be dropped");
+      assert.ok(names.includes("Middle") && names.includes("Newest"), "more recent people kept");
+    });
   });
 
   describe("write coalescing", () => {

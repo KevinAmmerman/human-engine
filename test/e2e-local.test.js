@@ -1126,4 +1126,65 @@ describe("e2e-local", () => {
       assert.equal(plain, undefined, "plain agent text untouched");
     });
   });
+
+  describe("gate.onSilence → naturalize wiring (plan 018)", () => {
+    it("stay_silent completes the unconsumed dispatcher but leaves the in-flight one alone", async () => {
+      const sk = "agent:test:whatsapp:group:e2e-silence@g.us";
+      state.chatTypeBySession.set(sk, "group");
+      state.speakEpochBySession.set(sk, { epoch: 1, ts: Date.now() });
+
+      const engine = {
+        decide: async () => ({ decision: "stay_silent", epoch: 1 }),
+        respond: async () => ({ superseded: true }),
+        currentEpoch: () => 0,
+      };
+      const naturalize = createNaturalize({
+        cfg: defaultCfg,
+        state,
+        engine,
+        persona: makePersona(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const gate = createGate({
+        cfg: defaultCfg,
+        state,
+        engine,
+        persona: makePersona(),
+        log: { info() {}, warn() {}, debug() {} },
+        onSilence: naturalize.onSilence,
+      });
+
+      const dispatcherA = { sendBlockReply: mock.fn(() => true), markComplete: mock.fn() };
+      const dispatcherB = { sendBlockReply: mock.fn(() => true), markComplete: mock.fn() };
+
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        { agentId: "test", sessionKey: sk, channelId: "ch", chatId: "ch", senderId: "u", dispatcher: dispatcherA, abortSignal: undefined },
+      );
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        { agentId: "test", sessionKey: sk, channelId: "ch", chatId: "ch", senderId: "u", dispatcher: dispatcherB, abortSignal: undefined },
+      );
+
+      const capture = naturalize.onReplyPayloadSending(
+        { sessionKey: sk, kind: "final", channel: "whatsapp", payload: { text: "the good reply" } },
+        { agentId: "test", sessionKey: sk },
+      );
+      assert.deepEqual(capture, { cancel: true });
+
+      // Inbound message → engine decides stay_silent → gate fires onSilence(sk).
+      await gate.onBeforeAgentReply(
+        { cleanedBody: "kommst du gleich?" },
+        { agentId: "test", sessionKey: sk, senderId: "u", senderName: "Nico" },
+      );
+
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 0, "consumed in-flight A not completed by silence");
+      assert.equal(dispatcherB.markComplete.mock.callCount(), 1, "unconsumed B completed by silence");
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(dispatcherA.sendBlockReply.mock.callCount() >= 1, "A's in-flight reply still delivered");
+      assert.equal(dispatcherA.markComplete.mock.callCount(), 1);
+      assert.equal(dispatcherB.markComplete.mock.callCount(), 1, "B not double-completed");
+    });
+  });
 });

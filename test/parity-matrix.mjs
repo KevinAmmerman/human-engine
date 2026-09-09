@@ -38,7 +38,7 @@ const MATRIX = [
     tags: ["increments epoch on each speak"] },
   { id: 16, behavior: "Bubbles delivered in order at increasing delays",
     tags: ["bubbles", "increasing delays", "timing"] },
-  { id: 17, behavior: "Zero network in entire plugin (fetch/WebSocket absent)",
+  { id: 17, kind: "static", behavior: "Zero network in entire plugin (fetch/WebSocket absent)",
     tags: ["no-residue", "openclaw/dist", "no references"] },
   { id: 18, behavior: "Memory label: 'What you know about the people here (from memory):'",
     tags: ["appendSystemContext", "What you know about the people here"] },
@@ -66,7 +66,7 @@ const MATRIX = [
     tags: ["zero tells in split fixture", "clean casual"] },
   { id: 30, behavior: "Style-stats: caps/emoji/contraction computed + injected",
     tags: ["style-stats", "avgLen", "capsRate", "emojiRate", "contractionRate"] },
-  { id: 31, behavior: "/connect removed (no command, no code)",
+  { id: 31, kind: "static", behavior: "/connect removed (no command, no code)",
     tags: ["connect removed", "command snapshot", "no references"] },
   { id: 32, behavior: "Decide-scenarios contract: ≥ 20 labeled, deterministic green",
     tags: ["at least 20 labeled scenarios", "every scenario has required fields"] },
@@ -190,8 +190,10 @@ function check() {
   }
 
   const total = MATRIX.length;
+  const staticRows = MATRIX.filter((r) => r.kind === "static").length;
   console.log(`\nParity matrix: ${covered + skipped}/${total} covered (${covered} tested, ${skipped} skipped)`);
   console.log(results.join("\n") + "\n");
+  console.log(`static rows: ${staticRows} (review recommended)`);
 
   if (covered + skipped < total) {
     console.error(`FAIL: ${total - covered - skipped} row(s) uncovered.`);
