@@ -10,6 +10,7 @@ built-in LLM with no cloud dependencies.
 - [Architecture overview](./architecture/overview.md) — hook pipeline, module roles, execution flow.
 - [Build, test, lint](./operations/build-test-lint.md) — exact commands.
 - [Environment](./operations/environment.md) — config keys, state files.
+- [Onboarding multi-tenant](./operations/onboarding-multi-tenant.md) — add a new agent or WhatsApp group/channel.
 - [Source map](./source-map.md) — file tree with descriptions.
 
 ## What this repository does

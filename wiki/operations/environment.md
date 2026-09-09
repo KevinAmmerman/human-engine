@@ -93,6 +93,8 @@ widens the `agents` allowlist (it only overrides values).
 `dmProactive`, `mood`). `bin/followup-gate.mjs` and the DayFit single-human
 tracking remain global until Plan 005.
 
+For the step-by-step, see [Onboarding multi-tenant](./onboarding-multi-tenant.md).
+
 ## State files
 
 All under `<plugin-dir>/state/` (or `$HUMAN_ENGINE_STATE_DIR`), created at
