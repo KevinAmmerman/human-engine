@@ -342,6 +342,63 @@ describe("local-engine", () => {
     });
   });
 
+  describe("decide — verdict parsing tolerates model noise", () => {
+    async function decideWith(text) {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text }) },
+        timing: makeTiming(),
+      });
+      return engine.decide({ sessionKey: "v1", prompt: "unrelated" });
+    }
+
+    it("decide verdict parsing tolerates model noise: exact SPEAK speaks", async () => {
+      const res = await decideWith("SPEAK");
+      assert.equal(res.decision, "speak");
+    });
+
+    it("whitespace/case padded SPEAK speaks", async () => {
+      assert.equal((await decideWith("  speak  ")).decision, "speak");
+      assert.equal((await decideWith("Speak")).decision, "speak");
+    });
+
+    it("fenced SPEAK speaks", async () => {
+      const res = await decideWith("```SPEAK```");
+      assert.equal(res.decision, "speak");
+    });
+
+    it("SPEAK with trailing prose speaks", async () => {
+      const res = await decideWith("SPEAK (respond)");
+      assert.equal(res.decision, "speak");
+    });
+
+    it("JSON decision SPEAK speaks", async () => {
+      const res = await decideWith('{"decision":"SPEAK"}');
+      assert.equal(res.decision, "speak");
+    });
+
+    it("bracketed STAY_SILENT stays silent", async () => {
+      const res = await decideWith("[STAY_SILENT]");
+      assert.equal(res.decision, "stay_silent");
+    });
+
+    it("prose containing SPEAK speaks", async () => {
+      const res = await decideWith("I think the answer is SPEAK");
+      assert.equal(res.decision, "speak");
+    });
+
+    it("no token present stays silent", async () => {
+      const res = await decideWith("Neither token present");
+      assert.equal(res.decision, "stay_silent");
+      assert.equal(res.path, "llm");
+    });
+
+    it("first occurrence wins (STAY_SILENT precedes SPEAK)", async () => {
+      const res = await decideWith("STAY_SILENT because SPEAK was wrong");
+      assert.equal(res.decision, "stay_silent");
+    });
+  });
+
   describe("respond", () => {
     it("supersedes when epoch is stale", async () => {
       const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });

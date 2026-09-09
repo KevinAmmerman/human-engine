@@ -120,6 +120,8 @@ const MATRIX = [
     tags: ["speaker-aware dedup: distinct named speakers", "speaker-aware dedup: distinct speakers with identical media marker", "speaker-aware dedup: same speaker", "named-first dedup", "decide-ctx lastSpeaker"] },
   { id: 58, behavior: "untrusted wrapping is complete on all prompt builders incl. regenerate + persona/memory/voice-card + mood note",
     tags: ["carries the untrusted-data directive in the system prompt", "wraps the transcript block in group chat log markers", "includes voice card when available", "includes memory when present", "renderInjection resolves semantic labels"] },
+  { id: 59, behavior: "decide verdict parsing tolerates model noise (fences/JSON/prose) via token extraction, exact-match fast path first",
+    tags: ["decide verdict parsing tolerates model noise"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
