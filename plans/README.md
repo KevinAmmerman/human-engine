@@ -41,7 +41,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | [014](014-scope-parser-discipline.md) | Scope-Parser-Disziplin (parseAgentScope, mood/naturalize/proactive umstellen) | P2 | S–M | — | DONE (executed+approved, 951/0, Parity 59/59; interne parseSessionKey/parseScope-Konsolidierung bewusst ausgenommen — Output-Shapes bleiben öffentlich stabil) |
 | [015](015-version-sync-dead-code.md) | Version-Sync (0.4.2) + openThread-Stub entfernen | P2 | S | — | DONE (executed+approved, 951/0, Parity 59/59; stale Parity-Tag Row 15 mit entfernt) |
 | [016](016-decide-parse-robustness.md) | Decide-Output-Parsing robust (Fences/JSON/Prosa) | P1 | S | — | DONE (executed+approved, 946/0, Parity 59/59) |
-| [017](017-dm-proactive-budget-tenancy.md) | DM-Proactive-Budget per Agent (v3→v4-Migration) | P2 | S–M | 014 ideal | TODO |
+| [017](017-dm-proactive-budget-tenancy.md) | DM-Proactive-Budget per Agent (v3→v4-Migration) | P2 | S–M | 014 ideal | DONE (executed+approved, 955/0, Parity 60/60; CLI followup-gate.mjs in-scope migriert, read-only + v3-Fallback) |
 | [018](018-test-hardening.md) | Test-Härtung: TTS-Retry, onSilence-E2E, Parity-`kind` | P2 | M | — | TODO |
 
 **Welle B: Social Memory**
