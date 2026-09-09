@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import { createNaturalize, clearAllBubbleTimers, bubbleTimers } from "../lib/naturalize.js";
+import { createNaturalize, deliverWithRetry, clearAllBubbleTimers, bubbleTimers } from "../lib/naturalize.js";
 import * as state from "../lib/state.js";
 
 const cfg = {
@@ -1345,6 +1345,33 @@ describe("naturalize", () => {
       assert.ok(ingested);
       assert.equal(ingested[0].speaker, "OpenClaw");
       assert.ok(ingested[0].text.includes("Agent's reply text"));
+    });
+  });
+
+  describe("deliverWithRetry (plan 018)", () => {
+    it("retries text-only when the host rejects the first payload, returns true", async () => {
+      const calls = [];
+      const dispatcher = {
+        sendBlockReply: mock.fn((payload) => {
+          calls.push(payload);
+          return calls.length === 1 ? false : true;
+        }),
+      };
+      const log = { warn: mock.fn() };
+      const ok = await deliverWithRetry(dispatcher, "antwort", null, log);
+      assert.equal(ok, true);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
+      assert.deepEqual(calls[1], { text: "antwort" });
+    });
+
+    it("returns false and logs a warn when both calls fail (raw lost path)", async () => {
+      const dispatcher = {
+        sendBlockReply: mock.fn(() => false),
+      };
+      const log = { warn: mock.fn() };
+      const ok = await deliverWithRetry(dispatcher, "antwort", null, log);
+      assert.equal(ok, false);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
     });
   });
 });
