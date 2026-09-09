@@ -46,6 +46,8 @@ describe("mood", () => {
       const result = mood.onBeforePromptBuild({}, { sessionKey: DIRECT_SK, agentId: "test-agent" });
       assert.ok(result);
       assert.ok(result.appendSystemContext.includes("Current mood state"));
+      assert.ok(result.appendSystemContext.includes("valence 2"), "valence axis must be rendered");
+      assert.ok(result.appendSystemContext.includes("energy -1"), "energy axis must be rendered");
       assert.notEqual(result.appendSystemContext, undefined);
     });
 

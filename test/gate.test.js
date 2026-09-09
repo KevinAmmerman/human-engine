@@ -111,8 +111,9 @@ describe("gate", () => {
     });
 
     it("ignores missing sessionKey", () => {
-      gate.onMessageReceived({}, { isGroup: true });
-      assert.ok(true);
+      const result = gate.onMessageReceived({}, { isGroup: true });
+      assert.equal(result, undefined, "missing sessionKey handler returns undefined");
+      assert.equal(state.chatTypeBySession.has(undefined), false, "must not record a chat type for a missing sessionKey");
     });
 
     it("caches sender name per session", () => {
