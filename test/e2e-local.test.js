@@ -692,6 +692,192 @@ describe("e2e-local", () => {
     });
   });
 
+  describe("onboarding (Plan 006)", () => {
+    let tmpDir;
+    let stateDir;
+    let contactsA;
+    let contactsC;
+    let soulA;
+    let soulC;
+    let cfg;
+
+    function makeSoulPersona() {
+      return {
+        buildPersonaPrompt(cfg, sk) { return "test persona"; },
+        buildPersonaPromptWithMemory() { return "test persona + memory"; },
+        buildSoulPrompt(cfg) {
+          try { return fs.readFileSync(cfg.soulPath, "utf8").trim(); } catch { return null; }
+        },
+      };
+    }
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-onboard-"));
+      stateDir = path.join(tmpDir, "state");
+      fs.mkdirSync(stateDir, { recursive: true });
+      contactsA = path.join(tmpDir, "contacts-a.md");
+      contactsC = path.join(tmpDir, "contacts-c.md");
+      soulA = path.join(tmpDir, "soul-a.md");
+      soulC = path.join(tmpDir, "soul-c.md");
+      fs.writeFileSync(contactsA, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 999000101 | +4910101 | Alice | |\n");
+      fs.writeFileSync(contactsC, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 999000102 | +4910102 | Carol | |\n");
+      fs.writeFileSync(soulA, "I am ALICE'S SOUL.\n");
+      fs.writeFileSync(soulC, "I am CAROL'S SOUL.\n");
+      cfg = resolveConfig({
+        pluginConfig: {
+          agents: ["agent-a", "agent-c"],
+          agentName: "GlobalAgent",
+          agentProfiles: {
+            "agent-a": { agentName: "Alice", contactsPath: contactsA, soulPath: soulA },
+            "agent-c": { agentName: "Carol", contactsPath: contactsC, soulPath: soulC },
+          },
+        },
+      });
+    });
+
+    afterEach(() => {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    });
+
+    it("Case A: new agent in 3 files (allowlist + profile + contacts/SOUL) speaks hard and gets its soul; card refresher starts after 5 messages", async () => {
+      let decideCalls = 0;
+      let capturedDecide;
+      let capturedResult;
+      const engine = {
+        decide: async (opts) => {
+          decideCalls++;
+          capturedDecide = opts;
+          capturedResult = { decision: "speak", epoch: 1, path: "hard" };
+          return capturedResult;
+        },
+        respond: async () => ({ superseded: true }),
+        currentEpoch: () => 0,
+      };
+      const gate = createGate({
+        cfg,
+        state,
+        engine,
+        persona: makeSoulPersona(),
+        socialMemory: createSocialMemory({ cfg, stateDir, log: { info() {}, warn() {}, debug() {} } }),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      const skC = "agent:agent-c:whatsapp:group:onboard-c@g.us";
+      state.chatTypeBySession.set(skC, "group");
+      // Message from a contact id in agent-c's contacts.md (senderId 999000102 → Carol)
+      gate.onMessageReceived(
+        { text: "hey Carol, was denkst du?" },
+        { agentId: "agent-c", sessionKey: skC, senderId: "999000102", senderName: "" },
+      );
+      const verdict = await gate.onBeforeAgentReply(
+        { cleanedBody: "hey Carol, was denkst du?" },
+        { agentId: "agent-c", sessionKey: skC, senderId: "999000102", senderName: "" },
+      );
+      assert.equal(verdict, undefined, "hard-trigger on agent-c's name must speak");
+      assert.equal(decideCalls, 1);
+      assert.equal(capturedResult.path, "hard");
+      assert.equal(capturedDecide.persona, "I am CAROL'S SOUL.", "decide persona must be agent-c's soul");
+
+      // Voice-card injection is empty for a fresh agent.
+      let cardExtractCalls = 0;
+      const cardCfg = resolveConfig({
+        pluginConfig: {
+          agents: ["agent-a", "agent-c"],
+          socialLearning: { enabled: true, refreshEvery: 5, refreshMinutes: 0 },
+          agentProfiles: {
+            "agent-c": { agentName: "Carol", contactsPath: contactsC, soulPath: soulC, socialLearning: { refreshEvery: 5 } },
+          },
+        },
+      });
+      const { onBeforePromptBuild } = createVoiceCard({
+        cfg: cardCfg,
+        engine: { extractVoiceCard: async () => { cardExtractCalls++; return { prompt_block: "# CARD" }; } },
+        stateDir,
+        log: { info() {}, warn() {} },
+      });
+      const evt = { messages: [{ role: "user", content: "[User] hey Carol hi" }] };
+      const first = onBeforePromptBuild(evt, { sessionKey: skC, agentId: "agent-c" });
+      assert.ok(!first || !first.appendSystemContext, "fresh agent has no card injected before refresh");
+      for (let i = 0; i < 4; i++) {
+        onBeforePromptBuild(evt, { sessionKey: skC, agentId: "agent-c" });
+      }
+      await new Promise((r) => setTimeout(r, 60));
+      assert.ok(cardExtractCalls >= 1, "after 5 messages the card refresher fires");
+    });
+
+    it("Case B: autoconfig catches a profile typo — inert profile warns AND the scoped hook stays a no-op", async () => {
+      // Profile exists for agent-c, but the allowlist only has agent-a → inert.
+      const warnLog = [];
+      const { warnStartupConfig } = await import("../lib/autoconfig.js");
+      warnStartupConfig(
+        { agents: ["agent-a"], agentProfiles: { "agent-c": { contactsPath: contactsC, soulPath: soulC } } },
+        {},
+        { info() {}, warn(m) { warnLog.push(String(m)); }, debug() {} },
+      );
+      assert.ok(warnLog.some((w) => w.includes("profile exists but agent not in agents allowlist")));
+
+      // Behavioral side: agent-c's hooks are a no-op because agent-c is not in the allowlist.
+      const onlyA = resolveConfig({
+        pluginConfig: {
+          agents: ["agent-a"],
+          agentProfiles: { "agent-c": { agentName: "Carol", contactsPath: contactsC, soulPath: soulC } },
+        },
+      });
+      let decideCalled = false;
+      const gate = createGate({
+        cfg: onlyA,
+        state,
+        engine: {
+          decide: async () => { decideCalled = true; return { decision: "speak", epoch: 1 }; },
+          respond: async () => ({ superseded: true }),
+          currentEpoch: () => 0,
+        },
+        persona: makeSoulPersona(),
+        socialMemory: createSocialMemory({ cfg: onlyA, stateDir, log: { info() {}, warn() {}, debug() {} } }),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const skC = "agent:agent-c:whatsapp:group:onboard-typo@g.us";
+      state.chatTypeBySession.set(skC, "group");
+      const verdict = await gate.onBeforeAgentReply(
+        { cleanedBody: "hey Carol, was denkst du?" },
+        { agentId: "agent-c", sessionKey: skC, senderId: "999000102", senderName: "" },
+      );
+      assert.equal(verdict, undefined, "unscoped agent-c hook is a no-op");
+      assert.equal(decideCalled, false, "decide must NOT run for an unscoped agent");
+    });
+
+    it("Case C: two groups, one agent — separate observed/memory scopes and no transcript bleed", async () => {
+      const engine = {
+        decide: async () => ({ decision: "stay_silent", epoch: 1 }),
+        respond: async () => ({ superseded: true }),
+        currentEpoch: () => 0,
+      };
+      const gate = createGate({
+        cfg,
+        state,
+        engine,
+        persona: makeSoulPersona(),
+        socialMemory: createSocialMemory({ cfg, stateDir, log: { info() {}, warn() {}, debug() {} } }),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      const sk1 = "agent:agent-a:whatsapp:group:g1@g.us";
+      const sk2 = "agent:agent-a:whatsapp:group:g2@g.us";
+      state.chatTypeBySession.set(sk1, "group");
+      state.chatTypeBySession.set(sk2, "group");
+
+      // Send different senders/messages into the two groups of the same agent.
+      gate.onMessageReceived({ text: "hello group one" }, { agentId: "agent-a", sessionKey: sk1, senderId: "u1" });
+      gate.onMessageReceived({ text: "hello group two" }, { agentId: "agent-a", sessionKey: sk2, senderId: "u2" });
+      const peek1 = state.transcriptPeekBySession.get(sk1) || [];
+      const peek2 = state.transcriptPeekBySession.get(sk2) || [];
+      assert.ok(peek1.some((l) => l.includes("hello group one")), "group one transcript has its own message");
+      assert.ok(!peek1.some((l) => l.includes("hello group two")), "group one must NOT see group two's message");
+      assert.ok(peek2.some((l) => l.includes("hello group two")), "group two transcript has its own message");
+      assert.ok(!peek2.some((l) => l.includes("hello group one")), "group two must NOT see group one's message");
+    });
+  });
+
   describe("proactive tenancy (Plan 005)", () => {
     const T0 = new Date(2026, 8, 9, 14, 0).getTime();
     let tmpDir;
