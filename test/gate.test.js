@@ -962,6 +962,76 @@ describe("gate", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
+    it("resolves per-agent contactsPath for sender name resolution", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-agent-contacts-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 222 | +4900000001 | Alice | |\n");
+
+      const agentCfg = {
+        ...cfg,
+        agentProfiles: {
+          "test-agent": { agentName: "Alice", contactsPath: cFile },
+        },
+      };
+      let captured;
+      const contactGate = makeGate({
+        cfg: agentCfg,
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      await contactGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "servus" }),
+        makeDefaultCtx({ senderName: undefined, senderId: "+4900000001" }),
+      );
+      const peek = state.transcriptPeekBySession.get(CHAT_SK) || [];
+      assert.ok(peek[peek.length - 1].startsWith("[Alice] "), "sender resolved from per-agent contacts");
+      assert.equal(captured.agentName, "Alice", "decide receives the per-agent name");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("hard trigger with the wrong agent name stays silent", async () => {
+      let captured;
+      const agentCfg = {
+        ...cfg,
+        agents: ["test-agent"],
+        agentProfiles: {
+          "test-agent": { agentName: "Alice" },
+        },
+      };
+      const wrongNameGate = makeGate({
+        cfg: agentCfg,
+        engine: { async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      // "hey Bob" mentions Bob, not Alice — Alice must not hard-trigger.
+      const result = await wrongNameGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "hey Bob, what do you think" }),
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { handled: true }, "wrong agent name must not speak");
+      assert.equal(captured?.prompt, "hey Bob, what do you think");
+    });
+
+    it("hard trigger with the correct per-agent name speaks", async () => {
+      const agentCfg = {
+        ...cfg,
+        agents: ["test-agent"],
+        agentProfiles: {
+          "test-agent": { agentName: "Alice" },
+        },
+      };
+      const correctGate = makeGate({
+        cfg: agentCfg,
+        engine: { async decide(opts) { return { decision: "speak", epoch: 1 }; } },
+      });
+      const result = await correctGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "hey Alice, what do you think" }),
+        makeDefaultCtx(),
+      );
+      assert.equal(result, undefined, "correct agent name should speak");
+    });
+
     it("resolves unresolvable phone numbers to member-XXXX (last 4 digits)", async () => {
       const anonGate = makeGate();
       const result = anonGate.onMessageReceived({ text: "hi" }, makeDefaultCtx({ senderName: undefined, senderId: "+4915000000003" }));
