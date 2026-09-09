@@ -112,6 +112,8 @@ const MATRIX = [
     tags: ["social card isolation"] },
   { id: 53, behavior: "dm-proactive tenancy: dmProactive.agents overrides global agents (DM lane stays gated while global features unscope the agent)", tags: ["dm-proactive tenancy"] },
   { id: 54, behavior: "proactive/dm-proactive state isolated per agent: per-agent sentIds and byKind buckets (legacy v2 migrates), per-agent proactive budgets/eviction", tags: ["proactive tenancy"] },
+  { id: 55, behavior: "onboarding a new agent/group is declarative (profiles + files only) and misconfiguration warns loudly at startup (autoconfig), incl. inert-profile and missing-paths cases",
+    tags: ["new agent in 3 files", "profile exists but agent not in agents allowlist"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
