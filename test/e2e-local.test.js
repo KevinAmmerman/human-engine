@@ -11,6 +11,8 @@ import { resolveConfig } from "../lib/config.js";
 import * as state from "../lib/state.js";
 import { setRng, resetRng } from "../lib/timing-engine.js";
 import { createVoiceCard } from "../lib/voice-card.js";
+import { createDmProactive } from "../lib/dm-proactive.js";
+import { readLog } from "./helpers/dm-proactive-fixtures.js";
 
 function makeFakeTiming() {
   return {
@@ -687,6 +689,165 @@ describe("e2e-local", () => {
       assert.ok(capturedRespond, "flush should invoke engine.respond");
       assert.ok(capturedRespond.persona.includes("I am BOB'S SOUL."), "agent-b flush persona uses agent-b's soul");
       assert.ok(!capturedRespond.persona.includes("I am ALICE'S SOUL."), "agent-b flush persona must not use agent-a's soul");
+    });
+  });
+
+  describe("proactive tenancy (Plan 005)", () => {
+    const T0 = new Date(2026, 8, 9, 14, 0).getTime();
+    let tmpDir;
+    let stateDir;
+
+    function envelopeText(id, kind = "soft_followup", draft = "Kommt ihr heute noch am Projekt voran?") {
+      const env = {
+        id,
+        kind,
+        sensitivity: "normal",
+        confidence: 0.8,
+        dueWindow: { earliestMs: T0, latestMs: T0 + 6 * 60 * 60 * 1000 },
+        lastUserRefMs: T0 - 2 * 60 * 60 * 1000,
+        source: "followup-cron",
+      };
+      return "[[fu:" + JSON.stringify(env) + "]]\n" + draft;
+    }
+
+    function makeDm(cfg, stateSeed) {
+      if (stateSeed) fs.writeFileSync(path.join(stateDir, "dm-proactive-state.json"), JSON.stringify(stateSeed), "utf8");
+      const calls = [];
+      const runtime = {
+        subagent: { run: mock.fn(async (o) => { calls.push(o); return { runId: "r" + calls.length }; }) },
+        llm: { complete: mock.fn(async () => ({ text: "draft" })) },
+      };
+      const dm = createDmProactive({
+        cfg,
+        llm: runtime.llm,
+        socialMemory: { getOrLoadProfile: () => null },
+        runtime,
+        stateDir,
+        log: { info() {}, warn() {}, debug() {} },
+        now: () => T0,
+      });
+      return { dm, runtime, calls };
+    }
+
+    function prodEvent(content, to, channel = "telegram") {
+      return { to, content, metadata: { channel, accountId: "bot-1" } };
+    }
+
+    beforeEach(async () => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "e2e-tenancy-"));
+      stateDir = path.join(tmpDir, "state");
+      fs.mkdirSync(stateDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    });
+
+    it("Case A: sentIds isolation — same envelope id from agent-a succeeds; identical id from agent-b does NOT duplicate-cancel", async () => {
+      const cfg = resolveConfig({
+        pluginConfig: { enabled: true, agents: ["agent-a", "agent-b"], dmProactive: { enabled: true, shadow: false, minGapMinutes: 0, agents: ["agent-a", "agent-b"] } },
+      });
+      const scopeA = "agent-a::agent:agent-a:telegram:direct:999000001";
+      const scopeB = "agent-b::agent:agent-b:telegram:direct:999000002";
+      fs.writeFileSync(path.join(stateDir, "dm-proactive-state.json"), JSON.stringify({
+        version: 3,
+        scopes: { [scopeA]: { day: "2026-09-09", count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 }, [scopeB]: { day: "2026-09-09", count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } },
+        sentIds: { __legacy__: [] },
+        byKind: {},
+      }), "utf8");
+      const { dm } = makeDm(cfg);
+      const rA = await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-iso-a"), "999000001"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(rA, { cancel: true }, "live gate-pass suppresses the original outbound");
+      const rA2 = await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-iso-a"), "999000001"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(rA2, { cancel: true }, "agent-a's own duplicate must cancel");
+      let entries = readLog(stateDir);
+      assert.equal(entries.length, 2);
+      assert.equal(entries[0].gatePassed, true, "agent-a first send passes");
+      assert.equal(entries[1].gatePassed, false, "agent-a's own duplicate is rejected");
+      assert.ok(entries[1].gate.reasons.includes("duplicate"), entries[1].gate.reasons.join(","));
+      // agent-b's lane is a DIFFERENT scope; the same id is NOT a duplicate for it.
+      const { dm: dm2 } = makeDm(cfg);
+      const rB = await dm2.onMessageSending(prodEvent(envelopeText("fu-20260909-iso-a"), "999000002"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(rB, { cancel: true });
+      const entriesB = readLog(stateDir);
+      const bEntry = entriesB[entriesB.length - 1];
+      assert.equal(bEntry.gatePassed, true, "agent-b's identical id must NOT duplicate-cancel — its own gate passes");
+      assert.ok(!bEntry.gate.reasons.includes("duplicate"), "agent-b must not be blocked by agent-a's sentId");
+    });
+
+    it("Case B: byKind isolation — agent-a ignoreStreak 4 does not pause agent-b's soft followup", async () => {
+      const cfg = resolveConfig({
+        pluginConfig: { enabled: true, agents: ["agent-a", "agent-b"], dmProactive: { enabled: true, shadow: false, minGapMinutes: 0, agents: ["agent-a", "agent-b"] } },
+      });
+      const scopeA = "agent-a::agent:agent-a:telegram:direct:999000003";
+      const scopeB = "agent-b::agent:agent-b:telegram:direct:999000004";
+      fs.writeFileSync(path.join(stateDir, "dm-proactive-state.json"), JSON.stringify({
+        version: 3,
+        scopes: { [scopeA]: { day: "2026-09-09", count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 }, [scopeB]: { day: "2026-09-09", count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } },
+        sentIds: { __legacy__: [] },
+        byKind: { "agent-a": { soft_followup: { budgetMultiplier: 0, sends: [], replyRate14d: 0.0, ignoreStreak: 4, paused: true } } },
+      }), "utf8");
+      const { dm } = makeDm(cfg);
+      const rA = await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-bk-a", "soft_followup"), "999000003"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(rA, { cancel: true }, "agent-a's paused kind must cancel its own soft followup");
+      const rB = await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-bk-b", "soft_followup"), "999000004"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(rB, { cancel: true });
+      const entries = readLog(stateDir);
+      const aEntry = entries.find((e) => e.candidateId === "fu-20260909-bk-a");
+      const bEntry = entries.find((e) => e.candidateId === "fu-20260909-bk-b");
+      assert.equal(aEntry.gatePassed, false, "agent-a's paused kind must gate-fail its own soft followup");
+      assert.ok(aEntry.gate.reasons.includes("cadence-paused"), aEntry.gate.reasons.join(","));
+      assert.equal(bEntry.gatePassed, true, "agent-b's soft followup must run on full budget despite agent-a's ignoreStreak");
+      assert.ok(!bEntry.gate.reasons.includes("cadence-paused"), "agent-b must not inherit agent-a's paused kind");
+    });
+
+    it("Case C: fallback (b) — dmProactive.agents [agent-b] + global list of two agents → derives agent-b", async () => {
+      const cfg = resolveConfig({
+        pluginConfig: { enabled: true, agents: ["agent-a", "agent-b"], agentName: "Global", dmProactive: { enabled: true, shadow: true, minGapMinutes: 0, agents: ["agent-b"] } },
+      });
+      const { dm } = makeDm(cfg); // fresh state — no scopes seeded
+      const r = await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-fb-c"), "999000005"), { channelId: "telegram", accountId: "bot-1" });
+      assert.ok(r && r.content && !r.content.includes("[[fu:"), "single dmProactive.agent must derive agent-b even with two global agents");
+      const entries = readLog(stateDir);
+      assert.equal(entries.length, 1);
+      assert.equal(entries[0].scope, "agent-b::agent:agent-b:telegram:direct:999000005", "fallback (b) must resolve agent-b");
+    });
+
+    it("Case D: legacy dedup — v2 state with sentId X migrates; X blocks EVERY agent across the transition", async () => {
+      const cfg = resolveConfig({
+        pluginConfig: { enabled: true, agents: ["agent-a", "agent-b"], dmProactive: { enabled: true, shadow: false, minGapMinutes: 0, agents: ["agent-a", "agent-b"] } },
+      });
+      const scopeA = "agent-a::agent:agent-a:telegram:direct:999000006";
+      const scopeB = "agent-b::agent:agent-b:telegram:direct:999000007";
+      fs.writeFileSync(path.join(stateDir, "dm-proactive-state.json"), JSON.stringify({
+        scopes: { [scopeA]: { day: "2026-09-09", count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 }, [scopeB]: { day: "2026-09-09", count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } },
+        sentIds: ["fu-20260909-legacy-x"],
+        byKind: {},
+      }), "utf8");
+      const { dm } = makeDm(cfg); // load triggers v2→v3 migration
+      const rA = await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-legacy-x"), "999000006"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(rA, { cancel: true }, "legacy sentId X must still block agent-a");
+      const rB = await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-legacy-x"), "999000007"), { channelId: "telegram", accountId: "bot-1" });
+      assert.deepEqual(rB, { cancel: true }, "legacy sentId X must still block agent-b (single delivery over the transition)");
+    });
+
+    it("Case E: envelope safety — during all cases NO raw [[fu: prefix ever leaves the hook", async () => {
+      const cfg = resolveConfig({
+        pluginConfig: { enabled: true, agents: ["agent-a", "agent-b"], agentName: "Global", dmProactive: { enabled: true, shadow: false, minGapMinutes: 0, agents: ["agent-a", "agent-b"] } },
+      });
+      const { dm } = makeDm(cfg);
+      const results = [];
+      // Various shapes that the hook can produce — none may carry [[fu:.
+      results.push(await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-safe-1"), "soft_followup", "Draft one"), "999000008", "telegram"));
+      results.push(await dm.onMessageSending(prodEvent(envelopeText("fu-20260909-safe-2"), "soft_followup", "Draft two"), "999000009", "telegram"));
+      for (const r of results) {
+        if (r && r.content !== undefined) {
+          assert.ok(!r.content.includes("[[fu:"), "delivered content must never contain the RAW envelope");
+        }
+      }
+      // Normal agent text untouched (still no envelope leak).
+      const plain = await dm.onMessageSending({ to: "999000008", content: "Just a normal reply", metadata: { channel: "telegram" } }, { channelId: "telegram", accountId: "bot-1" });
+      assert.equal(plain, undefined, "plain agent text untouched");
     });
   });
 });
