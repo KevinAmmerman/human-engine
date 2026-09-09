@@ -1,4 +1,6 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import fs from "node:fs";
+import path from "node:path";
 import { resolveConfig, resolveAgentConfig } from "./lib/config.js";
 import { createGate } from "./lib/gate.js";
 import { createNaturalize, clearAllBubbleTimers } from "./lib/naturalize.js";
@@ -63,6 +65,14 @@ export default definePluginEntry({
 
     const pluginDir = new URL(".", import.meta.url).pathname;
     const stateDir = process.env.HUMAN_ENGINE_STATE_DIR || pluginDir + "state";
+
+    try {
+      fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+      for (const d of fs.readdirSync(stateDir, { withFileTypes: true })) {
+        if (d.isDirectory()) { try { fs.chmodSync(path.join(stateDir, d.name), 0o700); } catch {} }
+      }
+      fs.chmodSync(stateDir, 0o700);
+    } catch {}
 
     const socialMemory = createSocialMemory({ cfg, llm, stateDir, log });
 
