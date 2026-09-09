@@ -14,6 +14,7 @@ import { createProactive } from "./lib/proactive.js";
 import { createDmProactive } from "./lib/dm-proactive.js";
 import { createMood } from "./lib/mood.js";
 import * as timing from "./lib/timing-engine.js";
+import { agentIdFromSessionKey } from "./lib/scope.js";
 
 const runtime = { api: null, cfg: null };
 
@@ -82,9 +83,7 @@ export default definePluginEntry({
       try {
         const m = await transcriptApiPromise;
         if (!m?.readSessionTranscriptEvents) return [];
-        const agentId = typeof sessionKey === "string" && sessionKey.startsWith("agent:")
-          ? sessionKey.split(":")[1]
-          : undefined;
+        const agentId = agentIdFromSessionKey(sessionKey);
         if (!agentId || !sessionId) return [];
         const events = await m.readSessionTranscriptEvents({ agentId, sessionKey, sessionId });
         const out = [];
