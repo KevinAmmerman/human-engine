@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { defaultConfig, resolveConfig, isEnabled, isScopedAgent } from "../lib/config.js";
+import { defaultConfig, resolveConfig, isEnabled, isScopedAgent, resolveAgentConfig, resolveAgentConfigForSession } from "../lib/config.js";
 
 describe("config", () => {
   it("defaultConfig returns expected defaults", () => {
@@ -138,5 +138,78 @@ describe("config", () => {
     assert.equal(isScopedAgent({ agents: ["alice"] }, null), false);
     assert.equal(isScopedAgent({ agents: ["alice"] }, undefined), false);
     assert.equal(isScopedAgent({ agents: ["alice"] }, ""), false);
+  });
+
+  it("defaultConfig agentProfiles is an empty object", () => {
+    assert.deepEqual(defaultConfig().agentProfiles, {});
+  });
+
+  it("resolveConfig merges agentProfiles into cfg and keeps other keys", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentProfiles: { "agent-b": { agentName: "BotB" } } } });
+    assert.equal(cfg.agentProfiles["agent-b"].agentName, "BotB");
+    assert.equal(cfg.agentName, "OpenClaw", "global agentName untouched");
+    assert.deepEqual(cfg.agents, [], "global agents untouched");
+    assert.equal(cfg.enabled, true, "global enabled untouched");
+  });
+
+  it("resolveAgentConfig profile overrides win, non-profile keys fall back to global", () => {
+    const cfg = resolveConfig({
+      pluginConfig: {
+        agentName: "Yuki",
+        agentAliases: ["Hori"],
+        soulPath: "/global/soul.md",
+        contactsPath: "/global/contacts.md",
+        agentProfiles: { "agent-b": { agentName: "BotB", soulPath: "/tmp/b-soul.md" } },
+      },
+    });
+    const a = resolveAgentConfig(cfg, "agent-b");
+    assert.equal(a.agentName, "BotB", "profile agentName wins");
+    assert.equal(a.soulPath, "/tmp/b-soul.md", "profile soulPath wins");
+    assert.deepEqual(a.agentAliases, ["Hori"], "non-profile alias falls back to global");
+    assert.equal(a.contactsPath, "/global/contacts.md", "non-profile contactsPath falls back to global");
+  });
+
+  it("resolveAgentConfig merges nested profile objects one level over global", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentProfiles: { "agent-b": { proactive: { shadow: false } } } } });
+    const a = resolveAgentConfig(cfg, "agent-b");
+    assert.equal(a.proactive.shadow, false, "profile nested override wins");
+    assert.equal(a.proactive.budgetPerDay, 2, "sibling global nested default survives");
+    assert.equal(a.proactive.enabled, false, "sibling global nested default survives");
+  });
+
+  it("resolveAgentConfig with unknown/missing agentId returns the same cfg object", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentProfiles: { "agent-b": { agentName: "BotB" } } } });
+    assert.equal(resolveAgentConfig(cfg, "unknown"), cfg, "unknown agentId returns same object");
+    assert.equal(resolveAgentConfig(cfg, undefined), cfg, "undefined agentId returns same object");
+    assert.equal(resolveAgentConfig(cfg, null), cfg, "null agentId returns same object");
+    assert.equal(resolveAgentConfig(cfg, ""), cfg, "empty agentId returns same object");
+  });
+
+  it("resolveAgentConfig with no profile entry returns the same cfg object", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentProfiles: {} } });
+    assert.equal(resolveAgentConfig(cfg, "agent-b"), cfg, "agent without profile entry returns same object");
+  });
+
+  it("resolveAgentConfigForSession resolves profile from sessionKey agentId", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentProfiles: { "agent-b": { agentName: "BotB" } } } });
+    const a = resolveAgentConfigForSession(cfg, "agent:agent-b:whatsapp:group:1@g.us", null);
+    assert.equal(a.agentName, "BotB");
+  });
+
+  it("resolveAgentConfigForSession uses ctxAgentId when sessionKey has no agentId", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentProfiles: { "agent-b": { agentName: "BotB" } } } });
+    const a = resolveAgentConfigForSession(cfg, "whatsapp:group:1@g.us", "agent-b");
+    assert.equal(a.agentName, "BotB");
+  });
+
+  it("resolveAgentConfigForSession falls back to global when no agentId present", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentName: "Yuki", agentProfiles: { "agent-b": { agentName: "BotB" } } } });
+    const a = resolveAgentConfigForSession(cfg, "whatsapp:group:1@g.us", null);
+    assert.equal(a.agentName, "Yuki");
+  });
+
+  it("agentProfiles do not widen scoping allowlist", () => {
+    const cfg = resolveConfig({ pluginConfig: { agents: ["a"], agentProfiles: { "agent-b": { agentName: "BotB" } } } });
+    assert.equal(isScopedAgent(resolveAgentConfig(cfg, "b"), "b"), false);
   });
 });
