@@ -46,6 +46,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `proactive.probability` | number | `0.5` | Seeded probability floor |
 | `proactive.cooldownBaseMinutes` | number | `180` | Base cooldown after a send |
 | `proactive.triggers.*` | bool | `true` | Candidate triggers (unanswered_question, stalled_exchange, context_match, follow_up_commitment) |
+| `dmProactive.agents` | array | `[]` | DM-proactive allowlist override — when non-empty it OVERRIDES global `cfg.agents` for the DM-proactive subtree only (Plan 005, adopted from 586) |
 | `dmProactive.enabled` | bool | `false` | Enable DM follow-up rendering |
 | `dmProactive.shadow` | bool | `true` | Log would-be sends without delivering |
 | `dmProactive.budgetPerDay` | number | `2` | Max DM follow-ups per day |
@@ -54,6 +55,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `dmProactive.careBudgetPerDay` | number | `1` | Extra budget for care-tier candidates |
 | `dmProactive.dayFitReduceHours` | number | `4` | Reduce sends when DayFit band is this many hours stale |
 | `dmProactive.dayFitPauseHours` | number | `12` | Pause sends when DayFit band is this many hours stale |
+| `dmProactive.dayFitActivityPath` | string | `""` | Per-agent DayFit activity file override (falls back to the global kevin-activity.json default) |
 | `dmProactive.inferredCapPerDay` | number | `2` | Cap for inferred (non-envelope) candidates |
 | `mood.enabled` | bool | `false` | Mood layer master switch — stateful valence/energy per DM session, dm-only (Plan 570) |
 | `mood.refreshEvery` / `mood.refreshMinutes` | number | `5` / `0` | Appraisal cadence (message-count and/or minutes; count-based wins while minutes=0) |
@@ -101,8 +103,8 @@ runtime, never committed. Files are written 0600, dirs 0700, via tmp+rename.
 | `state/social-learning-cache.json` | Voice card cache, format v2: per-agent buckets `{version:2, agents:{<agentId>:{cache,counter}}}`; v1 flat files migrate on load (Plan 004) |
 | `state/social-memory/<agentId>/<sessionKey>.json` | Social memory profiles per agent × session |
 | `state/observed/<sessionKey>.jsonl` | Silenced-member AND agent-own-reply lines (Plan 528), 200-line rotation |
-| `state/proactive.json` | Proactive budgets/cooldowns (persisted) |
-| `state/dm-proactive-state.json` | DM-proactive v2: per-scope counts, `sentIds` LRU (max 512), `byKind` cadence |
+| `state/proactive.json` | Proactive budgets/cooldowns, format v2: `{version:2, agents:{<agentId>:{counters,cooldowns,engagements}}}`; v1 flat scope-keys migrate on load (split at first `::`, no-agent → `__legacy__`) (Plan 005) |
+| `state/dm-proactive-state.json` | DM-proactive v3: `{version:3, scopes, sentIds:{<agentId>:[…]}, byKind:{<agentId>:{kind:{…}}}}`; v2 flat `sentIds`/`byKind` migrate to a `__legacy__` bucket (reads fall back, writes never touch it) (Plan 005) |
 | `state/dm-proactive.jsonl` | DM-proactive shadow/live log v2 (14-day retention, outcome backfill) |
 | `state/mood/<agentId>/<sessionKey>.json` | Mood layer: per-DM-session valence/energy state (Plan 570) |
 

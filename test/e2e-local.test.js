@@ -743,7 +743,7 @@ describe("e2e-local", () => {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     });
 
-    it("Case A: sentIds isolation — same envelope id from agent-a succeeds; identical id from agent-b does NOT duplicate-cancel", async () => {
+    it("Case A: dm-proactive tenancy sentIds isolation — same envelope id from agent-a succeeds; identical id from agent-b does NOT duplicate-cancel", async () => {
       const cfg = resolveConfig({
         pluginConfig: { enabled: true, agents: ["agent-a", "agent-b"], dmProactive: { enabled: true, shadow: false, minGapMinutes: 0, agents: ["agent-a", "agent-b"] } },
       });

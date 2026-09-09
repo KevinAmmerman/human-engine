@@ -110,6 +110,8 @@ const MATRIX = [
     tags: ["disabledm"] },
   { id: 52, behavior: "social cards are isolated per agent: per-agent cache buckets, per-agent eviction, perSessionCard:false collapses per agent only (v1 cache migrates on load)",
     tags: ["social card isolation"] },
+  { id: 53, behavior: "dm-proactive tenancy: dmProactive.agents overrides global agents (DM lane stays gated while global features unscope the agent)", tags: ["dm-proactive tenancy"] },
+  { id: 54, behavior: "proactive/dm-proactive state isolated per agent: per-agent sentIds and byKind buckets (legacy v2 migrates), per-agent proactive budgets/eviction", tags: ["proactive tenancy"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

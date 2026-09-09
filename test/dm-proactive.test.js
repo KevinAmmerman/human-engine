@@ -892,7 +892,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       }
     });
 
-    it("ignoreStreak of agent-a's kind does NOT pause agent-b's kind", async () => {
+    it("proactive tenancy byKind isolation: ignoreStreak of agent-a's kind does NOT pause agent-b's kind", async () => {
       // agent-a has ignoreStreak 4 (paused); agent-b is fresh → full budget.
       writeState(tmpDir, {
         version: 3,
