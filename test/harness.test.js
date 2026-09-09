@@ -12,7 +12,6 @@ const DISABLED_CFG = { enabled: false, agents: [], agentName: "Test" };
 function makeEngine() {
   return {
     async decide(opts) { return { decision: "speak", epoch: 1 }; },
-    openThread() { return { id: "th-1" }; },
     currentEpoch() { return 0; },
     async respond(opts) { return { scheduled: [{ content: "bubble", position: 0, delayMs: 10 }], superseded: false }; },
   };

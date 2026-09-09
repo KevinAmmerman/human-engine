@@ -21,9 +21,6 @@ function makeEngine() {
       }
       return { decision: "stay_silent", epoch: 1 };
     },
-    openThread() {
-      return { id: "th-1" };
-    },
     currentEpoch() {
       return 0;
     },
