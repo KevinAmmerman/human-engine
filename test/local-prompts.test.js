@@ -226,6 +226,20 @@ describe("local-prompts", () => {
       assert.ok(p.systemPrompt.includes("the agent"));
       assert.ok(p.userMessage.includes("(none)"));
     });
+
+    it("carries the untrusted-data directive in the system prompt (plan 010)", () => {
+      const p = buildRegeneratePrompt({ reasoning: "x", agentName: "Hori" });
+      assert.ok(p.systemPrompt.includes(UNTRUSTED));
+    });
+
+    it("wraps the transcript block in group chat log markers (plan 010)", () => {
+      const p = buildRegeneratePrompt({ reasoning: "x", agentName: "Hori", transcript: [{ speaker: "A", text: "hello" }] });
+      assert.ok(p.userMessage.includes(LOG_START));
+      assert.ok(p.userMessage.includes(LOG_END));
+      const startIdx = p.userMessage.indexOf(LOG_START);
+      const endIdx = p.userMessage.indexOf(LOG_END);
+      assert.ok(startIdx < p.userMessage.indexOf("[A] hello") && p.userMessage.indexOf("[A] hello") < endIdx);
+    });
   });
 
   describe("buildExtractPrompt", () => {

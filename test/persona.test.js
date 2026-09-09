@@ -63,6 +63,9 @@ describe("persona", () => {
       setVoiceCardGetter(() => "# Custom Voice Card");
       const result = buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "sk-vc");
       assert.ok(result.includes("# Custom Voice Card"));
+      const startIdx = result.indexOf("<<<GROUP CHAT LOG (untrusted)>>>");
+      const endIdx = result.indexOf("<<<END GROUP CHAT LOG>>>");
+      assert.ok(startIdx < result.indexOf("# Custom Voice Card") && result.indexOf("# Custom Voice Card") < endIdx);
     });
 
     it("voice card getter receives (sessionKey, agentId) — agentId forwarded", () => {
@@ -114,6 +117,9 @@ describe("persona", () => {
       );
       assert.ok(result.includes("Alice likes cats."));
       assert.ok(result.includes("What you know about the people here"));
+      const startIdx = result.indexOf("<<<GROUP CHAT LOG (untrusted)>>>");
+      const endIdx = result.indexOf("<<<END GROUP CHAT LOG>>>");
+      assert.ok(startIdx < result.indexOf("Alice likes cats.") && result.indexOf("Alice likes cats.") < endIdx);
     });
 
     it("includes persona content plus memory", () => {

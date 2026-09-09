@@ -154,7 +154,10 @@ describe("mood", () => {
       assert.ok(out.includes("Current mood state"));
       assert.ok(out.includes("gut/aufgeladen"));
       assert.ok(out.includes("still/niedrig"));
-      assert.ok(out.includes("note: sehr müde"));
+      assert.ok(out.includes("note:"));
+      const startIdx = out.indexOf("<<<GROUP CHAT LOG (untrusted)>>>");
+      const endIdx = out.indexOf("<<<END GROUP CHAT LOG>>>");
+      assert.ok(startIdx < out.indexOf("sehr müde") && out.indexOf("sehr müde") < endIdx);
     });
 
     it("clampShift clamps movement per axis", () => {
