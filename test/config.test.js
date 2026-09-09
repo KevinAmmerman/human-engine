@@ -22,7 +22,7 @@ describe("config", () => {
     assert.deepEqual(cfg.decide, { temperature: 0.2 });
     assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.9 });
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
-    assert.deepEqual(cfg.naturalize, { speakEpochTtlMs: 300000 });
+    assert.deepEqual(cfg.naturalize, { disableDM: false, speakEpochTtlMs: 300000 });
     assert.deepEqual(cfg.dmProactive, { enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, inferredCapPerDay: 2 });
   });
 
@@ -96,6 +96,12 @@ describe("config", () => {
     const cfg = resolveConfig(api);
     assert.equal(cfg.humanize.temperature, 0.1);
     assert.equal(cfg.humanize.maxBubbles, 5);
+  });
+
+  it("resolveConfig deep-merges naturalize and keeps sibling defaults", () => {
+    const cfg = resolveConfig({ pluginConfig: { naturalize: { disableDM: true } } });
+    assert.equal(cfg.naturalize.disableDM, true);
+    assert.equal(cfg.naturalize.speakEpochTtlMs, 300000, "sibling naturalize default survives");
   });
 
   it("isEnabled returns true when enabled is true", () => {

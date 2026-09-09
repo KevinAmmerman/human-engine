@@ -11,6 +11,7 @@ const cfg = {
 };
 
 const CHAT_SK = "agent:test-agent:whatsapp:group:123@g.us";
+const DM_SK = "agent:hori-wa:telegram:direct:999999999";
 
 function makeEngine() {
   return {
@@ -803,6 +804,67 @@ describe("naturalize", () => {
         makeDefaultCtx(),
       );
       assert.equal(result, undefined);
+    });
+  });
+
+  describe("naturalize.disableDM (plan 587)", () => {
+    it("disableDM: direct session is not armed", () => {
+      const logCalls = [];
+      const nat = createNaturalize({
+        cfg: { ...cfg, naturalize: { disableDM: true } },
+        state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info: (...a) => logCalls.push(a.join(" ")), warn() {}, debug() {} },
+      });
+      const result = nat.onReplyDispatch(
+        { sendPolicy: "allow", sessionKey: DM_SK },
+        makeDefaultCtx({ sessionKey: DM_SK, dispatcher: makeDispatcher(), abortSignal: undefined }),
+      );
+      assert.equal(result, undefined);
+      assert.ok(
+        logCalls.every((l) => !l.includes("dispatch armed")),
+        "no dispatch-armed log for DM when disableDM is on",
+      );
+    });
+
+    it("disableDM: DM reply payload passes through without cancel and still persists own reply", () => {
+      const store = makeObservedStoreStub();
+      const nat = createNaturalize({
+        cfg: { ...cfg, naturalize: { disableDM: true } },
+        state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(), observedStore: store,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(DM_SK, { epoch: 42, ts: Date.now() });
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: DM_SK, kind: "final", channel: "telegram", payload: { text: "Eine normale Nachricht" } },
+        makeDefaultCtx({ sessionKey: DM_SK }),
+      );
+      assert.equal(result, undefined);
+      assert.equal(store._appends.length, 1, "own reply persisted to observed store");
+      assert.equal(store._appends[0].sk, DM_SK);
+    });
+
+    it("disableDM: group sessions still arm and capture", async () => {
+      const dispatcher = makeDispatcher();
+      const nat = createNaturalize({
+        cfg: { ...cfg, naturalize: { disableDM: true } },
+        state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(CHAT_SK, { epoch: 42, ts: Date.now() });
+      nat.onReplyDispatch(
+        { sendPolicy: "allow", sessionKey: CHAT_SK },
+        makeDefaultCtx({ sessionKey: CHAT_SK, dispatcher, abortSignal: undefined }),
+      );
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", channel: "whatsapp", payload: { text: "Real group reply" } },
+        makeDefaultCtx({ sessionKey: CHAT_SK }),
+      );
+      assert.deepEqual(result, { cancel: true });
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
     });
   });
 
