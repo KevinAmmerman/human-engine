@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import {
   parseSessionKey,
   parseScope,
+  parseAgentScope,
+  pathSafe,
   agentIdFromSessionKey,
   isChatSession,
   isGroupSessionKey,
@@ -108,6 +110,34 @@ describe("scope", () => {
       assert.equal(isDmSessionKey(GROUP_KEY), false);
       assert.equal(isDmSessionKey(HEARTBEAT_KEY), false);
       assert.equal(isDmSessionKey("nope"), false);
+    });
+  });
+
+  describe("parseAgentScope", () => {
+    it("parses agentId::sessionKey happy path", () => {
+      const p = parseAgentScope("hori::agent:hori-wa:whatsapp:group:X");
+      assert.deepEqual(p, { agentId: "hori", sessionKey: "agent:hori-wa:whatsapp:group:X" });
+    });
+
+    it("returns null when no :: separator", () => {
+      assert.equal(parseAgentScope("just-a-scope"), null);
+      assert.equal(parseAgentScope(""), null);
+      assert.equal(parseAgentScope(null), null);
+      assert.equal(parseAgentScope(42), null);
+    });
+
+    it("splits on the LAST :: when the session key itself contains ::", () => {
+      const p = parseAgentScope("hori::agent:x:group:y::z");
+      assert.deepEqual(p, { agentId: "hori::agent:x:group:y", sessionKey: "z" });
+    });
+  });
+
+  describe("pathSafe", () => {
+    it("sanitizes unsafe chars", () => {
+      assert.equal(pathSafe("a/b:c d"), "a_b_c_d");
+      assert.equal(pathSafe("safe-1_2"), "safe-1_2");
+      assert.equal(pathSafe(""), "_");
+      assert.equal(pathSafe(null), "_");
     });
   });
 
