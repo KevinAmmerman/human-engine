@@ -13,6 +13,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `agentName` | string | `"OpenClaw"` | Agent display name |
 | `soulPath` | string | `""` | Custom SOUL.md path |
 | `contactsPath` | string | `""` | contacts.md table for sender-ID → name resolution |
+| `agentProfiles` | object | `{}` | Per-agent identity overrides, keyed by agent ID (Plan 002/003) — see below |
 | `soulAutoEnhance` | bool | `true` | Auto-enhance on startup (once, marker-gated) |
 | `antiTell` | bool | `true` | Suppress tell-like phrases |
 | `styleStats` | bool | `true` | Log style stats |
@@ -62,6 +63,33 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 There is no model-override key: every LLM call uses the host's built-in
 `llm.complete`. Nested objects deep-merge one level over defaults, so a
 partial override (e.g. only `timing.typingWpm`) keeps the sibling defaults.
+
+## Per-agent profiles (Plan 002/003)
+
+`agentProfiles` keys multi-tenancy by agent ID. Every Identity consumer
+(name, aliases, contacts table, SOUL, self-filter) resolves per agent; a
+second agent no longer runs under the global name/contacts/SOUL.
+
+```json
+{
+  "agents": ["hori-wa", "kletter"],
+  "agentProfiles": {
+    "hori-wa":  { "agentName": "Yuki", "agentAliases": ["Yuki (Bot)"], "contactsPath": ".../contacts-hori.md", "soulPath": ".../SOUL-hori.md" },
+    "kletter":  { "agentName": "Hori", "agentAliases": [],             "contactsPath": ".../contacts-kletter.md", "soulPath": ".../SOUL-kletter.md" }
+  }
+}
+```
+
+**Resolution order per key:** `agentProfiles[agentId][key]` → global `cfg[key]`
+→ built-in default. Without a profile the behavior is byte-for-byte the
+global (single-agent) behavior. Nested profile objects merge ONE level over
+the global (same semantics as the top-level deep-merge). A profile never
+widens the `agents` allowlist (it only overrides values).
+
+**Which keys are per-agent:** `agentName`, `agentAliases`, `contactsPath`,
+`soulPath`, plus any config key (e.g. `soulAutoEnhance`, nested `socialMemory`,
+`dmProactive`, `mood`). `bin/followup-gate.mjs` and the DayFit single-human
+tracking remain global until Plan 005.
 
 ## State files
 
