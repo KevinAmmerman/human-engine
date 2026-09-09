@@ -48,7 +48,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [019](019-cross-session-person-identity.md) | Cross-Session Personen-Identität (Person-Store, Migration) | P1 | L | 011 | TODO |
+| [019](019-cross-session-person-identity.md) | Cross-Session Personen-Identität (Person-Store, Migration) | P1 | L | 011 | DONE (executed+approved, 964/0, Parity 62/62; Legacy-Files nach legacy-sessions/, default off) |
 | [020](020-social-memory-schema-v2.md) | schemaV2 wiring (relationship/open_threads/emotional_state) | P1 | M | 019 | TODO |
 | [021](021-recall-v2-memory-in-decide.md) | Recall v2 (Textur) + Memory-in-Decide + unified memoryReference | P1 | M | 019, 020 | TODO |
 
