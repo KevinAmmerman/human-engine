@@ -40,7 +40,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | [013](013-observed-store-tail-read.md) | Observed-Store Tail-Read + Cache (Hot Path) | P2 | S | — | DONE (executed+approved, 935/0, Parity 58/58) |
 | [014](014-scope-parser-discipline.md) | Scope-Parser-Disziplin (parseAgentScope, mood/naturalize/proactive umstellen) | P2 | S–M | — | TODO |
 | [015](015-version-sync-dead-code.md) | Version-Sync (0.4.2) + openThread-Stub entfernen | P2 | S | — | TODO |
-| [016](016-decide-parse-robustness.md) | Decide-Output-Parsing robust (Fences/JSON/Prosa) | P1 | S | — | TODO |
+| [016](016-decide-parse-robustness.md) | Decide-Output-Parsing robust (Fences/JSON/Prosa) | P1 | S | — | DONE (executed+approved, 946/0, Parity 59/59) |
 | [017](017-dm-proactive-budget-tenancy.md) | DM-Proactive-Budget per Agent (v3→v4-Migration) | P2 | S–M | 014 ideal | TODO |
 | [018](018-test-hardening.md) | Test-Härtung: TTS-Retry, onSilence-E2E, Parity-`kind` | P2 | M | — | TODO |
 
