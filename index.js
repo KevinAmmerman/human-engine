@@ -70,7 +70,7 @@ export default definePluginEntry({
 
     const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log });
 
-    const dmProactive = createDmProactive({ cfg, llm, socialMemory, runtime: api.runtime, stateDir, log });
+    const dmProactive = createDmProactive({ cfg, llm, socialMemory, runtime: api.runtime, stateDir, log, activityFilePath: cfg.dmProactive?.dayFitActivityPath || null });
 
     const transcriptApiPromise = import("openclaw/plugin-sdk/session-transcript-runtime")
       .then((m) => m)
