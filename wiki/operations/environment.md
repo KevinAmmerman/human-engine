@@ -18,7 +18,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `antiTell` | bool | `true` | Suppress tell-like phrases |
 | `styleStats` | bool | `true` | Log style stats |
 | `socialLearning.enabled` | bool | `true` | Voice card learning (gates the prompt-build handler) |
-| `socialLearning.perSessionCard` | bool | `true` | Per-session voice card |
+| `socialLearning.perSessionCard` | bool | `true` | Per-session voice card; `false` = ONE card per agent (not one for all agents) — Plan 004 |
 | `socialLearning.refreshEvery` | number | `5` | Message count between refreshes |
 | `socialLearning.refreshMinutes` | number | `0` | Time-based refresh |
 | `socialLearning.window` | number | `100` | Context window |
@@ -98,7 +98,7 @@ runtime, never committed. Files are written 0600, dirs 0700, via tmp+rename.
 
 | Path | Purpose |
 |------|---------|
-| `state/social-learning-cache.json` | Voice card cache (disk-persisted) |
+| `state/social-learning-cache.json` | Voice card cache, format v2: per-agent buckets `{version:2, agents:{<agentId>:{cache,counter}}}`; v1 flat files migrate on load (Plan 004) |
 | `state/social-memory/<agentId>/<sessionKey>.json` | Social memory profiles per agent × session |
 | `state/observed/<sessionKey>.jsonl` | Silenced-member AND agent-own-reply lines (Plan 528), 200-line rotation |
 | `state/proactive.json` | Proactive budgets/cooldowns (persisted) |
