@@ -107,4 +107,33 @@ describe("contacts", () => {
     assert.equal(ids.has("81000000000002"), false, "Test Person must not match");
     assert.equal(ids.has("81000000000003"), false, "Test Person B must not match");
   });
+
+  it("two different paths yield two independent maps (no cache thrash)", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contacts-multi-"));
+    const fileA = path.join(tmpDir, "a.md");
+    const fileB = path.join(tmpDir, "b.md");
+    fs.writeFileSync(fileA, "| 999000001 | +4900000001 | Alice |\n");
+    fs.writeFileSync(fileB, "| 999000002 | +4900000002 | Bob |\n");
+    const mapA = loadContacts(fileA);
+    const mapB = loadContacts(fileB);
+    assert.equal(resolveContactName(mapA, "999000001"), "Alice");
+    assert.equal(resolveContactName(mapB, "999000002"), "Bob");
+    assert.equal(resolveContactName(mapA, "999000002"), null, "Alice's table must not contain Bob");
+    assert.equal(resolveContactName(mapB, "999000001"), null, "Bob's table must not contain Alice");
+    // Re-read A after B loaded: cache must not have been evicted/thrashed.
+    assert.equal(resolveContactName(loadContacts(fileA), "999000001"), "Alice");
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("same path with a new mtime reloads", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "contacts-reload-"));
+    const file = path.join(tmpDir, "c.md");
+    fs.writeFileSync(file, "| 999000001 | +4900000001 | Alice |\n");
+    assert.equal(resolveContactName(loadContacts(file), "999000001"), "Alice");
+    fs.writeFileSync(file, "| 999000002 | +4900000002 | Bob |\n");
+    const map = loadContacts(file);
+    assert.equal(resolveContactName(map, "999000001"), null, "old entry gone after reload");
+    assert.equal(resolveContactName(map, "999000002"), "Bob", "new entry present after reload");
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });
