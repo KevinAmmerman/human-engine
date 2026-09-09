@@ -651,10 +651,13 @@ describe("dm-proactive", { concurrency: false }, () => {
       clock.t += 24 * 60 * 60 * 1000;
       const second = makeDm({ now0: clock.t, cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) });
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      assert.ok(Array.isArray(data.sentIds));
-      assert.ok(data.sentIds.length <= 512, "sentIds must stay bounded");
-      assert.ok(data.sentIds.includes("fu-20260824-live-001"), "delivered id must be recorded");
-      assert.ok(!data.sentIds.includes("fu-20200101-old-0"), "oldest ids must be evicted");
+      assert.ok(data.version === 3, "state must be written with version 3");
+      assert.ok(data.sentIds && typeof data.sentIds === "object", "sentIds must be per-agent buckets");
+      const agentBucket = data.sentIds["hori-wa"];
+      assert.ok(Array.isArray(agentBucket), "agent sentIds bucket must be an array");
+      assert.ok(agentBucket.length <= 512, "sentIds must stay bounded");
+      assert.ok(agentBucket.includes("fu-20260824-live-001"), "delivered id must be recorded in the agent bucket");
+      assert.ok(!data.sentIds["__legacy__"].includes("fu-20200101-old-0"), "oldest ids must be evicted");
       const dup = second.dm.evaluateGate(makeCandidate({ id: "fu-20260824-live-001", dueWindow: { earliestMs: clock.t, latestMs: clock.t + 3600000 } }));
       assert.ok(dup.reasons.includes("duplicate"), "recorded sentId must gate a retry as duplicate");
     });
@@ -759,10 +762,12 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.handleCandidate(softCand("fu-20260824-cad-v1"));
       dm.stop();
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.ok(data.version === 3, "state must be written with version 3");
       assert.ok(data.scopes[SCOPE], "v1 scopes must remain readable");
-      assert.ok(data.byKind && typeof data.byKind === "object", "byKind must appear in v2 shape after first save");
-      assert.ok(data.byKind.soft_followup, "soft_followup byKind entry created");
-      assert.ok(Array.isArray(data.byKind.soft_followup.sends), "sends array present");
+      assert.ok(data.byKind && typeof data.byKind === "object", "byKind must appear in v3 shape after first save");
+      const agentKinds = data.byKind["hori-wa"];
+      assert.ok(agentKinds && agentKinds.soft_followup, "soft_followup byKind entry created for the agent");
+      assert.ok(Array.isArray(agentKinds.soft_followup.sends), "sends array present");
     });
 
     it("cap formula: ceil(inferredCapPerDay × dayFit × budgetMultiplier) — 2 × 0.5 × 0.5 = ceil(0.5) = 1", async () => {
@@ -809,7 +814,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.onMessageReceived({ content: "Ja passt." }, { sessionKey: SK });
       dm.stop();
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      const k = data.byKind.soft_followup;
+      const k = data.byKind["hori-wa"].soft_followup;
       assert.equal(k.ignoreStreak, 0, "reply must reset ignoreStreak");
       assert.ok(k.replyRate14d > 0, "replyRate14d must update after an attributed reply");
       const lastSend = k.sends[k.sends.length - 1];
@@ -822,7 +827,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.handleCandidate(softCand("fu-20260824-prune"));
       dm.stop();
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      const k = data.byKind.soft_followup;
+      const k = data.byKind["hori-wa"].soft_followup;
       const hasOld = k.sends.some((s) => s.id === "old");
       assert.equal(hasOld, false, "sends older than 14 days must be pruned");
       assert.ok(k.sends.some((s) => s.id === "recent"), "recent sends must survive");
@@ -842,6 +847,63 @@ describe("dm-proactive", { concurrency: false }, () => {
       const { dm: dm2 } = track(makeCdDm({ now0: T0 }));
       const resPaused = dm2.evaluateGate(hardCand("fu-20260824-hard-paused"));
       assert.equal(resPaused.pass, true, "paused reminder kind must NOT gate a hard reminder: " + resPaused.reasons.join(","));
+    });
+  });
+
+  describe("proactive tenancy (Plan 005) — per-agent buckets", () => {
+    function agentCand(id, agentId, overrides = {}) {
+      return makeCandidate({ id, agentId, kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 }, ...overrides });
+    }
+    function twoAgentCfg() {
+      return makeCfg({ shadow: false, minGapMinutes: 0 }, { agents: ["hori-wa", "kletter"] });
+    }
+
+    it("v2 flat state migrates to v3: sentIds + byKind move into __legacy__, scopes kept, version written", async () => {
+      writeState(tmpDir, {
+        scopes: { [SCOPE]: { day: localDayKey(T0), count: 1, careCount: 0, lastSentAt: T0, lastCareSentAt: 0, lastReplyAtMs: 0 } },
+        sentIds: ["fu-20260909-legacy-1"],
+        byKind: { soft_followup: { budgetMultiplier: 1.0, sends: [{ ts: T0 - 86400000, scope: SCOPE, id: "a" }], replyRate14d: 0.0, ignoreStreak: 2, paused: false } },
+      });
+      const { dm } = track(makeDm({ now0: T0 }));
+      dm.stop(); // triggers the migrate-on-load immediate save
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.equal(data.version, 3, "state must be written with version 3 after migration");
+      assert.ok(data.scopes[SCOPE], "scopes must be kept unchanged");
+      assert.ok(Array.isArray(data.sentIds.__legacy__) && data.sentIds.__legacy__.includes("fu-20260909-legacy-1"), "flat sentIds migrate to __legacy__");
+      assert.ok(data.byKind.__legacy__.soft_followup, "flat byKind migrates to __legacy__");
+      assert.equal(data.byKind.__legacy__.soft_followup.ignoreStreak, 2, "legacy ignoreStreak preserved");
+    });
+
+    it("sentId in agent-a bucket blocks agent-a but NOT agent-b", async () => {
+      writeState(tmpDir, { version: 3, scopes: {}, sentIds: { "hori-wa": ["fu-20260909-a-only"], __legacy__: [] } });
+      const { dm } = track(makeDm({ cfg: twoAgentCfg(), now0: T0 }));
+      const a = dm.evaluateGate(agentCand("fu-20260909-a-only", "hori-wa"));
+      assert.ok(a.reasons.includes("duplicate"), "agent-a must see its own sentId as duplicate");
+      const b = dm.evaluateGate(agentCand("fu-20260909-a-only", "kletter"));
+      assert.ok(!b.reasons.includes("duplicate"), "agent-b must NOT be blocked by agent-a's sentId");
+    });
+
+    it("__legacy__ sentId blocks BOTH agents (transition dedup safety)", async () => {
+      writeState(tmpDir, { version: 3, scopes: {}, sentIds: { __legacy__: ["fu-20260909-legacy-dedup"] } });
+      const { dm } = track(makeDm({ cfg: twoAgentCfg(), now0: T0 }));
+      for (const ag of ["hori-wa", "kletter"]) {
+        const r = dm.evaluateGate(agentCand("fu-20260909-legacy-dedup", ag));
+        assert.ok(r.reasons.includes("duplicate"), `agent ${ag} must be blocked by __legacy__ sentId`);
+      }
+    });
+
+    it("ignoreStreak of agent-a's kind does NOT pause agent-b's kind", async () => {
+      // agent-a has ignoreStreak 4 (paused); agent-b is fresh → full budget.
+      writeState(tmpDir, {
+        version: 3,
+        scopes: {},
+        byKind: { "hori-wa": { soft_followup: { budgetMultiplier: 0, sends: [], replyRate14d: 0.0, ignoreStreak: 4, paused: true } } },
+      });
+      const { dm } = track(makeDm({ cfg: twoAgentCfg(), now0: T0 }));
+      const a = dm.evaluateGate(agentCand("fu-20260909-a-paused", "hori-wa"));
+      assert.ok(a.reasons.includes("cadence-paused"), "agent-a's paused kind must block its own soft followup");
+      const b = dm.evaluateGate(agentCand("fu-20260909-b-full", "kletter"));
+      assert.ok(!b.reasons.includes("cadence-paused"), "agent-b's soft followup must NOT be paused by agent-a's ignoreStreak");
     });
   });
 
@@ -1198,7 +1260,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       // sentIds must be set (the delivered id recorded)
       dm.stop();
       const state = JSON.parse(fs.readFileSync(path.join(stateDir, "dm-proactive-state.json"), "utf8"));
-      assert.ok(state.sentIds.includes("fu-20260824-test-001"), "delivered id must be recorded in sentIds");
+      assert.ok(state.sentIds["hori-wa"].includes("fu-20260824-test-001"), "delivered id must be recorded in the agent sentIds bucket");
     });
 
     it("shadow gate-fail (quiet hours) in production shape → cancel + log, no delivery, no sentId", async () => {
@@ -1289,7 +1351,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(log._warns.length, 0, "no cannot-derive warn — scope resolved across agents");
       dm.stop();
       const state = JSON.parse(fs.readFileSync(path.join(stateDir, "dm-proactive-state.json"), "utf8"));
-      assert.ok(state.sentIds.includes("fu-20260904-momentum-tagebuch"), "delivered id must be recorded in sentIds");
+      assert.ok(state.sentIds["hori-wa"].includes("fu-20260904-momentum-tagebuch"), "delivered id must be recorded in the agent sentIds bucket");
     });
 
     it("multi-agent: DM scope owner unambiguous across agents resolves even when single-agent fallback is absent", async () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { defaultConfig, resolveConfig, isEnabled, isScopedAgent, resolveAgentConfig, resolveAgentConfigForSession } from "../lib/config.js";
+import { defaultConfig, resolveConfig, isEnabled, isScopedAgent, resolveAgentConfig, resolveAgentConfigForSession, dmProactiveAgents, isScopedDmAgent } from "../lib/config.js";
 
 describe("config", () => {
   it("defaultConfig returns expected defaults", () => {
@@ -23,7 +23,7 @@ describe("config", () => {
     assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.9 });
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { disableDM: false, speakEpochTtlMs: 300000 });
-    assert.deepEqual(cfg.dmProactive, { enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, inferredCapPerDay: 2 });
+    assert.deepEqual(cfg.dmProactive, { agents: [], enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, dayFitActivityPath: "", inferredCapPerDay: 2 });
   });
 
   it("resolveConfig merges with defaults", () => {
@@ -211,5 +211,35 @@ describe("config", () => {
   it("agentProfiles do not widen scoping allowlist", () => {
     const cfg = resolveConfig({ pluginConfig: { agents: ["a"], agentProfiles: { "agent-b": { agentName: "BotB" } } } });
     assert.equal(isScopedAgent(resolveAgentConfig(cfg, "b"), "b"), false);
+  });
+
+  it("dmProactiveAgents falls back to global agents when dmProactive.agents empty", () => {
+    assert.deepEqual(dmProactiveAgents({ agents: ["a", "b"], dmProactive: { agents: [] } }), ["a", "b"]);
+    assert.deepEqual(dmProactiveAgents({ agents: ["a"], dmProactive: { agents: ["dm"] } }), ["dm"]);
+    assert.deepEqual(dmProactiveAgents({ agents: ["a"] }), ["a"]);
+    assert.deepEqual(dmProactiveAgents({}), []);
+  });
+
+  it("isScopedDmAgent: dmProactive.agents overrides global agents (586-set)", () => {
+    // dmProactive.agents names 'dm' → only 'dm' is scoped in the DM lane.
+    assert.equal(isScopedDmAgent({ agents: ["g"], dmProactive: { agents: ["dm"] } }, "dm"), true);
+    assert.equal(isScopedDmAgent({ agents: ["g"], dmProactive: { agents: ["dm"] } }, "g"), false);
+    // Empty dmProactive.agents → falls back to global cfg.agents.
+    assert.equal(isScopedDmAgent({ agents: ["g"], dmProactive: { agents: [] } }, "g"), true);
+    assert.equal(isScopedDmAgent({ agents: ["g"], dmProactive: { agents: [] } }, "dm"), false);
+    // No dmProactive.agents → global agents.
+    assert.equal(isScopedDmAgent({ agents: ["g"] }, "g"), true);
+  });
+
+  it("dmProactive.dayFitActivityPath default is empty string in defaultConfig", () => {
+    const cfg = defaultConfig();
+    assert.equal(cfg.dmProactive.dayFitActivityPath, "");
+  });
+
+  it("resolveAgentConfig merges dmProactive.dayFitActivityPath from profile override", () => {
+    const cfg = resolveConfig({ pluginConfig: { dmProactive: { dayFitActivityPath: "/global/path" }, agentProfiles: { "agent-a": { dmProactive: { dayFitActivityPath: "/agent/path" } } } } });
+    const agentCfg = resolveAgentConfig(cfg, "agent-a");
+    assert.equal(agentCfg.dmProactive.dayFitActivityPath, "/agent/path");
+    assert.equal(resolveAgentConfig(cfg, "other").dmProactive.dayFitActivityPath, "/global/path");
   });
 });

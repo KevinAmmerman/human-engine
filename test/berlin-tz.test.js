@@ -69,7 +69,11 @@ describe("schema/config sync (Plan 531)", () => {
     assert.deepEqual(cfgKeys, schemaKeys, "config.js defaults and plugin.json schema must define the same keys");
 
     for (const key of cfgKeys) {
-      assert.equal(props[key].default, cfg[key], `default mismatch for dmProactive.${key}`);
+      if (Array.isArray(props[key].default)) {
+        assert.deepEqual(props[key].default, cfg[key], `default mismatch for dmProactive.${key}`);
+      } else {
+        assert.equal(props[key].default, cfg[key], `default mismatch for dmProactive.${key}`);
+      }
     }
   });
 
