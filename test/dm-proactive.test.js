@@ -609,7 +609,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(fs.statSync(stateFile).mode & 0o777, 0o600);
       assert.equal(fs.statSync(logFile).mode & 0o777, 0o600);
       const data = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-      assert.ok(data.scopes[SCOPE], "budget persisted for scope");
+      assert.ok(data.agents["hori-wa"].budget[SCOPE], "budget persisted for scope in the agent bucket");
     });
 
     it("budget/care markers survive recreate (roundtrip)", async () => {
@@ -630,7 +630,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       fs.rmSync(stateFile, { force: true });
       dm.stop();
       const data = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-      assert.ok(data.scopes[SCOPE], "stop() must persist the dirty budget");
+      assert.ok(data.agents["hori-wa"].budget[SCOPE], "stop() must persist the dirty budget");
     });
 
     it("v1 state (only scopes) loads unchanged — sentIds stays empty", async () => {
@@ -652,13 +652,13 @@ describe("dm-proactive", { concurrency: false }, () => {
       clock.t += 24 * 60 * 60 * 1000;
       const second = makeDm({ now0: clock.t, cfg: makeCfg({ shadow: false, minGapMinutes: 0 }) });
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      assert.ok(data.version === 3, "state must be written with version 3");
-      assert.ok(data.sentIds && typeof data.sentIds === "object", "sentIds must be per-agent buckets");
-      const agentBucket = data.sentIds["hori-wa"];
+      assert.ok(data.version === 4, "state must be written with version 4");
+      assert.ok(data.agents && typeof data.agents === "object", "state must be per-agent buckets");
+      const agentBucket = data.agents["hori-wa"].sentIds;
       assert.ok(Array.isArray(agentBucket), "agent sentIds bucket must be an array");
       assert.ok(agentBucket.length <= 512, "sentIds must stay bounded");
       assert.ok(agentBucket.includes("fu-20260824-live-001"), "delivered id must be recorded in the agent bucket");
-      assert.ok(!data.sentIds["__legacy__"].includes("fu-20200101-old-0"), "oldest ids must be evicted");
+      assert.ok(!data.agents["__legacy__"].sentIds.includes("fu-20200101-old-0"), "oldest ids must be evicted");
       const dup = second.dm.evaluateGate(makeCandidate({ id: "fu-20260824-live-001", dueWindow: { earliestMs: clock.t, latestMs: clock.t + 3600000 } }));
       assert.ok(dup.reasons.includes("duplicate"), "recorded sentId must gate a retry as duplicate");
     });
@@ -763,10 +763,10 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.handleCandidate(softCand("fu-20260824-cad-v1"));
       dm.stop();
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      assert.ok(data.version === 3, "state must be written with version 3");
-      assert.ok(data.scopes[SCOPE], "v1 scopes must remain readable");
-      assert.ok(data.byKind && typeof data.byKind === "object", "byKind must appear in v3 shape after first save");
-      const agentKinds = data.byKind["hori-wa"];
+      assert.ok(data.version === 4, "state must be written with version 4");
+      assert.ok(data.agents["hori-wa"].budget[SCOPE], "v1 flat scopes must migrate into the agent's budget bucket");
+      assert.ok(data.agents && typeof data.agents === "object", "state must be per-agent buckets");
+      const agentKinds = data.agents["hori-wa"].byKind;
       assert.ok(agentKinds && agentKinds.soft_followup, "soft_followup byKind entry created for the agent");
       assert.ok(Array.isArray(agentKinds.soft_followup.sends), "sends array present");
     });
@@ -815,7 +815,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.onMessageReceived({ content: "Ja passt." }, { sessionKey: SK });
       dm.stop();
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      const k = data.byKind["hori-wa"].soft_followup;
+      const k = data.agents["hori-wa"].byKind.soft_followup;
       assert.equal(k.ignoreStreak, 0, "reply must reset ignoreStreak");
       assert.ok(k.replyRate14d > 0, "replyRate14d must update after an attributed reply");
       const lastSend = k.sends[k.sends.length - 1];
@@ -828,7 +828,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       await dm.handleCandidate(softCand("fu-20260824-prune"));
       dm.stop();
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      const k = data.byKind["hori-wa"].soft_followup;
+      const k = data.agents["hori-wa"].byKind.soft_followup;
       const hasOld = k.sends.some((s) => s.id === "old");
       assert.equal(hasOld, false, "sends older than 14 days must be pruned");
       assert.ok(k.sends.some((s) => s.id === "recent"), "recent sends must survive");
@@ -859,7 +859,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       return makeCfg({ shadow: false, minGapMinutes: 0 }, { agents: ["hori-wa", "kletter"] });
     }
 
-    it("v2 flat state migrates to v3: sentIds + byKind move into __legacy__, scopes kept, version written", async () => {
+    it("v2 flat state migrates to v4: sentIds + byKind move into __legacy__, flat budget scopes split per agent, version written", async () => {
       writeState(tmpDir, {
         scopes: { [SCOPE]: { day: localDayKey(T0), count: 1, careCount: 0, lastSentAt: T0, lastCareSentAt: 0, lastReplyAtMs: 0 } },
         sentIds: ["fu-20260909-legacy-1"],
@@ -868,11 +868,11 @@ describe("dm-proactive", { concurrency: false }, () => {
       const { dm } = track(makeDm({ now0: T0 }));
       dm.stop(); // triggers the migrate-on-load immediate save
       const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
-      assert.equal(data.version, 3, "state must be written with version 3 after migration");
-      assert.ok(data.scopes[SCOPE], "scopes must be kept unchanged");
-      assert.ok(Array.isArray(data.sentIds.__legacy__) && data.sentIds.__legacy__.includes("fu-20260909-legacy-1"), "flat sentIds migrate to __legacy__");
-      assert.ok(data.byKind.__legacy__.soft_followup, "flat byKind migrates to __legacy__");
-      assert.equal(data.byKind.__legacy__.soft_followup.ignoreStreak, 2, "legacy ignoreStreak preserved");
+      assert.equal(data.version, 4, "state must be written with version 4 after migration");
+      assert.ok(data.agents["hori-wa"].budget[SCOPE], "flat scopes must migrate into the agent's budget bucket");
+      assert.ok(Array.isArray(data.agents.__legacy__.sentIds) && data.agents.__legacy__.sentIds.includes("fu-20260909-legacy-1"), "flat sentIds migrate to __legacy__");
+      assert.ok(data.agents.__legacy__.byKind.soft_followup, "flat byKind migrates to __legacy__");
+      assert.equal(data.agents.__legacy__.byKind.soft_followup.ignoreStreak, 2, "legacy ignoreStreak preserved");
     });
 
     it("sentId in agent-a bucket blocks agent-a but NOT agent-b", async () => {
@@ -905,6 +905,104 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.ok(a.reasons.includes("cadence-paused"), "agent-a's paused kind must block its own soft followup");
       const b = dm.evaluateGate(agentCand("fu-20260909-b-full", "kletter"));
       assert.ok(!b.reasons.includes("cadence-paused"), "agent-b's soft followup must NOT be paused by agent-a's ignoreStreak");
+    });
+  });
+
+  describe("budget tenancy (Plan 017) — per-agent budget buckets", () => {
+    function agentCand2(id, agentId, overrides = {}) {
+      return makeCandidate({ id, agentId, kind: "soft_followup", sensitivity: "normal", dueWindow: { earliestMs: T0, latestMs: T0 + 3600000 }, ...overrides });
+    }
+    function twoAgentCfg() {
+      return makeCfg({ shadow: false, minGapMinutes: 0 }, { agents: ["hori-wa", "kletter"] });
+    }
+    function scopeFor(agentId, uid) {
+      return agentId + "::agent:" + agentId + ":telegram:direct:" + uid;
+    }
+    // Seed a budget entry with a non-zero count for one scope, then overflow
+    // the SAME agent with >256 distinct inbounds so capObject evicts its
+    // oldest scopes — the surviving check must still find the entry.
+    it("per-agent eviction: agent-a overflow (260 scopes) does NOT evict agent-b's active budget entry (count stays)", async () => {
+      const cfg = twoAgentCfg();
+      // agent-b has one active scope with a real count (seeded via a live send).
+      const scopeB = scopeFor("kletter", "999000101");
+      const { dm, clock } = track(makeDm({ cfg, now0: T0 }));
+      await dm.handleCandidate(agentCand2("fu-017-b-active", "kletter", { sessionKey: "agent:kletter:telegram:direct:999000101" }));
+      dm.stop();
+      const seeded = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.ok(seeded.agents["kletter"].budget[scopeB], "agent-b must have a persisted budget entry");
+
+      // Overflow agent-a's bucket with 260 distinct scopes.
+      const { dm: dmA } = track(makeDm({ cfg, now0: clock.t }));
+      for (let i = 0; i < 260; i++) {
+        const skA = "agent:hori-wa:telegram:direct:" + (900000000 + i);
+        await dmA.onMessageReceived({ content: "x" }, { sessionKey: skA, agentId: "hori-wa" });
+      }
+      dmA.stop();
+      const after = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.ok(after.agents["hori-wa"].budget, "agent-a's budget bucket exists");
+      const aCount = Object.keys(after.agents["hori-wa"].budget).length;
+      assert.ok(aCount <= 256, "agent-a's bucket must be capped at 256 (got " + aCount + ")");
+      assert.ok(after.agents["kletter"].budget[scopeB], "agent-b's active budget entry must survive agent-a's eviction");
+      assert.equal(after.agents["kletter"].budget[scopeB].count, 1, "agent-b's count must be preserved");
+    });
+
+    it("budget is namespaced per agent: bumping agent-a's scope does NOT touch agent-b's counter", async () => {
+      const cfg = twoAgentCfg();
+      const { dm, clock } = track(makeDm({ cfg, now0: T0 }));
+      // Two live sends for agent-b (its own scope).
+      const scopeB = scopeFor("kletter", "999000102");
+      await dm.handleCandidate(agentCand2("fu-017-b1", "kletter", { sessionKey: "agent:kletter:telegram:direct:999000102" }));
+      await dm.handleCandidate(agentCand2("fu-017-b2", "kletter", { sessionKey: "agent:kletter:telegram:direct:999000102" }));
+      // One live send for agent-a in its own scope.
+      const scopeA = scopeFor("hori-wa", "999000103");
+      await dm.handleCandidate(agentCand2("fu-017-a1", "hori-wa", { sessionKey: "agent:hori-wa:telegram:direct:999000103" }));
+      dm.stop();
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.equal(data.agents["kletter"].budget[scopeB].count, 2, "agent-b's count is its own");
+      assert.equal(data.agents["hori-wa"].budget[scopeA].count, 1, "agent-a's count is its own");
+    });
+
+    it("v3 flat budget migrates into per-agent buckets; unparseable scopes land in __legacy__", async () => {
+      const legacyScope = "no-agent-separator"; // no `::` → parseAgentScope returns null
+      writeState(tmpDir, {
+        version: 3,
+        scopes: {
+          [SCOPE]: { day: localDayKey(T0), count: 1, careCount: 0, lastSentAt: T0, lastCareSentAt: 0, lastReplyAtMs: 0 },
+          [legacyScope]: { day: localDayKey(T0), count: 3, careCount: 0, lastSentAt: T0, lastCareSentAt: 0, lastReplyAtMs: 0 },
+        },
+        sentIds: { __legacy__: [] },
+        byKind: {},
+      });
+      const { dm } = track(makeDm({ cfg: twoAgentCfg(), now0: T0 }));
+      dm.stop(); // migrate-on-load immediate save
+      const data = JSON.parse(fs.readFileSync(path.join(tmpDir, "dm-proactive-state.json"), "utf8"));
+      assert.equal(data.version, 4, "state must be rewritten as version 4");
+      assert.ok(data.agents["hori-wa"].budget[SCOPE], "parseable scope must migrate into its agent's bucket");
+      assert.equal(data.agents["hori-wa"].budget[SCOPE].count, 1, "migrated count preserved");
+      assert.ok(data.agents["__legacy__"].budget[legacyScope], "unparseable scope must migrate into __legacy__");
+      assert.equal(data.agents["__legacy__"].budget[legacyScope].count, 3, "legacy count preserved");
+    });
+
+    it("deriveDmFromEvent: owner resolution across two agent budget buckets stays unambiguous", async () => {
+      // Seed one real DM scope for hori-wa and one for kletter in SEPARATE
+      // buckets (v4 shape). The target belongs to hori-wa only → resolves.
+      const UID = "999000104";
+      const s1 = scopeFor("hori-wa", UID);
+      const s2 = scopeFor("kletter", "555000104");
+      writeState(tmpDir, {
+        version: 4,
+        agents: {
+          "hori-wa": { budget: { [s1]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [], byKind: {} },
+          "kletter": { budget: { [s2]: { day: localDayKey(T0), count: 0, careCount: 0, lastSentAt: 0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [], byKind: {} },
+        },
+      });
+      const multiCfg = { ...makeCfg(), agents: ["hori-wa", "kletter"] };
+      const { dm, stateDir } = track(makeDm({ cfg: multiCfg }));
+      const event = { to: "telegram:" + UID, content: envelopeText(makeEnvelope({ id: "fu-017-derive" })), metadata: { channel: "telegram" } };
+      const result = await dm.onMessageSending(event, { channelId: "telegram" });
+      assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "unambiguous owner across two buckets must resolve");
+      const entries = readLog(stateDir);
+      assert.equal(entries[0].scope, s1, "scope must resolve to hori-wa's DM lane from its own bucket");
     });
   });
 
@@ -1282,7 +1380,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       // sentIds must be set (the delivered id recorded)
       dm.stop();
       const state = JSON.parse(fs.readFileSync(path.join(stateDir, "dm-proactive-state.json"), "utf8"));
-      assert.ok(state.sentIds["hori-wa"].includes("fu-20260824-test-001"), "delivered id must be recorded in the agent sentIds bucket");
+      assert.ok(state.agents["hori-wa"].sentIds.includes("fu-20260824-test-001"), "delivered id must be recorded in the agent sentIds bucket");
     });
 
     it("shadow gate-fail (quiet hours) in production shape → cancel + log, no delivery, no sentId", async () => {
@@ -1373,7 +1471,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(log._warns.length, 0, "no cannot-derive warn — scope resolved across agents");
       dm.stop();
       const state = JSON.parse(fs.readFileSync(path.join(stateDir, "dm-proactive-state.json"), "utf8"));
-      assert.ok(state.sentIds["hori-wa"].includes("fu-20260904-momentum-tagebuch"), "delivered id must be recorded in the agent sentIds bucket");
+      assert.ok(state.agents["hori-wa"].sentIds.includes("fu-20260904-momentum-tagebuch"), "delivered id must be recorded in the agent sentIds bucket");
     });
 
     it("multi-agent: DM scope owner unambiguous across agents resolves even when single-agent fallback is absent", async () => {

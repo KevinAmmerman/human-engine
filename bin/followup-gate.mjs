@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseFollowupEnvelope, evaluateDmGate, candidateFromEnvelope } from "../lib/dm-gate-core.js";
 import { resolveConfig, isScopedDmAgent, resolveAgentConfig } from "../lib/config.js";
+import { parseAgentScope } from "../lib/scope.js";
 
 const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -125,7 +126,19 @@ async function main(argv) {
   }
 
   const scope = sessionKey ? (agentId || "?") + "::" + sessionKey : null;
-  const counter = scope && state?.scopes?.[scope] ? state.scopes[scope] : null;
+  // Plan 017: budget is per-agent (v4 shape `agents.<agentId>.budget[scope]`).
+  // The CLI only READS the counter — resolve the agent's own bucket first, then
+  // fall back to the pre-tenancy flat `scopes` map (read-only, no behavior
+  // change). The scope's composite carries the agentId (`agentId::sessionKey`),
+  // so a caller that passes only --session still resolves the right bucket.
+  let counter = null;
+  if (scope) {
+    const parsedScope = parseAgentScope(scope);
+    const bucketAgentId = agentId || parsedScope?.agentId || "?";
+    const ownBucket = state?.agents?.[bucketAgentId]?.budget?.[scope];
+    if (ownBucket !== undefined) counter = ownBucket;
+    else if (state?.scopes?.[scope] !== undefined) counter = state.scopes[scope];
+  }
   // Plan 005: read the sentIds pool per agent — the agent's own bucket first,
   // then the migrated `__legacy__` bucket (transition dedup stays effective).
   // Mirror of the dm-proactive bucket logic (Plan 005 mirror — see lib/dm-proactive.js).
