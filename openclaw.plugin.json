@@ -12,6 +12,30 @@
     "properties": {
       "enabled": { "type": "boolean", "default": true },
       "agents": { "type": "array", "items": { "type": "string" }, "default": [] },
+      "agentProfiles": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agentName": { "type": "string" },
+            "agentAliases": { "type": "array", "items": { "type": "string" } },
+            "contactsPath": { "type": "string" },
+            "soulPath": { "type": "string" },
+            "soulAutoEnhance": { "type": "boolean" },
+            "socialLearning": { "type": "object" },
+            "socialMemory": { "type": "object" },
+            "proactive": { "type": "object" },
+            "dmProactive": { "type": "object" },
+            "mood": { "type": "object" },
+            "naturalize": { "type": "object" },
+            "timing": { "type": "object" },
+            "humanize": { "type": "object" },
+            "decide": { "type": "object" }
+          }
+        },
+        "default": {}
+      },
       "agentName": { "type": "string", "default": "OpenClaw" },
       "agentAliases": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Additional names the agent is called by (e.g. its former name) — used for hard-trigger mention detection" },
       "soulPath": { "type": "string", "default": "" },
