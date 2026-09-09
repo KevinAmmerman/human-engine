@@ -50,10 +50,11 @@ describe("voice-card-local", () => {
   });
 
   it("extractVoiceCard returns prompt_block and profile on valid LLM output", async () => {
+    let captured;
     const engine = createLocalEngine({
       cfg: {},
       llm: {
-        complete: async () => ({ text: VALID_LLM_RESPONSE }),
+        complete: async (opts) => { captured = opts; return { text: VALID_LLM_RESPONSE }; },
       },
       timing: makeTiming(),
     });
@@ -64,12 +65,13 @@ describe("voice-card-local", () => {
       "[Carol] halt mal",
     ]);
 
-    const result = await engine.extractVoiceCard({ transcript });
+    const result = await engine.extractVoiceCard({ transcript, agentId: "agent-a" });
     assert.ok(result !== null);
     assert.ok(typeof result.prompt_block === "string");
     assert.ok(result.prompt_block.includes("Casual German tech group"));
     assert.ok(result.prompt_block.includes("lowercase"));
     assert.ok(result.profile.summary === "Casual German tech group");
+    assert.equal(captured.agentId, "agent-a");
   });
 
   it("extractVoiceCard returns null on empty transcript", async () => {

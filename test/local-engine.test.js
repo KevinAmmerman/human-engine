@@ -207,13 +207,15 @@ describe("local-engine", () => {
 
   describe("decide — LLM path", () => {
     it("SPEAK from LLM returns speak decision", async () => {
+      let captured;
       const engine = createLocalEngine({
         cfg: { decide: { temperature: 0.2 } },
-        llm: { complete: async () => ({ text: "SPEAK" }) },
+        llm: { complete: async (opts) => { captured = opts; return { text: "SPEAK" }; } },
         timing: makeTiming(),
       });
-      const res = await engine.decide({ sessionKey: "s5", prompt: "Hello" });
+      const res = await engine.decide({ sessionKey: "agent:agent-a:whatsapp:group:g@g.us", prompt: "Hello" });
       assert.deepEqual(res.decision, "speak");
+      assert.equal(captured.agentId, "agent-a");
     });
 
     it("STAY_SILENT from LLM returns stay_silent", async () => {
@@ -361,17 +363,19 @@ describe("local-engine", () => {
     });
 
     it("uses LLM split result when available", async () => {
+      let captured;
       const engine = createLocalEngine({
         cfg: {},
         llm: {
-          complete: async () => ({ text: '{"messages": ["Bubble one", "Bubble two"]}' }),
+          complete: async (opts) => { captured = opts; return { text: '{"messages": ["Bubble one", "Bubble two"]}' }; },
         },
         timing: makeTiming(),
       });
-      const res = await engine.respond({ sessionKey: "s14", draft: "Hello", epoch: 1 });
+      const res = await engine.respond({ sessionKey: "agent:agent-b:whatsapp:group:g@g.us", draft: "Hello", epoch: 1 });
       assert.equal(res.superseded, false);
       assert.ok(Array.isArray(res.scheduled));
       assert.equal(res.scheduled.length, 2);
+      assert.equal(captured.agentId, "agent-b");
     });
 
     it("LLM error returns draft fallback", async () => {
@@ -448,7 +452,7 @@ describe("local-engine", () => {
         timing: makeTiming(),
       });
       const res = await engine.regenerateReply({
-        sessionKey: "s30",
+        sessionKey: "agent:agent-c:whatsapp:group:g@g.us",
         reasoning: "Nico is playfully blessing/worshipping me…",
         transcript: [{ speaker: "Nico", text: "Gepriesen seist du Hori" }],
         agentName: "Hori",
@@ -457,6 +461,7 @@ describe("local-engine", () => {
       assert.equal(captured.messages[0].role, "system");
       assert.equal(captured.messages[1].role, "user");
       assert.equal(captured.purpose, "human-engine-regen");
+      assert.equal(captured.agentId, "agent-c");
     });
 
     it("returns null when no llm", async () => {

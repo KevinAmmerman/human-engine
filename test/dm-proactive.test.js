@@ -311,6 +311,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       const call = runtime.llm.complete.mock.calls[0].arguments[0];
       assert.equal(call.purpose, "dm-proactive-render");
       assert.equal(call.temperature, 0.4);
+      assert.equal(call.agentId, "hori-wa");
       const entries = readLog(stateDir);
       assert.equal(entries[0].render.llm, "rendered");
       assert.equal(entries[0].render.draft, "Schaffst du das heute noch, oder brauchst du mich?");

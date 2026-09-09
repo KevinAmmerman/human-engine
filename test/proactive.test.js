@@ -475,6 +475,8 @@ describe("proactive", { concurrency: false }, () => {
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
       assert.ok(log._infos.some((m) => m.includes("reason=decide:skip")), log._infos.join("\n"));
+      const call = runtime.llm.complete.mock.calls[0].arguments[0];
+      assert.equal(call.agentId, "hori");
     });
   });
 

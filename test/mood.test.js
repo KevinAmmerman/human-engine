@@ -91,6 +91,7 @@ describe("mood", () => {
         assert.equal(state.energy, 1);
         assert.equal(state.note.split(" ").length, 8);
         assert.ok(calls.length > 0);
+        assert.equal(calls[0].agentId, "test-agent");
       });
     });
 

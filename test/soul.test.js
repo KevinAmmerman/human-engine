@@ -23,10 +23,10 @@ You are a concise technical expert. No fluff, just facts.
 
 function makeEngine(result) {
   return {
-    async enhancePersona({ persona }) {
+    async enhancePersona({ persona, agentId }) {
       if (result === null) return null;
       if (result instanceof Error) throw result;
-      return result || { system_prompt: "Enhanced: " + persona.slice(0, 50) + "..." };
+      return result || { system_prompt: "Enhanced: " + persona.slice(0, 50) + "..." + (agentId ? ":" + agentId : "") };
     },
   };
 }
@@ -133,6 +133,27 @@ describe("soul", () => {
         assert.ok(!written.includes("First enhance."), "old section content replaced");
         assert.equal((written.match(/human-engine:persona:start/g) || []).length, 1, "single start marker");
         assert.equal((written.match(/human-engine:persona:end/g) || []).length, 1, "single end marker");
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it("passes agentId through to enhancePersona when provided", async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "soul-"));
+      const soulPath = path.join(tmpDir, "SOUL.md");
+      fs.writeFileSync(soulPath, REAL);
+      let receivedAgentId;
+      const engine = {
+        async enhancePersona({ persona, agentId }) {
+          receivedAgentId = agentId;
+          return { system_prompt: "Enhanced persona text." };
+        },
+      };
+      try {
+        const cfg = { soulPath };
+        const reply = await enhanceAndWrite(cfg, engine, "agent-b");
+        assert.ok(reply.includes("Enhanced your persona"));
+        assert.equal(receivedAgentId, "agent-b");
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }

@@ -737,6 +737,49 @@ describe("e2e-local", () => {
       assert.ok(capturedRespond.persona.includes("I am BOB'S SOUL."), "agent-b flush persona uses agent-b's soul");
       assert.ok(!capturedRespond.persona.includes("I am ALICE'S SOUL."), "agent-b flush persona must not use agent-a's soul");
     });
+
+    it("Case F: humanize opts carry the session's agentId (regression: caller agentId hori-wa)", async () => {
+      const sk = "agent:agent-b:whatsapp:group:e2e-agentid@g.us";
+      let captured;
+      const engine = createLocalEngine({
+        cfg: { humanize: { maxBubbles: 2 } },
+        llm: {
+          complete: async (opts) => { captured = opts; return { text: JSON.stringify({ messages: ["Bubble one", "Bubble two"] }) }; },
+        },
+        timing: makeFakeTiming(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      const naturalize = createNaturalize({
+        cfg: defaultCfg,
+        state,
+        engine,
+        persona: makePersona(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      state.speakEpochBySession.set(sk, { epoch: 1, ts: Date.now() });
+      state.chatTypeBySession.set(sk, "group");
+
+      const dispatcher = {
+        sendBlockReply: mock.fn(() => true),
+        markComplete: mock.fn(),
+      };
+
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        { agentId: "agent-b", sessionKey: sk, channelId: "ch", chatId: "ch", senderId: "u", dispatcher, abortSignal: undefined },
+      );
+      const payloadResult = naturalize.onReplyPayloadSending(
+        { sessionKey: sk, kind: "final", channel: "whatsapp", payload: { text: "This is the draft reply" } },
+        { agentId: "agent-b", sessionKey: sk },
+      );
+      assert.deepEqual(payloadResult, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(captured, "humanize llm.complete should have been invoked on flush");
+      assert.equal(captured.agentId, "agent-b", "humanize opts.agentId must be the session's agent, not hori-wa");
+    });
   });
 
   describe("onboarding (Plan 006)", () => {

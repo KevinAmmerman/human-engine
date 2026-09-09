@@ -378,7 +378,8 @@ describe("voice-card", () => {
       clearCounter();
       clearRefreshing();
       let extractCalls = 0;
-      const engine = { extractVoiceCard: async () => { extractCalls++; return null; } };
+      let receivedAgentId;
+      const engine = { extractVoiceCard: async ({ agentId }) => { extractCalls++; receivedAgentId = agentId; return null; } };
       const { onBeforePromptBuild } = vc.createVoiceCard({
         cfg: { enabled: true, socialLearning: { enabled: true, refreshEvery: 2, refreshMinutes: 0 } },
         engine,
@@ -392,6 +393,7 @@ describe("voice-card", () => {
       onBeforePromptBuild(evt, ctx); // n=3 → no refresh
       await new Promise((r) => setTimeout(r, 60));
       assert.ok(extractCalls >= 2, `expected >=2 refresh spawns, got ${extractCalls}`);
+      assert.equal(receivedAgentId, "test-agent");
     });
 
     it("does not refresh below refreshEvery cadence after card exists", async () => {
