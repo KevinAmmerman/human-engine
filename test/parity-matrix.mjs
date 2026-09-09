@@ -114,6 +114,8 @@ const MATRIX = [
   { id: 54, behavior: "proactive/dm-proactive state isolated per agent: per-agent sentIds and byKind buckets (legacy v2 migrates), per-agent proactive budgets/eviction", tags: ["proactive tenancy"] },
   { id: 55, behavior: "onboarding a new agent/group is declarative (profiles + files only) and misconfiguration warns loudly at startup (autoconfig), incl. inert-profile and missing-paths cases",
     tags: ["new agent in 3 files", "profile exists but agent not in agents allowlist"] },
+  { id: 56, behavior: "host agent-run-failed fallback payloads (⚠️ Agent run failed (model: …)) are suppressed at capture like Plan-540 fallbacks — never captured, never humanized, never delivered",
+    tags: ["agent-run-failed suppression"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

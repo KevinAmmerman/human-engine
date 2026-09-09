@@ -1067,6 +1067,53 @@ describe("naturalize", () => {
       assert.ok(sent.includes("Bubble one"));
       assert.ok(sent.every((t) => !t.includes("No reply was generated")));
     });
+
+    it("agent-run-failed suppression: cancels the exact incident payload (⚠️ Agent run failed (model: …))", async () => {
+      const logs = [];
+      const nat = makeLoggingNat(logs);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "⚠️ Agent run failed (model: crof/deepseek-v4-flash-0731)." } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+      assert.ok(logs.some((l) => l.includes("suppressed system fallback payload")));
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0, "never captured, never delivered");
+    });
+
+    it("agent-run-failed suppression: variant with different model, no period, leading whitespace", async () => {
+      const nat = makeLoggingNat([]);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "   ⚠️ Agent run failed (model: gmx/glm-5.3-flash)" } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0);
+    });
+
+    it("agent-run-failed suppression: does NOT cancel a member who types agent run failed without the ⚠️ prefix", async () => {
+      const nat = makeLoggingNat([]);
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "I had an agent run failed moment, funny story" } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2, "real reply still captured and bubbled");
+    });
   });
 
   describe("meta-commentary strip (plan 345)", () => {

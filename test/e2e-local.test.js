@@ -105,6 +105,53 @@ describe("e2e-local", () => {
       assert.equal(dispatcher.markComplete.mock.callCount(), 1);
       assert.equal(state.speakEpochBySession.has(sk), false);
     });
+
+    it("agent-run-failed suppression: host fallback payload is cancelled and never delivered as a block reply", async () => {
+      const sk = "agent:test:whatsapp:group:e2e-fail@g.us";
+      const engine = createLocalEngine({
+        cfg: { humanize: { maxBubbles: 3 } },
+        llm: {
+          complete: async () => ({
+            text: JSON.stringify({ messages: ["Real bubble"] }),
+          }),
+        },
+        timing: makeFakeTiming(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      const naturalize = createNaturalize({
+        cfg: defaultCfg,
+        state,
+        engine,
+        persona: makePersona(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+
+      state.speakEpochBySession.set(sk, { epoch: 42, ts: Date.now() });
+      state.chatTypeBySession.set(sk, "group");
+
+      const dispatcher = {
+        sendBlockReply: mock.fn(() => true),
+        markComplete: mock.fn(),
+      };
+
+      naturalize.onReplyDispatch(
+        { sendPolicy: "allow" },
+        { agentId: "test", sessionKey: sk, channelId: "ch", chatId: "ch", senderId: "u", dispatcher, abortSignal: undefined },
+      );
+
+      const payloadResult = naturalize.onReplyPayloadSending(
+        { sessionKey: sk, kind: "final", channel: "whatsapp", payload: { text: "⚠️ Agent run failed (model: crof/deepseek-v4-flash-0731)." } },
+        { agentId: "test", sessionKey: sk },
+      );
+      assert.deepEqual(payloadResult, { cancel: true });
+
+      await new Promise((r) => setTimeout(r, 1500));
+
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 0, "agent-run-failed payload never delivered");
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0].text);
+      assert.ok(sent.every((t) => !t.includes("Agent run failed")), "no block reply carries the error text");
+    });
   });
 
   describe("silent → blocked + observed injection", () => {
