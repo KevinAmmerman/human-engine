@@ -41,38 +41,48 @@ built-in LLM with no cloud dependencies.
   and regenerates a real reply once; suppresses instead of leaking commentary
   if regeneration fails.
 - Runs an opt-in proactive turn-taking funnel (shadow-first).
-- Renders due DM follow-ups from `[[fu:…]]` envelopes through a shared
-  gate-core (shadow delivers gate-passed candidates envelope-stripped;
-  gate-fail/duplicate cancel; `[[fu:`-prefixed content is never delivered
-  raw; kind normalization `care`→`care_check_in`; sentIds idempotency,
-  byKind cadence, outcome backfill; DM scope derived from `event.to`
-  with channel-prefix stripping — production ctx has no `sessionKey`)
-  — see [design/dm-proactive-v2.md](./design/dm-proactive-v2.md).
-- Supports DM fail-open and group fail-closed safety modes.
-- Provides a parity-matrix contract for all behavioral capabilities.
+ - Renders due DM follow-ups from `[[fu:…]]` envelopes through a shared
+   gate-core (shadow delivers gate-passed candidates envelope-stripped;
+   gate-fail/duplicate cancel; `[[fu:`-prefixed content is never delivered
+   raw; kind normalization `care`→`care_check_in`; sentIds idempotency,
+   byKind cadence, outcome backfill; DM scope derived from `event.to`
+   with channel-prefix stripping — production ctx has no `sessionKey`)
+   — see [design/dm-proactive-v2.md](./design/dm-proactive-v2.md).
+ - **Multi-tenant by config (Plans 001–008)**: add an agent or a WhatsApp
+   group declaratively — `agentProfiles` entry + contacts.md + SOUL.md, no
+   code. Identity (name/aliases/contacts/soul/self-filter), voice cards,
+   memory, proactive/dm-proactive budgets are isolated per agent; channel
+   info derives from the sessionKey via the canonical scope parser.
+ - Suppresses host system-fallback payloads at capture (`NO_VISIBLE_REPLY`,
+   queue-cap rejection, and `⚠️ Agent run failed (model: …)`) — a failed
+   agent run can never leak an error text as a "reply" (Plans 540/007).
+ - Supports DM fail-open and group fail-closed safety modes.
+ - Provides a parity-matrix contract for all behavioral capabilities.
 
 ## Key source files
 
 | File | Role |
 |------|------|
 | `index.js` | Plugin entry point; registers hooks, wires modules, readSessionTranscript (ts backfill + NO_REPLY filter) |
-| `lib/gate.js` | Turn-taking gate: decide speak/stay-silent per message; chronological transcript merge |
-| `lib/naturalize.js` | Bubble naturalization: split, time, dispatch replies (per-bubble TTS via framework `maybeApplyTtsToPayload`, kind `final`); persistOwnReply |
-| `lib/local-engine.js` | Local LLM engine for decide + naturalize decisions |
+| `lib/scope.js` | Canonical session-key parser (`agent:<id>:<channel>:<kind>:<rest>`): parseSessionKey/parseScope/isDmSessionKey/isChatSession/agentIdFromSessionKey — the ONLY place that parses key shape (Plans 001–008) |
+| `lib/gate.js` | Turn-taking gate: decide speak/stay-silent per message; chronological transcript merge; per-agent identity via `resolveAgentConfigForSession` |
+| `lib/naturalize.js` | Bubble naturalization: split, time, dispatch replies (per-bubble TTS via framework `maybeApplyTtsToPayload`, kind `final`); persistOwnReply; system-fallback filter incl. `⚠️ Agent run failed` (Plans 540/007) |
+| `lib/local-engine.js` | Local LLM engine for decide + naturalize decisions; every `llm.complete` carries per-session `agentId` (Plan 008) |
 | `lib/dm-gate-core.js` | Shared DM follow-up gate rules (hook + CLI, one source of truth) |
-| `lib/dm-proactive.js` | DM-proactive v2: envelope adapter, cadence, shadow log, dispatch |
-| `lib/dayfit.js` | DayFit bands from `~/.openclaw/state/kevin-activity.json` |
+| `lib/dm-proactive.js` | DM-proactive v2: envelope adapter, cadence, shadow log, dispatch; per-agent sentIds/byKind buckets (state v3) |
+| `lib/dayfit.js` | DayFit bands; activity path per-agent overridable via `dmProactive.dayFitActivityPath` (Plan 005) |
 | `lib/mood.js` | Mood layer: stateful valence/energy per DM session, appraisal + decay, dm-only (Plan 570) |
-| `bin/followup-gate.mjs` | CLI layer-1 pre-send check for the followup-cron |
-| `lib/config.js` | Config resolution from OpenClaw API |
-| `lib/voice-card.js` | Communication-style profile learning and injection |
-| `lib/social-memory.js` | Person-centric fact extraction and recall |
+| `bin/followup-gate.mjs` | CLI layer-1 pre-send check for the followup-cron; agent-aware (`isScopedDmAgent`, per-agent sentIds) |
+| `lib/config.js` | Config resolution + `agentProfiles` per-agent overlay (`resolveAgentConfig`, Plan 002) + `dmProactiveAgents`/`isScopedDmAgent` (Plan 005) |
+| `lib/voice-card.js` | Communication-style profile learning; per-agent cache buckets, disk format v2 with migration (Plan 004) |
+| `lib/social-memory.js` | Person-centric fact extraction and recall; per-agent × session profiles |
 | `lib/timing-engine.js` | Human-typing timing calculation |
-| `lib/persona.js` | Persona prompt building (soul + voice-card) |
+| `lib/persona.js` | Persona prompt building (soul + voice-card), per-path soul cache |
 | `lib/state.js` | In-memory ephemeral state (Maps with size caps) |
 | `lib/observed-store.js` | Silenced + own-reply persistence (`state/observed/*.jsonl`) |
 | `lib/soul.js` | Soul/persona enhancement via local LLM |
-| `openclaw.plugin.json` | Plugin manifest (id, name, config schema) |
+| `openclaw.plugin.json` | Plugin manifest (id, name, config schema incl. `agentProfiles`) |
+| `plans/` | improve-skill plan index (multi-tenancy wave 001–008) — see [plans.md](./plans.md) |
 
 ## Documentation map
 
@@ -80,6 +90,7 @@ built-in LLM with no cloud dependencies.
 - [Build, test, lint](./operations/build-test-lint.md)
 - [Environment](./operations/environment.md)
 - [Source map](./source-map.md)
+- [Plans](./plans.md) — improve-skill wave index (001–008, multi-tenancy)
 - Design: [conversational time](./design/conversational-time.md),
   [meaningful absence](./design/meaningful-absence.md),
   [social memory v2](./design/social-memory-v2.md),
@@ -87,6 +98,28 @@ built-in LLM with no cloud dependencies.
 
 ## Notes for future agents
 
+- **Adding an agent or WhatsApp group is declarative** — see
+  [operations/onboarding-multi-tenant.md](./operations/onboarding-multi-tenant.md):
+  contacts.md + SOUL.md + an `agentProfiles` entry + allowlist. No code.
+  Misconfiguration warns loudly at startup via `autoconfig:true` (advisory).
+- **Parse session keys ONLY via `lib/scope.js`** — never `split(":")[1]`
+  by hand. The format is `agent:<agentId>:<channel>:<kind>:<rest>`; the
+  canonical parser is the tenancy axis for all modules (Plan 001).
+- **Every `llm.complete` call carries `agentId`** (SDK param, Plan 008) —
+  the flush path runs outside the agent turn's async context, so the host
+  CANNOT infer the caller; without the param it falls back to a default
+  agent and routes model/credentials wrongly.
+- **System fallback payloads are never captured** (Plans 540/007): the
+  core can inject `NO_VISIBLE_REPLY_FALLBACK_TEXT`,
+  `QUEUE_CAP_REJECTION_TEXT` or `⚠️ Agent run failed (model: …)` during
+  turn races/agent failures; `isSystemFallbackText` cancels them at
+  capture — extending the list is mandatory when the host grows new ones.
+- **Per-agent state is namespaced**: voice-card disk cache v2
+  (`{version:2, agents:{<agentId>:{cache,counter}}}`, migrates flat v1 on
+  load), proactive.json v2 and dm-proactive-state.json v3 (per-agent
+  `sentIds`/`byKind` buckets, legacy v2 flat data migrates to a
+  `__legacy__` read-only bucket). New state files MUST carry a `version`
+  field and migrate-on-load (Plan 004 pattern).
 - All hook error handling is in `index.js` wrap() — catches and logs, never
   throws into OpenClaw's hook chain.
 - State is in-memory only (Maps in `state.js`); persistent state lives in

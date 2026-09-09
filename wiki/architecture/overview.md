@@ -14,7 +14,8 @@ worker process.
 | Module | Path | Role |
 |--------|------|------|
 | Plugin entry | `index.js` | Hook registration, module wiring, log prefix |
-| Gate | `lib/gate.js` | Decides speak/stay-silent via local engine per message |
+| Scope parser | `lib/scope.js` | Canonical session-key parser (`agent:<id>:<channel>:<kind>:<rest>`) — single source of truth for tenancy/DM/group/channel classification (Plan 001) |
+| Gate | `lib/gate.js` | Decides speak/stay-silent via local engine per message; per-agent identity (`resolveAgentConfigForSession`) for contacts/name/aliases (Plan 003) |
 | Naturalize | `lib/naturalize.js` | Splits reply into bubbles, adds timing delays, attaches group TTS audio per bubble |
 | Local engine | `lib/local-engine.js` | LLM-based decide + naturalize via host's `llm.complete` |
 | Config | `lib/config.js` | Default config + one-level deep merge from OpenClaw API |
@@ -142,6 +143,22 @@ No external npm packages — all logic is self-contained.
 
 ## Design decisions
 
+- **Multi-tenancy by config overlay (Plans 002–005)**: `agentProfiles`
+  (keyed by agentId) overlay the global config via `resolveAgentConfig` —
+  resolution per key: profile → global → default; nested objects merge one
+  level. Profiles never widen the `agents` allowlist. State is namespaced
+  per agent (voice-card v2 buckets, proactive v2 / dm-proactive v3
+  per-agent `sentIds`/`byKind` with `__legacy__` migration buckets).
+- **LLM calls carry `agentId` (Plan 008)**: every `llm.complete` passes the
+  session's agentId (SDK param) — the flush timer runs outside the agent
+  turn's async context, so the host cannot infer the caller; without the
+  param model/credentials routing and audit metadata fall back to a
+  default agent.
+- **System fallback texts never reach bubbles (Plans 540/007)**:
+  `isSystemFallbackText` cancels host-injected failure payloads
+  (`NO_VISIBLE_REPLY_FALLBACK_TEXT`, `QUEUE_CAP_REJECTION_TEXT`,
+  `⚠️ Agent run failed (model: …)` — anchored ⚠️-prefix regex, no
+  false-positives on member text) at capture.
 - **Local-only LLM calls**: All decisions use the host's `llm.complete` — no
   direct API keys, no external transport. Degrades gracefully if LLM is absent.
 - **In-memory state**: Ephemeral state uses `Map` with size caps (4096 entries).

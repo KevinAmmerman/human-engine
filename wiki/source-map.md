@@ -3,21 +3,23 @@
 ```
 human-engine/
   index.js                  — Plugin entry: registers hooks, wires modules; readSessionTranscript (ts backfill, NO_REPLY filter, senderName mapping); onSilence wiring
-  openclaw.plugin.json      — Plugin manifest with config schema (v0.4.0)
+  openclaw.plugin.json      — Plugin manifest with config schema (incl. agentProfiles, v0.4.1+)
   package.json              — npm package (name: human-engine, ES module)
   package-lock.json         — Dependency lock (no external deps)
   README.md                 — Project README (install, config, usage)
   CHANGELOG.md              — Release history (0.4.0–0.1.0)
   LICENSE                   — MIT
   .gitignore                — Ignored: node_modules/, state/, logs/, *.log
+  plans/                    — improve-skill plan index (multi-tenancy wave 001–008 + legacy 586 reference), see wiki/plans.md
   bin/
-    followup-gate.mjs       — CLI layer-1 pre-send check for the followup-cron (exit 0/1/2/3)
+    followup-gate.mjs       — CLI layer-1 pre-send check for the followup-cron (exit 0/1/2/3); agent-aware scoping (Plan 005)
   docs/
     design-dm-proactive-v2.md — DM-proactive v2 binding design (Plan 526, Option A)
     media-findings.md       — Media handling findings
   lib/
-    gate.js                 — Turn-taking gate (speak/stay-silent, named-first chronological transcript merge, decide-ctx log, onSilence)
-    naturalize.js           — Bubble naturalization (split + time replies, per-bubble group TTS, persistOwnReply, FIFO dispatcher queue, system-fallback filter)
+    scope.js                — Canonical session-key parser (agentId/channel/kind/rest, DM/group/chat classification) — Plans 001
+    gate.js                 — Turn-taking gate (speak/stay-silent, named-first chronological transcript merge, decide-ctx log, onSilence; per-agent identity)
+    naturalize.js           — Bubble naturalization (split + time replies, per-bubble group TTS, persistOwnReply, FIFO dispatcher queue, system-fallback filter incl. agent-run-failed)
     local-engine.js         — Local LLM engine (decide + naturalize calls)
     config.js               — Default config + one-level deep merge
     voice-card.js           — Communication-style profile learning
