@@ -217,6 +217,65 @@ describe("social-memory", { concurrency: false }, () => {
     });
   });
 
+  describe("ingest cadence (plan 011)", () => {
+    it("dedupes triple-ingest of same {speaker,text} within 60s", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::cadence-dedup";
+      sm.ingest(scope, { speaker: "Alice", text: "same msg", ts: 1000 });
+      sm.ingest(scope, { speaker: "Alice", text: "same msg", ts: 1001 });
+      sm.ingest(scope, { speaker: "Alice", text: "same msg", ts: 1002 });
+      const buf = sm.bufferByScope.get(scope);
+      assert.equal(buf.entries.length, 1);
+      assert.equal(buf.newSinceExtract, 1);
+      const profile = sm.getOrLoadProfile(scope);
+      assert.equal(profile.people.Alice.mentionCount, 1);
+      assert.equal(profile.messageCount, 1);
+    });
+
+    it("counts same text again after 61s", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::cadence-window";
+      sm.ingest(scope, { speaker: "Alice", text: "repeat", ts: 1000 });
+      sm.ingest(scope, { speaker: "Alice", text: "repeat", ts: 1000 + 61_000 });
+      const buf = sm.bufferByScope.get(scope);
+      assert.equal(buf.entries.length, 2);
+      assert.equal(buf.newSinceExtract, 2);
+      const profile = sm.getOrLoadProfile(scope);
+      assert.equal(profile.people.Alice.mentionCount, 2);
+      assert.equal(profile.messageCount, 2);
+    });
+
+    it("counts two speakers with same text within 60s", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::cadence-two-speakers";
+      sm.ingest(scope, { speaker: "Alice", text: "hi", ts: 1000 });
+      sm.ingest(scope, { speaker: "Bob", text: "hi", ts: 1001 });
+      const buf = sm.bufferByScope.get(scope);
+      assert.equal(buf.entries.length, 2);
+      assert.equal(buf.newSinceExtract, 2);
+      const profile = sm.getOrLoadProfile(scope);
+      assert.equal(profile.people.Alice.mentionCount, 1);
+      assert.equal(profile.people.Bob.mentionCount, 1);
+      assert.equal(profile.messageCount, 2);
+    });
+
+    it("skips empty text ingests", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::cadence-empty";
+      sm.ingest(scope, { speaker: "Alice", text: "", ts: 1000 });
+      sm.ingest(scope, { speaker: "Bob", text: "   ", ts: 1001 });
+      sm.ingest(scope, { speaker: "Carol", text: "real", ts: 1002 });
+      const buf = sm.bufferByScope.get(scope);
+      assert.equal(buf.entries.length, 1);
+      assert.equal(buf.newSinceExtract, 1);
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(!profile.people.Alice);
+      assert.ok(!profile.people.Bob);
+      assert.ok(profile.people.Carol);
+      assert.equal(profile.messageCount, 1);
+    });
+  });
+
   describe("stub-LLM merge semantics", () => {
     it("merges LLM result into existing profile", async () => {
       let callIdx = 0;
