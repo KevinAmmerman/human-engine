@@ -1,12 +1,11 @@
 {
-  "commit": "fcee7b5",
-  "timestamp": "2026-09-06T01:30:00Z",
+  "commit": "fe059a3",
+  "timestamp": "2026-09-09T08:15:00Z",
   "filesChanged": [
     "wiki/quickstart.md",
     "wiki/architecture/overview.md",
-    "wiki/source-map.md",
-    "wiki/design/dm-proactive-v2.md",
-    "wiki/operations/build-test-lint.md"
+    "wiki/operations/environment.md",
+    "wiki/source-map.md"
   ],
   "generator": "yuki-wiki-update",
   "version": "1.0.0"

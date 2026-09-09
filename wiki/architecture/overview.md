@@ -25,6 +25,7 @@ worker process.
 | DM gate core | `lib/dm-gate-core.js` | Shared DM follow-up gate rules (hook + CLI, one source of truth) |
 | DM proactive v2 | `lib/dm-proactive.js` | Envelope adapter `[[fu:…]]` → gate → shadow/live dispatch, byKind cadence, outcome backfill |
 | DayFit | `lib/dayfit.js` | DayFit bands from `~/.openclaw/state/kevin-activity.json` (quiet-hours + day-key aware) |
+| Mood | `lib/mood.js` | Stateful valence/energy per DM session (dm-only, default off): appraisal cadence, clamp, decay, `appendSystemContext` injection |
 | Persona | `lib/persona.js` | Soul prompt + voice-card assembly |
 | Soul | `lib/soul.js` | SOUL.md section-merge enhancement via local LLM, auto-enhance on start |
 | Timing engine | `lib/timing-engine.js` | WPM-based delay calculation, night mode |

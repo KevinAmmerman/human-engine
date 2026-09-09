@@ -32,6 +32,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `humanize.maxBubbles` | number | `5` | Max reply bubbles |
 | `humanize.temperature` | number | `0.9` | Naturalization temperature |
 | `naturalize.speakEpochTtlMs` | number | `300000` | Speak-epoch expiry before a captured reply is dropped |
+| `naturalize.disableDM` | bool | `false` | Skip bubble arming for direct chats — DM replies deliver as ONE raw message, no split/timing (Plan 587); groups unaffected |
 | `timing.typingWpm` | number | `40` | Typing speed for delay calc |
 | `timing.maxTypingMs` | number | `60000` | Max typing delay per bubble |
 | `timing.maxBubbleGapMs` | number | `3000` | Max gap between bubbles |
@@ -53,6 +54,10 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `dmProactive.dayFitReduceHours` | number | `4` | Reduce sends when DayFit band is this many hours stale |
 | `dmProactive.dayFitPauseHours` | number | `12` | Pause sends when DayFit band is this many hours stale |
 | `dmProactive.inferredCapPerDay` | number | `2` | Cap for inferred (non-envelope) candidates |
+| `mood.enabled` | bool | `false` | Mood layer master switch — stateful valence/energy per DM session, dm-only (Plan 570) |
+| `mood.refreshEvery` / `mood.refreshMinutes` | number | `5` / `0` | Appraisal cadence (message-count and/or minutes; count-based wins while minutes=0) |
+| `mood.decayHours` | number | `6` | Hours without update before valence/energy decay toward neutral |
+| `mood.maxShiftPerUpdate` | number | `1` | Max |Δ| per axis per appraisal |
 
 There is no model-override key: every LLM call uses the host's built-in
 `llm.complete`. Nested objects deep-merge one level over defaults, so a
@@ -71,6 +76,7 @@ runtime, never committed. Files are written 0600, dirs 0700, via tmp+rename.
 | `state/proactive.json` | Proactive budgets/cooldowns (persisted) |
 | `state/dm-proactive-state.json` | DM-proactive v2: per-scope counts, `sentIds` LRU (max 512), `byKind` cadence |
 | `state/dm-proactive.jsonl` | DM-proactive shadow/live log v2 (14-day retention, outcome backfill) |
+| `state/mood/<agentId>/<sessionKey>.json` | Mood layer: per-DM-session valence/energy state (Plan 570) |
 
 One file is read (never written) from OUTSIDE the plugin dir:
 | Path | Purpose |

@@ -27,6 +27,7 @@ human-engine/
     dm-proactive.js         — DM-proactive v2: envelope adapter, byKind cadence, shadow log, dispatch
     dm-gate-core.js         — Shared DM follow-up gate rules (hook + CLI)
     dayfit.js               — DayFit bands from kevin-activity.json
+    mood.js                 — Mood state layer (per-DM-session valence/energy, appraisal cadence, decay, dm-only)
     persona.js              — Persona prompt assembly (soul + voice-card)
     soul.js                 — SOUL.md section-merge enhancement via local LLM
     timing-engine.js        — Human-typing timing calculation

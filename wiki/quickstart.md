@@ -15,7 +15,9 @@ built-in LLM with no cloud dependencies.
 ## What this repository does
 
 - Decides when the agent should speak or stay silent (turn-taking gate).
-- Naturalizes multi-bubble replies with human-like typing timing.
+- Naturalizes multi-bubble replies with human-like timing — groups by default;
+  DMs can opt out via `naturalize.disableDM: true` (DM replies then deliver as
+  one raw message, no split/timing — Plan 587; own-reply persistence still runs).
 - Attaches framework TTS audio to group bubbles (HART: each bubble carries its
   text AND its own voice-note audio in one payload — never voice-only, degrades
   to text-only on host reject); DM path untouched (Plan 548b, commit `fcee7b5`).
@@ -59,6 +61,7 @@ built-in LLM with no cloud dependencies.
 | `lib/dm-gate-core.js` | Shared DM follow-up gate rules (hook + CLI, one source of truth) |
 | `lib/dm-proactive.js` | DM-proactive v2: envelope adapter, cadence, shadow log, dispatch |
 | `lib/dayfit.js` | DayFit bands from `~/.openclaw/state/kevin-activity.json` |
+| `lib/mood.js` | Mood layer: stateful valence/energy per DM session, appraisal + decay, dm-only (Plan 570) |
 | `bin/followup-gate.mjs` | CLI layer-1 pre-send check for the followup-cron |
 | `lib/config.js` | Config resolution from OpenClaw API |
 | `lib/voice-card.js` | Communication-style profile learning and injection |
