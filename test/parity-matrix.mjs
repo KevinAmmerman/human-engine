@@ -124,6 +124,10 @@ const MATRIX = [
     tags: ["decide verdict parsing tolerates model noise"] },
   { id: 60, behavior: "dm-proactive budget is per-agent namespaced with per-agent eviction (Plan 005 parity for budget)",
     tags: ["per-agent eviction: agent-a overflow", "budget is namespaced per agent"] },
+  { id: 61, behavior: "person store: memory profiles are per-human (agent-namespaced, cross-session merged) when socialMemory.personStore is enabled",
+    tags: ["one per-agent profile grows across two sessions of the same agent", "kevin in agent1 is separate from kevin in agent2", "personstore:false keeps per-session files"] },
+  { id: 62, behavior: "legacy per-session profiles migrate into the person store idempotently",
+    tags: ["migrates 3 legacy session files into one per-agent profile idempotently"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

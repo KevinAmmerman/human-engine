@@ -680,4 +680,119 @@ describe("social-memory", { concurrency: false }, () => {
       assert.equal(buf.newSinceExtract, 0);
     });
   });
+
+  describe("person store (plan 019): migration", () => {
+    it("migrates 3 legacy session files into one per-agent profile idempotently", () => {
+      // Legacy per-session files under one agent
+      const cfg = makeCfg({ personStore: true });
+      sm = createSocialMemory({ cfg, stateDir: tmpDir, log: makeLog() });
+      const agentDir = path.join(tmpDir, "social-memory", "agentM");
+
+      // Write legacy session files directly (simulate pre-personStore layout)
+      const legacy1 = { people: { Kevin: { facts: ["climbs"], preferences: [], situation: "", lastSeenTs: 100, mentionCount: 1 }, Tobi: { facts: ["leads"], preferences: [], situation: "", lastSeenTs: 90, mentionCount: 2 } }, messageCount: 3 };
+      const legacy2 = { people: { Kevin: { facts: ["has a dog"], preferences: ["bouldering"], situation: "", lastSeenTs: 200, mentionCount: 4 } }, messageCount: 4 };
+      const legacy3 = { people: { Tobi: { facts: ["top-ropes"], preferences: [], situation: "cautious climber", lastSeenTs: 80, mentionCount: 1 } }, messageCount: 2 };
+      fs.mkdirSync(agentDir, { recursive: true });
+      fs.writeFileSync(path.join(agentDir, "sessionA.json"), JSON.stringify(legacy1), { encoding: "utf8", mode: 0o600 });
+      fs.writeFileSync(path.join(agentDir, "sessionB.json"), JSON.stringify(legacy2), { encoding: "utf8", mode: 0o600 });
+      fs.writeFileSync(path.join(agentDir, "sessionC.json"), JSON.stringify(legacy3), { encoding: "utf8", mode: 0o600 });
+
+      // First access triggers migration
+      const profile = sm.getOrLoadProfile("agentM::sessionA");
+
+      // Kevin: union of facts, mentionCount sum, lastSeenTs max
+      assert.ok(profile.people.Kevin, "Kevin must exist");
+      assert.ok(profile.people.Kevin.facts.includes("climbs"));
+      assert.ok(profile.people.Kevin.facts.includes("has a dog"));
+      assert.equal(profile.people.Kevin.mentionCount, 5, "mentionCount summed across sessions");
+      assert.equal(profile.people.Kevin.lastSeenTs, 200, "max lastSeenTs kept");
+      // Tobi: union + situation = longer non-empty
+      assert.ok(profile.people.Tobi);
+      assert.ok(profile.people.Tobi.facts.includes("leads"));
+      assert.ok(profile.people.Tobi.facts.includes("top-ropes"));
+      assert.equal(profile.people.Tobi.situation, "cautious climber");
+      assert.equal(profile.people.Tobi.mentionCount, 3);
+      assert.equal(profile.people.Tobi.lastSeenTs, 90);
+      // marker
+      assert.equal(profile.version, 1);
+      assert.equal(profile.migrated, true);
+
+      // Agent file written, session files moved to legacy-sessions
+      const agentFile = path.join(tmpDir, "social-memory", "agentM.json");
+      assert.ok(fs.existsSync(agentFile), "agent file must exist after migration");
+      const legacyDir = path.join(agentDir, "legacy-sessions");
+      assert.ok(fs.existsSync(legacyDir), "legacy-sessions dir must exist");
+      assert.ok(fs.existsSync(path.join(legacyDir, "sessionA.json")), "sessionA moved");
+      assert.ok(fs.existsSync(path.join(legacyDir, "sessionB.json")), "sessionB moved");
+      assert.ok(fs.existsSync(path.join(legacyDir, "sessionC.json")), "sessionC moved");
+      assert.ok(!fs.existsSync(path.join(agentDir, "sessionA.json")), "sessionA no longer in agent dir");
+      const dirMode = fs.statSync(legacyDir).mode & 0o777;
+      assert.equal(dirMode, 0o700, "legacy dir must be 0700");
+
+      // Second init → no double migration (idempotent)
+      const sm2 = createSocialMemory({ cfg, stateDir: tmpDir, log: makeLog() });
+      const profile2 = sm2.getOrLoadProfile("agentM::sessionB");
+      assert.equal(profile2.people.Kevin.mentionCount, 5, "no double-merge on second access");
+      // legacy files still in legacy-sessions (not deleted, not re-read as fresh)
+      assert.ok(fs.existsSync(path.join(legacyDir, "sessionB.json")));
+      assert.equal(profile2.migrated, true);
+    });
+  });
+
+  describe("person store (plan 019): cross-session growth", () => {
+    it("one per-agent profile grows across two sessions of the same agent", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ personStore: true }), stateDir: tmpDir, log: makeLog() });
+      sm.ingest("agentN::group-a", { speaker: "Kevin", text: "hello A", ts: 100 });
+      sm.ingest("agentN::dm-b", { speaker: "Kevin", text: "hello B", ts: 200 });
+      const profile = sm.getOrLoadProfile("agentN::group-a");
+      assert.equal(profile.people.Kevin.mentionCount, 2, "same person grows across sessions");
+      assert.equal(profile.people.Kevin.lastSeenTs, 200, "max lastSeenTs across sessions");
+      // Buffer remains per session
+      assert.equal(sm.bufferByScope.get("agentN::group-a").entries.length, 1);
+      assert.equal(sm.bufferByScope.get("agentN::dm-b").entries.length, 1);
+      // Agent-level file, not session file
+      sm.flush("agentN::group-a");
+      assert.ok(fs.existsSync(path.join(tmpDir, "social-memory", "agentN.json")));
+      assert.ok(!fs.existsSync(path.join(tmpDir, "social-memory", "agentN", "group-a.json")));
+    });
+
+    it("recall from a different session of the same agent finds the person", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ personStore: true }), stateDir: tmpDir, log: makeLog() });
+      const profile = sm.getOrLoadProfile("agentN::group-a");
+      profile.people = {
+        Kevin: { facts: ["likes climbing"], preferences: [], situation: "", lastSeenTs: 200, mentionCount: 5 },
+      };
+      const result = sm.recall("agentN::dm-b", ["Kevin"]);
+      assert.ok(result.includes("Kevin"), "recall from another session sees the same person");
+      assert.ok(result.includes("likes climbing"));
+    });
+  });
+
+  describe("person store (plan 019): agent isolation (tenancy)", () => {
+    it("Kevin in agent1 is separate from Kevin in agent2", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ personStore: true }), stateDir: tmpDir, log: makeLog() });
+      sm.ingest("agentX::s1", { speaker: "Kevin", text: "hi X", ts: 100 });
+      sm.ingest("agentY::s1", { speaker: "Kevin", text: "hi Y", ts: 100 });
+      sm.flush("agentX::s1");
+      sm.flush("agentY::s1");
+      assert.ok(fs.existsSync(path.join(tmpDir, "social-memory", "agentX.json")));
+      assert.ok(fs.existsSync(path.join(tmpDir, "social-memory", "agentY.json")));
+      const x = JSON.parse(fs.readFileSync(path.join(tmpDir, "social-memory", "agentX.json"), "utf8"));
+      const y = JSON.parse(fs.readFileSync(path.join(tmpDir, "social-memory", "agentY.json"), "utf8"));
+      assert.equal(x.people.Kevin.mentionCount, 1);
+      assert.equal(y.people.Kevin.mentionCount, 1);
+      // distinct file objects — changing one doesn't touch the other
+      assert.notEqual(x, y);
+    });
+  });
+
+  describe("person store (plan 019): default-off preserves legacy behavior", () => {
+    it("personStore:false keeps per-session files and no agent file", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      sm.ingest("agentZ::sess", { speaker: "Kevin", text: "hi", ts: 100 });
+      sm.flush("agentZ::sess");
+      assert.ok(fs.existsSync(path.join(tmpDir, "social-memory", "agentZ", "sess.json")), "session file written");
+      assert.ok(!fs.existsSync(path.join(tmpDir, "social-memory", "agentZ.json")), "no agent file under default false");
+    });
+  });
 });
