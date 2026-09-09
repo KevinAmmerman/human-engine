@@ -108,6 +108,8 @@ const MATRIX = [
     tags: ["mood decay", "halves valence"] },
   { id: 51, behavior: "naturalize.disableDM: DM replies pass through as one raw message (no bubbles, no cancel, own reply persisted) while group arming/bubbling is unchanged",
     tags: ["disabledm"] },
+  { id: 52, behavior: "social cards are isolated per agent: per-agent cache buckets, per-agent eviction, perSessionCard:false collapses per agent only (v1 cache migrates on load)",
+    tags: ["social card isolation"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
