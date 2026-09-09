@@ -35,9 +35,9 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 |------|-------|----------|--------|------------|--------|
 | [009](009-speaker-aware-transcript-dedup.md) | Speaker-aware Transcript-Dedup (verschiedene Speaker kollidieren nicht mehr) | P1 | S–M | — | DONE (executed+approved, 925/0, Parity 57/57; Plan-543-Test-Szenario reviewer-alignment: Peek/Current gleicher Speaker) |
 | [010](010-untrusted-wrapping-completion.md) | Untrusted-Wrapping: Regenerate-Prompt + Persona-Pfad + Mood-Note | P1 | S | — | DONE (executed+approved, 927/0, Parity 58/58) |
-| [011](011-social-memory-ingest-cadence.md) | Social-Memory-Ingest-Kadenz (kein 2–3×-Count pro Nachricht) | P1 | S | — | TODO |
+| [011](011-social-memory-ingest-cadence.md) | Social-Memory-Ingest-Kadenz (kein 2–3×-Count pro Nachricht) | P1 | S | — | DONE (executed+approved, 935/0, Parity 58/58) |
 | [012](012-log-redaction-state-perms.md) | Log-Redaction + State-Dir-Perms 0700 | P1 | S | — | TODO |
-| [013](013-observed-store-tail-read.md) | Observed-Store Tail-Read + Cache (Hot Path) | P2 | S | — | TODO |
+| [013](013-observed-store-tail-read.md) | Observed-Store Tail-Read + Cache (Hot Path) | P2 | S | — | DONE (executed+approved, 935/0, Parity 58/58) |
 | [014](014-scope-parser-discipline.md) | Scope-Parser-Disziplin (parseAgentScope, mood/naturalize/proactive umstellen) | P2 | S–M | — | TODO |
 | [015](015-version-sync-dead-code.md) | Version-Sync (0.4.2) + openThread-Stub entfernen | P2 | S | — | TODO |
 | [016](016-decide-parse-robustness.md) | Decide-Output-Parsing robust (Fences/JSON/Prosa) | P1 | S | — | TODO |
