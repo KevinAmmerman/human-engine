@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, statSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bubbleTimers } from "../lib/naturalize.js";
@@ -153,6 +153,23 @@ describe("register() from index.js", () => {
       assert.equal(bubbleTimers.size, 0);
     } finally {
       bubbleTimers.clear();
+    }
+  });
+
+  it("register() enforces 0700 on stateDir and its subdirectories (idempotent)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "he-state-perms-"));
+    mkdirSync(join(dir, "social-memory"), { recursive: true, mode: 0o777 });
+    mkdirSync(join(dir, "observed"), { recursive: true, mode: 0o777 });
+    const prev = process.env.HUMAN_ENGINE_STATE_DIR;
+    process.env.HUMAN_ENGINE_STATE_DIR = dir;
+    try {
+      const { api } = makeFakeApi({ withLLM: false });
+      assert.doesNotThrow(() => pluginEntry.register(api));
+      assert.equal(statSync(dir).mode & 0o777, 0o700);
+      assert.equal(statSync(join(dir, "social-memory")).mode & 0o777, 0o700);
+      assert.equal(statSync(join(dir, "observed")).mode & 0o777, 0o700);
+    } finally {
+      process.env.HUMAN_ENGINE_STATE_DIR = prev;
     }
   });
 });

@@ -219,6 +219,19 @@ describe("observed-store", { concurrency: false }, () => {
       assert.deepEqual(store.readObserved("no-such-session"), []);
     });
 
+    it("redacts long digit runs from session keys in error logs", () => {
+      const sk = "agent:test:whatsapp:group:4917624677323@g.us";
+      const blocker = path.join(tmpDir, "not-a-dir");
+      fs.writeFileSync(blocker, "file", { mode: 0o600 });
+      const errLog = makeLog();
+      const bad = createObservedStore({ stateDir: blocker, log: errLog });
+      assert.doesNotThrow(() => bad.appendObserved(sk, { speaker: "Nico", text: "hi", ts: 1 }));
+      assert.ok(errLog._warns.length >= 1, "expected an append error warn");
+      for (const w of errLog._warns) {
+        assert.doesNotMatch(w, /\d{5,}/, `warn must not contain 5+ consecutive digits: ${w}`);
+      }
+    });
+
     it("appendObserved does not throw on bad input", () => {
       assert.doesNotThrow(() => store.appendObserved(null, { speaker: "A", text: "hi" }));
       assert.doesNotThrow(() => store.appendObserved("sk", { speaker: "A", text: "" }));
