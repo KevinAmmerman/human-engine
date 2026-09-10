@@ -75,7 +75,8 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "temperature": { "type": "number", "default": 0.2 }
+          "temperature": { "type": "number", "default": 0.2 },
+          "v2Contract": { "type": "boolean", "default": false }
         },
         "default": {}
       },
