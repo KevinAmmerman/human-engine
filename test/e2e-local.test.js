@@ -91,7 +91,7 @@ describe("e2e-local", () => {
       );
 
       const payloadResult = naturalize.onReplyPayloadSending(
-        { sessionKey: sk, kind: "final", channel: "whatsapp", payload: { text: "This is the draft reply" } },
+        { sessionKey: sk, kind: "final", channel: "whatsapp", payload: { text: "First bubble. Second bubble. Third bubble." } },
         { agentId: "test", sessionKey: sk },
       );
       assert.deepEqual(payloadResult, { cancel: true });
@@ -213,7 +213,7 @@ describe("e2e-local", () => {
       );
 
       naturalize.onReplyPayloadSending(
-        { sessionKey: sk, kind: "final", payload: { text: "Draft" } },
+        { sessionKey: sk, kind: "final", payload: { text: "First. Second. Third." } },
         { agentId: "test", sessionKey: sk },
       );
 

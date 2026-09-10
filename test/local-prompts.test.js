@@ -178,6 +178,15 @@ describe("local-prompts", () => {
       );
     });
 
+    it("requires an exact-words split, forbids paraphrase/pronoun changes (plan 615)", () => {
+      const p = buildSplitPrompt({ draft: "hi" });
+      assert.ok(p.systemPrompt.includes("Use ONLY the draft's exact words"), "exact-words line present");
+      assert.ok(p.systemPrompt.includes("NEVER paraphrase, translate, reword"), "no-paraphrase line present");
+      assert.ok(p.systemPrompt.includes("Never change pronouns (ich/du/dir/mir/er/sie)"), "pronoun rule present");
+      assert.ok(p.systemPrompt.includes("Do NOT invent a reaction or filler bubble"), "no-invented-reaction line present");
+      assert.ok(p.systemPrompt.includes("First may be a reaction ONLY if that reaction appears verbatim"), "reaction-must-be-in-draft present");
+    });
+
     it("includes the LANGUAGE directive (plan 496)", () => {
       const p = buildSplitPrompt({ draft: "hi" });
       assert.ok(p.systemPrompt.includes("LANGUAGE:"));

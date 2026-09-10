@@ -178,6 +178,8 @@ const MATRIX = [
     tags: ["every gate reason individually", "cross-budget reason fires"] },
   { id: 87, behavior: "Initiative multi-tenant isolation: per-agent×scope state files; per-agent profile overrides",
     tags: ["per-agent isolation"] },
+  { id: 88, behavior: "humanize is faithful: LLM split is guarded — paraphrased/pronoun-flipped bubbles fall back to the content-preserving mechanical split",
+    tags: ["isFaithfulSplit"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

@@ -21,7 +21,7 @@ describe("config", () => {
     assert.equal(cfg.autoconfig, false);
     assert.equal(cfg.socialLearning.perSessionCard, true);
     assert.deepEqual(cfg.decide, { temperature: 0.2, v2Contract: false });
-    assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.9 });
+    assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.3, requireFaithfulSplit: true });
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { disableDM: false, speakEpochTtlMs: 300000 });
     assert.deepEqual(cfg.dmProactive, { agents: [], enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, dayFitActivityPath: "", inferredCapPerDay: 2 });

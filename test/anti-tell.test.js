@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ANTI_TELL_BLOCK, detectTells, sanitizeTells, stripMetaCommentary, expandInlineLists } from "../lib/anti-tell.js";
+import { ANTI_TELL_BLOCK, detectTells, sanitizeTells, stripMetaCommentary, expandInlineLists, isFaithfulSplit } from "../lib/anti-tell.js";
 
 describe("anti-tell", () => {
   describe("ANTI_TELL_BLOCK", () => {
@@ -327,6 +327,38 @@ describe("anti-tell", () => {
     it("returns unchanged for empty or non-string input", () => {
       assert.deepEqual(stripMetaCommentary("", ["Nico"]), { text: "", stripped: false, commentary: false });
       assert.deepEqual(stripMetaCommentary(null, ["Nico"]), { text: null, stripped: false, commentary: false });
+    });
+  });
+
+  describe("isFaithfulSplit (plan 615)", () => {
+    it("isFaithfulSplit: faithful split → true", () => {
+      assert.equal(isFaithfulSplit("Ich schau rein, wenn bei dir Ruhe ist.", ["Ich schau rein,", "wenn bei dir Ruhe ist."]), true);
+    });
+
+    it("pronoun flip → false", () => {
+      assert.equal(isFaithfulSplit("Ich schau rein, wenn bei dir Ruhe ist.", ["wenn bei mir Ruhe ist."]), false);
+    });
+
+    it("invented reaction → false", () => {
+      assert.equal(isFaithfulSplit("Ich komme um 15 Uhr.", ["lol nice", "Ich komme um 15 Uhr."]), false);
+    });
+
+    it("punctuation/casing change → true", () => {
+      assert.equal(isFaithfulSplit("Ich Schau rein, wenn es ruhig ist.", ["ich schau rein wenn es ruhig ist."]), true);
+    });
+
+    it("emoji-only bubble ignored → true", () => {
+      assert.equal(isFaithfulSplit("Komme gleich. 👍", ["Komme gleich.", "👍"]), true);
+    });
+
+    it("reordered content → false", () => {
+      assert.equal(isFaithfulSplit("erst das eine, dann das andere.", ["das andere dann erst das eine"]), false);
+    });
+
+    it("non-string / empty safe → true", () => {
+      assert.equal(isFaithfulSplit(null, ["a"]), true);
+      assert.equal(isFaithfulSplit("", ["a"]), true);
+      assert.equal(isFaithfulSplit("draft", null), true);
     });
   });
 });

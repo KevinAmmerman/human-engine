@@ -8,6 +8,7 @@ const cfg = {
   agents: [],
   agentName: "OpenClaw",
   socialMemory: { enabled: true },
+  humanize: { requireFaithfulSplit: false }, // delivery/capture fixtures use synthetic bubbles, not fidelity
 };
 
 const CHAT_SK = "agent:test-agent:whatsapp:group:123@g.us";
@@ -1787,6 +1788,68 @@ describe("naturalize", () => {
       await new Promise((r) => setTimeout(r, 1500));
       assert.equal(logs.some((l) => l.includes("fact-guard fallback")), false);
       assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+    });
+  });
+
+  describe("humanize fidelity guard (plan 615)", () => {
+    function captureRun(engine, payloadText, opts = {}) {
+      const logs = [];
+      const nat = createNaturalize({
+        cfg: { ...cfg, humanize: { requireFaithfulSplit: true, maxBubbles: 5 } }, state, engine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+        ...(opts.scheduleBubbles ? { scheduleBubbles: opts.scheduleBubbles } : {}),
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: payloadText } }, makeDefaultCtx());
+      return { nat, dispatcher, logs };
+    }
+
+    const fastSchedule = (bubbles) => bubbles.map((b, i) => ({ content: b.content, position: i, delayMs: (i + 1) * 5 }));
+
+    it("pronoun-flipped split falls back to the mechanical fragment, warn logged", async () => {
+      const draft = "Ich schau heut Abend rein, wenn's bei dir ruhig ist.";
+      const badEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return {
+            scheduled: [
+              { content: "wenn bei mir Ruhe ist.", position: 0, delayMs: 5 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const { dispatcher, logs } = captureRun(badEngine, draft, { scheduleBubbles: fastSchedule });
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(logs.some((l) => l.includes("humanize unfaithful") && l.includes("mechanical split")), "unfaithful warn logged");
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0].text).join(" ");
+      assert.ok(sent.includes("bei dir"), `mechanical fragment keeps the draft words (got: ${sent})`);
+      assert.ok(!sent.includes("bei mir"), `pronoun flip must not be delivered (got: ${sent})`);
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("faithful split passes through unchanged (no mechanical fallback)", async () => {
+      const draft = "Ich schau heut Abend rein, wenn's bei dir ruhig ist.";
+      const goodEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return {
+            scheduled: [
+              { content: "Ich schau heut Abend rein,", position: 0, delayMs: 5 },
+              { content: "wenn's bei dir ruhig ist.", position: 1, delayMs: 10 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const { dispatcher, logs } = captureRun(goodEngine, draft);
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(logs.some((l) => l.includes("humanize unfaithful")), false, "no unfaithful warn for a faithful split");
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0].text).join(" ");
+      assert.ok(sent.includes("bei dir") && sent.includes("Ich schau heut Abend rein"), "faithful bubbles delivered");
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
     });
   });
 });
