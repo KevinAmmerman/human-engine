@@ -86,4 +86,35 @@ describe("schema/config sync (Plan 531)", () => {
     assert.equal(props.dayFitReduceHours.default, 4);
     assert.equal(props.dayFitPauseHours.default, 12);
   });
+
+  it("config.js proactive defaults match openclaw.plugin.json schema properties (plan 023)", () => {
+    const pluginRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+    const schema = JSON.parse(fs.readFileSync(path.join(pluginRoot, "openclaw.plugin.json"), "utf8"));
+    const props = schema.configSchema.properties.proactive.properties;
+    const cfg = defaultConfig().proactive;
+
+    const schemaKeys = Object.keys(props).sort();
+    const cfgKeys = Object.keys(cfg).sort();
+    assert.deepEqual(cfgKeys, schemaKeys, "config.js proactive defaults and plugin.json schema must define the same keys");
+
+    for (const key of cfgKeys) {
+      if (key === "triggers") continue;
+      assert.equal(props[key].default, cfg[key], `default mismatch for proactive.${key}`);
+    }
+  });
+
+  it("plan 023 triggers + budgets present in both config.js and plugin.json", () => {
+    const pluginRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+    const schema = JSON.parse(fs.readFileSync(path.join(pluginRoot, "openclaw.plugin.json"), "utf8"));
+    const props = schema.configSchema.properties.proactive.properties;
+
+    assert.equal(defaultConfig().proactive.triggers.returnGreeting, false, "returnGreeting default off");
+    assert.equal(defaultConfig().proactive.triggers.threadCallback, false, "threadCallback default off");
+    assert.equal(props.triggers.properties.returnGreeting.default, false);
+    assert.equal(props.triggers.properties.threadCallback.default, false);
+    assert.equal(defaultConfig().proactive.returnGreetingBudgetPerDay, 1);
+    assert.equal(props.returnGreetingBudgetPerDay.default, 1);
+    assert.equal(defaultConfig().proactive.threadCallbackMinAgeHours, 20);
+    assert.equal(props.threadCallbackMinAgeHours.default, 20);
+  });
 });

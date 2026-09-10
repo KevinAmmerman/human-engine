@@ -77,6 +77,32 @@ function makeSocialMemory(recallResult = "") {
   return { recall: mock.fn(() => recallResult) };
 }
 
+// Plan 023: fake threads module returning a controlled snapshotFor.
+function makeThreads(snapshot) {
+  return {
+    snapshotFor() {
+      return snapshot;
+    },
+  };
+}
+
+function makeAbsentSnapshot({ absentSince = 0, topics = [], lastGroup = 0, lastAgent = 0 } = {}) {
+  return {
+    agentAbsentSince: absentSince,
+    lastGroupActivityTs: lastGroup,
+    lastAgentSpeakTs: lastAgent,
+    openTopics: topics,
+  };
+}
+
+function awaitingTopic({ topic = "Tour morgen", lastExchange = "Startzeit unklar", lastTs = 0 } = {}) {
+  return { topic, summary: lastExchange, lastTs, awaiting: "agent" };
+}
+
+function memberTopic({ topic = "Leihgabe", lastExchange = "Basti bringt sie mit", lastTs = 0 } = {}) {
+  return { topic, summary: lastExchange, lastTs, awaiting: "member" };
+}
+
 function makeCandidate(type = "unanswered_question", overrides = {}) {
   return {
     type,
@@ -108,6 +134,7 @@ function makeProactive(overrides = {}) {
     runtime,
     stateDir,
     log,
+    threads: overrides.threads ?? null,
     now: () => clock.t,
   });
   return { proactive, cfg, clock, runtime, socialMemory, log, stateDir };
@@ -382,6 +409,208 @@ describe("proactive", { concurrency: false }, () => {
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
       assert.ok(log._infos.some((m) => m.includes("type=outcome_celebration") && m.includes("proactive SHADOW")), log._infos.join("\n"));
+    });
+  });
+
+  describe("return_greeting trigger (plan 023)", () => {
+    it("fires on meaningful >24h absence with no awaiting topic and no name in peek", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, returnGreeting: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 30 * 3600e3, topics: [memberTopic({ lastTs: T0 - 1000 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1);
+      assert.ok(runtime.subagent.run.mock.calls[0].arguments[0].idempotencyKey.startsWith("human-engine-proactive-return_greeting-"));
+    });
+
+    it("does not fire below the 24h absence threshold", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, returnGreeting: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 23 * 3600e3 })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("does not fire when an awaiting-agent topic exists (threadCallback's lane)", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, returnGreeting: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 30 * 3600e3, topics: [awaitingTopic({ lastTs: T0 - 1000 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("does not fire when the agent's name appears in the last 5 peek lines", async () => {
+      setRng(() => 0);
+      state.pushTranscriptPeek(SK, "[Nico] hey Hori, bist du da?");
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, returnGreeting: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 30 * 3600e3 })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("own return budget blocks a 2nd return the same day", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, returnGreeting: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 30 * 3600e3 })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "first return fires");
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "2nd return same day blocked by own budget");
+    });
+
+    it("allows a return after a 7-day gap per scope", async () => {
+      setRng(() => 0);
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, returnGreeting: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 30 * 3600e3 })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "first return fires");
+      clock.t += 8 * 24 * 3600e3;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 2, "return allowed after 7-day min gap");
+    });
+  });
+
+  describe("thread_callback trigger (plan 023)", () => {
+    it("fires when an awaiting-agent topic is older than min age and younger than expiry", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, threadCallback: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ topics: [awaitingTopic({ lastTs: T0 - 21 * 3600e3 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1);
+      assert.ok(runtime.subagent.run.mock.calls[0].arguments[0].idempotencyKey.startsWith("human-engine-proactive-thread_callback-"));
+    });
+
+    it("does not fire when the awaiting topic is too fresh (below min age)", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, threadCallback: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ topics: [awaitingTopic({ lastTs: T0 - 5 * 3600e3 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("does not fire when the awaiting topic is older than 14-day expiry", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, threadCallback: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ topics: [awaitingTopic({ lastTs: T0 - 15 * 24 * 3600e3 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("does not fire when the topic is owed by a member (not awaiting agent)", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, threadCallback: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ topics: [memberTopic({ lastTs: T0 - 21 * 3600e3 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("thread_callback uses the normal budget bucket", async () => {
+      setRng(() => 0);
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          budgetPerDay: 1,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, threadCallback: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ topics: [awaitingTopic({ lastTs: T0 - 21 * 3600e3 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "first callback fires");
+      clock.t += 24 * 3600e3;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "2nd callback blocked by normal budget");
+    });
+  });
+
+  describe("plan 023 shadow + off-default", () => {
+    it("shadow:true logs return_greeting candidates and never sends", async () => {
+      setRng(() => 0);
+      const { proactive, runtime, log } = track(makeProactive({
+        cfg: makeCfg({
+          shadow: true,
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false, returnGreeting: true },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 30 * 3600e3 })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
+      assert.ok(log._infos.some((m) => m.includes("type=return_greeting") && m.includes("proactive SHADOW")), log._infos.join("\n"));
+    });
+
+    it("both triggers off by default → null candidates", async () => {
+      setRng(() => 0);
+      const { proactive, runtime } = track(makeProactive({
+        cfg: makeCfg({
+          minGapMinutes: 0,
+          triggers: { contextMatch: false, stalledExchange: false, followUpCommitment: false },
+        }),
+        threads: makeThreads(makeAbsentSnapshot({ absentSince: 30 * 3600e3, topics: [awaitingTopic({ lastTs: T0 - 21 * 3600e3 })] })),
+      }));
+      await proactive.onInbound(SK, { senderName: "Nico", text: "hallo", isGroup: true });
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 0);
     });
   });
 
