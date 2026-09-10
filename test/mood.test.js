@@ -173,5 +173,16 @@ describe("mood", () => {
       assert.ok(p.includes("hallo"));
       assert.ok(p.includes("valence:"));
     });
+
+    it("mood labels + feel-words resolve via language pack (plan 029)", () => {
+      const de = renderInjection({ valence: 2, energy: -2, note: "x" });
+      assert.ok(de.includes("gut/aufgeladen"));
+      assert.ok(de.includes("still/niedrig"));
+      const en = renderInjection({ valence: 2, energy: -2, note: "x" }, "en");
+      assert.ok(en.includes("good/excited"));
+      assert.ok(en.includes("still/low"));
+      const enPrompt = buildAppraisalPrompt([{ speaker: "User", text: "hi" }], { valence: 0, energy: 0, note: "" }, "en");
+      assert.ok(enPrompt.includes("Use only simple feeling words"));
+    });
   });
 });

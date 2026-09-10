@@ -11,6 +11,7 @@ describe("config", () => {
     assert.deepEqual(cfg.agentAliases, []);
     assert.equal(cfg.soulPath, "");
     assert.equal(cfg.soulAutoEnhance, true);
+    assert.equal(cfg.language, "de");
     assert.equal(cfg.socialLearning.enabled, true);
     assert.equal(cfg.antiTell, true);
     assert.equal(cfg.styleStats, true);
@@ -241,5 +242,14 @@ describe("config", () => {
     const agentCfg = resolveAgentConfig(cfg, "agent-a");
     assert.equal(agentCfg.dmProactive.dayFitActivityPath, "/agent/path");
     assert.equal(resolveAgentConfig(cfg, "other").dmProactive.dayFitActivityPath, "/global/path");
+  });
+
+  it("language defaults to de and is agent-overlayable (plan 029)", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentProfiles: { "agent-b": { language: "en" } } } });
+    assert.equal(cfg.language, "de", "global default is de");
+    const enAgent = resolveAgentConfig(cfg, "agent-b");
+    assert.equal(enAgent.language, "en", "profile language override wins");
+    assert.equal(resolveAgentConfig(cfg, "other").language, "de", "other agents keep the global default");
+    assert.equal(resolveAgentConfigForSession(cfg, "agent:agent-b:whatsapp:group:1@g.us", null).language, "en");
   });
 });
