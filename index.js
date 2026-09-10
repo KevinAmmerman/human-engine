@@ -79,7 +79,9 @@ export default definePluginEntry({
 
     const observedStore = createObservedStore({ stateDir, log });
 
-    const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log });
+    const threads = createThreads({ cfg, stateDir, socialMemory, observedStore, log });
+
+    const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log, threads });
 
     const dmProactive = createDmProactive({ cfg, llm, socialMemory, runtime: api.runtime, stateDir, log, activityFilePath: cfg.dmProactive?.dayFitActivityPath || null });
 
@@ -125,7 +127,6 @@ export default definePluginEntry({
     }
 
     const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, log });
-    const threads = createThreads({ cfg, stateDir, socialMemory, observedStore, log });
     const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
