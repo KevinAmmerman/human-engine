@@ -75,6 +75,27 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `mood.maxShiftPerUpdate` | number | `1` | Max |Δ| per axis per appraisal |
 | `mood.groupsEnabled` | bool | `false` | GROUP mood: appraisal on group sessions, room-energy line in decide, mood-coupled timing (±12 %) and split brevity — Plan 030 |
 | `mood.groupsRefreshEvery` | number | `10` | Group appraisal cadence (messages) |
+| `initiative.enabled` | bool | `false` | Initiative (proactive task & memory engine) master switch — default OFF (shadow-first; when off: zero files, zero injection) |
+| `initiative.shadow` | bool | `true` | Log would-be initiative sends without delivering |
+| `initiative.scopes` | string[] | `["group"]` | Which session kinds participate (`group` / `dm`) |
+| `initiative.everyMinutes` | number | `60` | Ambient per-scope tick cadence; `0` disables the tick |
+| `initiative.activeHours` | {start,end,timezone} | `08:00`/`22:00`/`Europe/Berlin` | Active-hours window; equal start/end = always inactive |
+| `initiative.quietStart` / `initiative.quietEnd` | string | `"22:00"` / `"07:00"` | Quiet-hours window (no sends) |
+| `initiative.maxActsPerDay` | number | `2` | Max initiative sends per scope per day |
+| `initiative.minGapMinutes` | number | `240` | Min gap between initiative sends AND shared with `proactive` via the outbox |
+| `initiative.minGapAfterAgentSpeakMinutes` | number | `30` | Min gap after the agent last spoke |
+| `initiative.hotWindowMinutes` | number | `15` | Skip acting right after a member message |
+| `initiative.firstNudgeMinutes` | number | `120` | Age before an untouched task is first considered |
+| `initiative.taskExpiryDays` | number | `30` | Task expiry horizon |
+| `initiative.probability` | number | `0.8` | Probability floor for acting |
+| `initiative.cooldownBaseMinutes` | number | `240` | Base per-task cooldown after an act |
+| `initiative.maxContextChars` | number | `600` | Max chars of the recall context line |
+| `initiative.maxOpenTasks` | number | `20` | Max open tasks kept per scope |
+| `initiative.capture.keywords` | bool | `true` | Keyword-triggered task capture |
+| `initiative.capture.everyMessages` | number | `20` | Cadence-based capture (messages) |
+| `initiative.capture.everyMinutes` | number | `0` | Cadence-based capture (minutes; 0 = count-based only) |
+| `initiative.directives.enabled` | bool | `true` | Standing-instruction capture |
+| `initiative.directives.maxPerScope` | number | `10` | Max standing directives per scope |
 
 There is no model-override key: every LLM call uses the host's built-in
 `llm.complete`. Nested objects deep-merge one level over defaults, so a
@@ -141,6 +162,52 @@ Two files live next to the SOUL.md, NOT under `state/`:
 `logs/` (when `socialLearning.logRequests` is enabled) holds
 `social-learning-requests.jsonl`. `.gitignore` excludes `state/`, `logs/`, and
 `*.log`.
+
+## Initiative (proactive task & memory engine)
+
+Config lives under `plugins.entries["human-engine"].config.initiative`; see the
+Config-keys table above and `openclaw.plugin.json` for the full schema with
+defaults. **The feature is DEFAULT-OFF** (`initiative.enabled:false`): until
+explicitly enabled it creates no `state/initiative/` files, injects no context,
+and changes no behavior.
+
+### Shadow window KPIs (`state/initiative.jsonl`)
+
+While `initiative.shadow:true`, candidates are captured to the shadow log (one
+line per candidate, 14-day retention) but never delivered. Before flipping any
+agent to live, review the shadow log over a window and confirm:
+
+- ≥ N captured candidates (enough signal to judge),
+- ≥ X % engaged — `outcome.repliedWithin48h === true` (the group actually
+  responds to the would-be acts),
+- 0 gate violations (the `gate.reasons` array should always be empty on acted
+  candidates — a reason present on an ACT entry is a bug worth flagging).
+
+### Per-agent live flip
+
+Only after the shadow window looks healthy, flip ONE agent at a time:
+
+```jsonc
+"agentProfiles": { "<agentId>": { "initiative": { "shadow": false } } }
+```
+
+Keep the master `initiative.enabled:true` and other agents in shadow. Re-review
+the per-agent log after each flip before moving the next.
+
+### Kill-switch
+
+Any time, the whole feature off:
+
+```jsonc
+"initiative": { "enabled": false }
+```
+
+This returns the plugin to pre-initiative behavior (no files, no injection, no
+ticks). Per-agent: remove the `agentProfiles["<agentId>"].initiative` block or
+set `shadow:true` again.
+
+No real names/numbers are used here by design — apply the KPIs to whatever
+agent/room you are reviewing.
 
 ## Host/channel config dependencies (OpenClaw config, not plugin config)
 

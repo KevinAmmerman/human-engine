@@ -576,6 +576,101 @@ describe("initiative", { concurrency: false }, () => {
     assert.ok(Array.isArray(finalState.acts), "acts persisted");
     assert.equal(finalState.acts.length, 64, "acts trimmed at ACTS_CAP (64)");
   });
+
+  it("gate: cross-budget reason fires when crossLastOutboundAt recent, not when old/absent", () => {
+    const ini = makeCfg().initiative;
+    const open = { status: "open" };
+    const now = Date.now();
+    const base = { enabled: true, scopeAllowed: true, now, ini, actsToday: 0, lastActAt: 0, lastHumanAt: 0, cooldownUntil: 0, agentLastSpeakTs: 0, ignoreStreak: 0, rng: () => 0.0 };
+    // recent cross outbound → cross-budget
+    const recent = evaluateInitiative(open, { ...base, crossLastOutboundAt: now - 1000 });
+    assert.ok(recent.reasons.includes("cross-budget"), `got ${recent.reasons}`);
+    // absent → no cross-budget, passes
+    const absent = evaluateInitiative(open, { ...base });
+    assert.equal(absent.reasons.includes("cross-budget"), false);
+    assert.equal(absent.pass, true);
+    // old → no cross-budget, passes
+    const old = evaluateInitiative(open, { ...base, crossLastOutboundAt: now - 24 * 3600e3 });
+    assert.equal(old.reasons.includes("cross-budget"), false);
+    assert.equal(old.pass, true);
+  });
+
+  it("attribution: live act then inbound within 48h resets ignoreStreak, records reply, backfills outcome", async () => {
+    const dir = mkdtemp(tmpDir, "attr-");
+    const cfg = makeCfg({ shadow: false, everyMinutes: 10, firstNudgeMinutes: 0 });
+    const clock = makeClock();
+    const runtime = { subagent: { run: async () => {} } };
+    const llm = {
+      complete: async ({ purpose }) => {
+        if (purpose === "human-engine-initiative-extract") return { text: JSON.stringify({ tasks: [{ text: "attr task", kind: "task" }], directives: [], done: [], drop: [] }) };
+        if (purpose === "human-engine-initiative-decide") return { text: '{"decision":"ACT","reason":"due"}' };
+        return { text: "live attr" };
+      },
+    };
+    const i = createInitiative({ cfg, stateDir: dir, llm, runtime, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i.onMessageReceived({ text: "merk dir: attr task" }, groupCtx());
+    await waitForTaskInState(dir);
+    clock.t += 20 * 60 * 1000;
+
+    // Live act 1
+    await i.tick();
+    let state = loadStateIn(dir);
+    assert.equal(state.acts.length, 1, "one live act recorded");
+    assert.equal(state.tasks[0].ignoreStreak, 0, "first act: no prior act, streak stays 0");
+    const actId = state.acts[0].id;
+
+    // Inbound within 48h → attribution
+    clock.t += 60 * 1000;
+    await i.onMessageReceived({ text: "reply to the act" }, groupCtx());
+    state = loadStateIn(dir);
+    assert.equal(state.tasks[0].ignoreStreak, 0, "inbound resets/keeps ignoreStreak 0");
+    assert.equal(state.replies.length, 1, "one reply recorded");
+
+    // shadow/live log entry outcome backfilled to true
+    const log = readLogIn(dir);
+    const entry = log.find((e) => e.candidateId === actId);
+    assert.ok(entry, "log entry exists for the act");
+    assert.equal(entry.outcome.repliedWithin48h, true, "outcome backfilled true");
+
+    // Second inbound does NOT double-attribute
+    clock.t += 60 * 1000;
+    await i.onMessageReceived({ text: "another reply" }, groupCtx());
+    state = loadStateIn(dir);
+    assert.equal(state.replies.length, 1, "no double-attribution reply");
+  });
+
+  it("ignore-streak increments on consecutive live acts with no inbound; inbound resets", async () => {
+    const dir = mkdtemp(tmpDir, "streak-");
+    const cfg = makeCfg({ shadow: false, everyMinutes: 10, firstNudgeMinutes: 0 });
+    const clock = makeClock();
+    const runtime = { subagent: { run: async () => {} } };
+    const llm = {
+      complete: async ({ purpose }) => {
+        if (purpose === "human-engine-initiative-extract") return { text: JSON.stringify({ tasks: [{ text: "streak task", kind: "task" }], directives: [], done: [], drop: [] }) };
+        if (purpose === "human-engine-initiative-decide") return { text: '{"decision":"ACT","reason":"due"}' };
+        return { text: "live streak" };
+      },
+    };
+    const i = createInitiative({ cfg, stateDir: dir, llm, runtime, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i.onMessageReceived({ text: "merk dir: streak task" }, groupCtx());
+    await waitForTaskInState(dir);
+    const taskId = loadStateIn(dir).tasks[0].id;
+
+    // Pre-populate a previous live act (6h ago, unanswered) → next live act
+    // increments the ignore streak. lastActAt also set 6h ago so min-gap passes.
+    const st = i.__store.getOrInit(SCOPE, "test-agent");
+    st.day = localDayKeyFor(clock.t);
+    st.actsToday = 0;
+    st.acts = [{ ts: clock.t - 6 * 3600e3, taskId, id: "prev-act", kind: "task" }];
+    st.lastActAt = clock.t - 6 * 3600e3;
+    i.__store.save(SCOPE, st);
+
+    clock.t += 20 * 60 * 1000;
+    await i.tick();
+    let state = loadStateIn(dir);
+    assert.equal(state.acts.length, 2, "second live act appended");
+    assert.equal(state.tasks[0].ignoreStreak, 1, "unanswered prev act → ignoreStreak incremented");
+  });
 });
 
 function readLog() {

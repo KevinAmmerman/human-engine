@@ -18,6 +18,7 @@ import { createDmProactive } from "./lib/dm-proactive.js";
 import { createMood } from "./lib/mood.js";
 import { createThreads } from "./lib/threads.js";
 import { createInitiative } from "./lib/initiative.js";
+import { createProactivityOutbox } from "./lib/proactivity-outbox.js";
 import * as timing from "./lib/timing-engine.js";
 import { agentIdFromSessionKey } from "./lib/scope.js";
 
@@ -86,7 +87,9 @@ export default definePluginEntry({
 
     const threads = createThreads({ cfg, stateDir, socialMemory, observedStore, log });
 
-    const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log, threads });
+    const outbox = createProactivityOutbox({ stateDir, log });
+
+    const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log, threads, outbox });
 
     const dmProactive = createDmProactive({ cfg, llm, socialMemory, runtime: api.runtime, stateDir, log, activityFilePath: cfg.dmProactive?.dayFitActivityPath || null });
 
@@ -136,7 +139,7 @@ export default definePluginEntry({
     const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, mood, selfVoice, log });
     const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads, mood });
 
-    const initiative = createInitiative({ cfg, stateDir, log, llm, runtime: api.runtime, state, threads });
+    const initiative = createInitiative({ cfg, stateDir, log, llm, runtime: api.runtime, state, threads, outbox });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
 
@@ -192,6 +195,7 @@ export default definePluginEntry({
       socialMemory.stop();
       threads.stop();
       initiative.stop();
+      outbox.stop();
       log.info("human-engine: proactive tick stopped, naturalize timers cleared (gateway_stop)");
     }));
 
