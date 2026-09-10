@@ -312,6 +312,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(call.purpose, "dm-proactive-render");
       assert.equal(call.temperature, 0.4);
       assert.equal(call.agentId, "hori-wa");
+      assert.equal(call.allowAgentIdOverride, true);
       const entries = readLog(stateDir);
       assert.equal(entries[0].render.llm, "rendered");
       assert.equal(entries[0].render.draft, "Schaffst du das heute noch, oder brauchst du mich?");

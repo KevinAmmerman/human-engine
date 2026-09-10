@@ -179,6 +179,7 @@ describe("social-memory", { concurrency: false }, () => {
       const profile = sm.getOrLoadProfile(scope);
       assert.ok(profile.people.Alice);
       assert.equal(llm.complete.mock.calls[0].arguments[0].agentId, "agent1");
+      assert.equal(llm.complete.mock.calls[0].arguments[0].allowAgentIdOverride, true);
     });
 
     it("does not trigger on low count", () => {

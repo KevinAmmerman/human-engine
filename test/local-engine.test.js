@@ -222,6 +222,7 @@ describe("local-engine", () => {
       const res = await engine.decide({ sessionKey: "agent:agent-a:whatsapp:group:g@g.us", prompt: "Hello" });
       assert.deepEqual(res.decision, "speak");
       assert.equal(captured.agentId, "agent-a");
+      assert.equal(captured.allowAgentIdOverride, true);
     });
 
     it("STAY_SILENT from LLM returns stay_silent", async () => {
@@ -523,6 +524,7 @@ describe("local-engine", () => {
       assert.ok(Array.isArray(res.scheduled));
       assert.equal(res.scheduled.length, 2);
       assert.equal(captured.agentId, "agent-b");
+      assert.equal(captured.allowAgentIdOverride, true);
     });
 
     it("LLM error returns draft fallback", async () => {
@@ -802,6 +804,7 @@ describe("local-engine", () => {
       assert.equal(captured.messages[1].role, "user");
       assert.equal(captured.purpose, "human-engine-regen");
       assert.equal(captured.agentId, "agent-c");
+      assert.equal(captured.allowAgentIdOverride, true);
     });
 
     it("returns null when no llm", async () => {
@@ -829,5 +832,17 @@ describe("local-engine", () => {
       const res = await engine.regenerateReply({ sessionKey: "s33", reasoning: "x" });
       assert.equal(res, null);
     });
+  });
+
+  it("plugin llm.complete calls carry allowAgentIdOverride (host LLM_COMPLETION_NOT_AUTHORIZED guard)", async () => {
+    let captured;
+    const engine = createLocalEngine({
+      cfg: { decide: { temperature: 0.2 } },
+      llm: { complete: async (opts) => { captured = opts; return { text: "SPEAK" }; } },
+      timing: makeTiming(),
+    });
+    await engine.decide({ sessionKey: "agent:agent-a:whatsapp:group:g@g.us", prompt: "Hello" });
+    assert.equal(captured.agentId, "agent-a");
+    assert.equal(captured.allowAgentIdOverride, true);
   });
 });

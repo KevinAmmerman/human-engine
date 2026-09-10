@@ -114,6 +114,7 @@ describe("mood", () => {
         assert.equal(state.note.split(" ").length, 8);
         assert.ok(calls.length > 0);
         assert.equal(calls[0].agentId, "test-agent");
+        assert.equal(calls[0].allowAgentIdOverride, true);
       });
     });
 
