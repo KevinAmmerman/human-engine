@@ -150,6 +150,10 @@ const MATRIX = [
     tags: ["version-1 0600 file with correct values", "gap computed from last own speak", "file created lazily after flush", "rebuilds lastgroupactivityts and agentabsentsince from the observed store when the file is missing", "no absence line for a fresh scope"] },
   { id: 73, behavior: "decide gets ONE bounded absence/thread context line when absent >24h or a thread awaits the agent (off by default)",
     tags: ["exactly ONE bounded instruction", "thread awaiting the agent renders the line even without a gap", "threadcontext passed to decide when active", "thread context line content carried", "threadcontext null when no condition", "thread context wrapped in untrusted log markers", "thread context wrapped in closing marker", "threadcontext null when disabled", "no state directory created when disabled", "renders exactly one line only when absent", "open threads omitted from compact when flag set"] },
+  { id: 74, behavior: "return_greeting trigger fires on meaningful >24h absence with guards + own budget (shadow-first, off by default)",
+    tags: ["fires on meaningful >24h absence with no awaiting topic and no name in peek", "does not fire below the 24h absence threshold", "does not fire when an awaiting-agent topic exists", "does not fire when the agent's name appears in the last 5 peek lines", "own return budget blocks a 2nd return the same day", "allows a return after a 7-day gap per scope", "logs return_greeting candidates and never sends"] },
+  { id: 75, behavior: "thread callback trigger turns agent-owed open threads into funnel candidates (callbackWorthy)",
+    tags: ["fires when an awaiting-agent topic is older than min age and younger than expiry", "does not fire when the awaiting topic is too fresh", "does not fire when the awaiting topic is older than 14-day expiry", "does not fire when the topic is owed by a member", "uses the normal budget bucket"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
