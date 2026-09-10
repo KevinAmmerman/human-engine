@@ -162,6 +162,22 @@ describe("local-prompts", () => {
       assert.ok(p.systemPrompt.includes('"messages"'));
     });
 
+    it("per-bubble conciseness clarification (P0 hotfix #2) — data-rich drafts become MORE bubbles, never shorter ones", () => {
+      const p = buildSplitPrompt({ draft: "hi" });
+      assert.ok(
+        p.systemPrompt.includes("Conciseness applies PER BUBBLE, not per reply"),
+        "per-bubble conciseness line present",
+      );
+      assert.ok(
+        p.systemPrompt.includes("a data-rich draft becomes MORE bubbles"),
+        "more-bubbles guidance present",
+      );
+      assert.ok(
+        p.systemPrompt.includes("a shortened reply that loses data is a failure"),
+        "data-loss-is-failure line present",
+      );
+    });
+
     it("includes the LANGUAGE directive (plan 496)", () => {
       const p = buildSplitPrompt({ draft: "hi" });
       assert.ok(p.systemPrompt.includes("LANGUAGE:"));

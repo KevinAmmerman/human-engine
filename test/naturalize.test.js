@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import { createNaturalize, deliverWithRetry, clearAllBubbleTimers, bubbleTimers } from "../lib/naturalize.js";
+import { createNaturalize, deliverWithRetry, clearAllBubbleTimers, bubbleTimers, fragmentDraft } from "../lib/naturalize.js";
 import * as state from "../lib/state.js";
 
 const cfg = {
@@ -1665,13 +1665,53 @@ describe("naturalize", () => {
     });
   });
 
+  describe("fragmentDraft (P0 answer-delivery hotfix #2 mechanical fragmentation)", () => {
+    it("multi-sentence draft → multiple bubbles, ALL sentences present in order, no content loss", () => {
+      const draft = "Die Halle öffnet heute um 15:00 Uhr und hat bis zum Abend regulär geöffnet, auch am Wochenende ohne Unterbrechung. Der Eintritt kostet 12,50 € pro Person und für Kinder unter sechs Jahren ist er komplett kostenlos, was sich besonders für Familien lohnt. Sie schließt dann um 18:00 Uhr wieder, der letzte Einlass ist eine halbe Stunde vor Schluss. Der Parkplatz liegt direkt neben dem Eingang und bietet ungefähr zweihundert Plätze, an normalen Tagen findet man schnell einen freien. Bring am besten etwas Bargeld mit, denn die Kasse akzeptiert leider keine Kartenzahlung.";
+      const frags = fragmentDraft(draft, 5);
+      assert.ok(frags.length > 1, "splits into multiple bubbles");
+      const joined = frags.map((f) => f.content).join(" ");
+      for (const s of ["15:00 Uhr", "12,50", "18:00 Uhr", "Parkplatz", "Bargeld"]) {
+        assert.ok(joined.includes(s), `all facts present: ${s}`);
+      }
+      assert.deepEqual(frags.map((f) => f.position), frags.map((_, i) => i), "positions are 0..n-1");
+      const stripped = joined.replace(/\s+/g, " ");
+      const draftNorm = draft.replace(/\s+/g, " ");
+      assert.ok(stripped.includes(draftNorm.slice(0, 40)) && stripped.includes(draftNorm.slice(-30)), "full draft content preserved verbatim");
+    });
+
+    it("single-sentence draft → one bubble with original text", () => {
+      const frags = fragmentDraft("Nur ein einziger Satz mit Daten 15:00 Uhr.", 5);
+      assert.equal(frags.length, 1);
+      assert.equal(frags[0].content, "Nur ein einziger Satz mit Daten 15:00 Uhr.");
+      assert.equal(frags[0].position, 0);
+    });
+
+    it("maxBubbles cap respected — remaining sentences merged into the last bubble", () => {
+      const long = Array.from({ length: 12 }, (_, i) => `Satz Nummer ${i + 1} mit ein paar Worten drin.`).join(" ");
+      const frags = fragmentDraft(long, 3);
+      assert.equal(frags.length, 3, "never exceeds maxBubbles");
+      const joined = frags.map((f) => f.content).join(" ");
+      for (let i = 0; i < 12; i++) {
+        assert.ok(joined.includes(`Satz Nummer ${i + 1}`), `sentence ${i + 1} not dropped`);
+      }
+    });
+
+    it("no split boundary (no sentence-ending punctuation) → one bubble", () => {
+      const frags = fragmentDraft("ganz ohne punkt und komma nur kleinschrift", 5);
+      assert.equal(frags.length, 1);
+      assert.equal(frags[0].content, "ganz ohne punkt und komma nur kleinschrift");
+    });
+  });
+
   describe("fact-guard backstop (P0 answer-delivery hotfix)", () => {
-    function captureRun(engine, payloadText, overCfg = {}) {
+    function captureRun(engine, payloadText, overCfg = {}, opts = {}) {
       const logs = [];
       const nat = createNaturalize({
         cfg: { ...cfg, ...overCfg }, state, engine, persona: makePersona(),
         socialMemory: makeSocialMemoryStub(),
         log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+        ...(opts.scheduleBubbles ? { scheduleBubbles: opts.scheduleBubbles } : {}),
       });
       const dispatcher = makeDispatcher();
       armSpeakTurn(nat, dispatcher);
@@ -1679,7 +1719,9 @@ describe("naturalize", () => {
       return { nat, dispatcher, logs };
     }
 
-    it("drops 2 of 3 numeric facts → fact-guard falls back to the raw draft as one bubble, warn logged", async () => {
+    const fastSchedule = (bubbles) => bubbles.map((b, i) => ({ content: b.content, position: i, delayMs: (i + 1) * 5 }));
+
+    it("drops 2 of 3 numeric facts → fact-guard uses mechanical fragmentation of the draft into bubbles, warn logged", async () => {
       const dropEngine = {
         currentEpoch() { return 0; },
         async respond() {
@@ -1693,12 +1735,12 @@ describe("naturalize", () => {
           };
         },
       };
-      const { dispatcher, logs } = captureRun(dropEngine, "Geöffnet 15:00 Uhr, Eintritt 12,50 €, schließt um 18 Uhr.");
+      const { dispatcher, logs } = captureRun(dropEngine, "Geöffnet heute ab 15:00 Uhr für die ganze Familie und auch am Nachmittag durchgehend ohne Pause. Der Eintritt kostet 12,50 € pro Person und ist damit wirklich günstig zu haben. Sie schließt um 18 Uhr am Abend wieder, das ist die offizielle Schlusszeit.", {}, { scheduleBubbles: fastSchedule });
       await new Promise((r) => setTimeout(r, 1500));
-      assert.ok(logs.some((l) => l.includes("fact-guard fallback") && l.includes("(2/3 facts missing")), "warn logged with missing counts");
-      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1, "raw fallback delivered as a single bubble");
-      const sent = dispatcher.sendBlockReply.mock.calls[0].arguments[0].text;
-      assert.ok(sent.includes("15:00") && sent.includes("12,50") && sent.includes("18 Uhr"), "raw draft preserves all facts");
+      assert.ok(logs.some((l) => l.includes("fact-guard fallback") && l.includes("(2/3 facts missing") && l.includes("mechanical fragmentation")), "warn logged with missing counts and mechanical fragmentation");
+      assert.ok(dispatcher.sendBlockReply.mock.callCount() > 1, "mechanically fragmented into multiple bubbles, not a single block");
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0].text).join(" ");
+      assert.ok(sent.includes("15:00") && sent.includes("12,50") && sent.includes("18 Uhr"), "all facts preserved across fragments");
       assert.equal(dispatcher.markComplete.mock.callCount(), 1);
     });
 
