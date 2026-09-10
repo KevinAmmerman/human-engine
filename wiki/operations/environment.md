@@ -165,7 +165,10 @@ No API keys, no tokens.
 `threads.enabled: true`, `decide.v2Contract: true`,
 `mood.groupsEnabled: true`, `selfVoice.enabled: true`,
 `proactive.triggers.returnGreeting/threadCallback: true` (alle 8 Trigger-
-Keys explizit gesetzt — One-Level-Merge). Backups:
+Keys explizit gesetzt — One-Level-Merge), `reactions.hintEnabled: true`
+(model-routed Emoji-Reaktionen in Gruppen-Turns; Host-Gate
+`channels.whatsapp.reactionLevel: "extensive"` — bei Reaktions-Übertrieb
+zuerst auf `"minimal"`, dann Hint abschwächen; Rollback = der eine Flag). Backups:
 `~/backups/openclaw.json.bak-wave2-activation-*` +
 `~/backups/human-engine-state-social-memory-*.tar.gz`.
 
