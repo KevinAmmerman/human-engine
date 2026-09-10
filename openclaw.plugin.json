@@ -32,7 +32,8 @@
             "naturalize": { "type": "object" },
             "timing": { "type": "object" },
             "humanize": { "type": "object" },
-            "decide": { "type": "object" }
+            "decide": { "type": "object" },
+            "threads": { "type": "object" }
           }
         },
         "default": {}
@@ -168,6 +169,16 @@
           "refreshMinutes": { "type": "number", "default": 0 },
           "decayHours": { "type": "number", "default": 6 },
           "maxShiftPerUpdate": { "type": "number", "default": 1 }
+        },
+        "default": {}
+      },
+      "threads": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "absenceThresholdHours": { "type": "number", "default": 24 },
+          "topicExpiryDays": { "type": "number", "default": 14 }
         },
         "default": {}
       }
