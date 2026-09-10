@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ANTI_TELL_BLOCK, detectTells, sanitizeTells, stripMetaCommentary } from "../lib/anti-tell.js";
+import { ANTI_TELL_BLOCK, detectTells, sanitizeTells, stripMetaCommentary, expandInlineLists } from "../lib/anti-tell.js";
 
 describe("anti-tell", () => {
   describe("ANTI_TELL_BLOCK", () => {
@@ -153,6 +153,51 @@ describe("anti-tell", () => {
       assert.deepEqual(sanitizeTells(""), { text: "", tells: [] });
       assert.deepEqual(sanitizeTells(null), { text: null, tells: [] });
       assert.deepEqual(sanitizeTells(undefined), { text: undefined, tells: [] });
+    });
+
+    it("preserves numbered list markers", () => {
+      const r = sanitizeTells("1. first\n2. second");
+      assert.ok(r.tells.includes("list"));
+      assert.equal(r.text, "1. first\n2. second");
+    });
+  });
+
+  describe("expandInlineLists", () => {
+    it("expands a bold numbered pipe list into vertical numbered lines", () => {
+      assert.equal(expandInlineLists("**1.** Mo | **2.** Di | **3.** Mi"), "1. Mo\n2. Di\n3. Mi");
+    });
+
+    it("expands a plain numbered pipe list", () => {
+      assert.equal(expandInlineLists("1. A | 2. B"), "1. A\n2. B");
+    });
+
+    it("expands a 3+ segment non-enumerated pipe line", () => {
+      assert.equal(expandInlineLists("A | B | C"), "A\nB\nC");
+    });
+
+    it("leaves a two-segment non-enumerated line unchanged", () => {
+      assert.equal(expandInlineLists("left | right"), "left | right");
+    });
+
+    it("leaves a markdown table row unchanged", () => {
+      assert.equal(expandInlineLists("| Wer | Nummer |"), "| Wer | Nummer |");
+    });
+
+    it("leaves prose with no pipe unchanged", () => {
+      assert.equal(expandInlineLists("kein pipe hier drin"), "kein pipe hier drin");
+    });
+
+    it("passes non-string through", () => {
+      assert.equal(expandInlineLists(null), null);
+      assert.equal(expandInlineLists(undefined), undefined);
+      assert.equal(expandInlineLists(42), 42);
+    });
+
+    it("expands a live-shaped numbered schedule line and preserves dates", () => {
+      assert.equal(
+        expandInlineLists("**1.** Mo 14.09. | **2.** Di 15.09. | **3.** Mi 16.09."),
+        "1. Mo 14.09.\n2. Di 15.09.\n3. Mi 16.09.",
+      );
     });
   });
 
