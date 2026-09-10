@@ -128,6 +128,10 @@ const MATRIX = [
     tags: ["one per-agent profile grows across two sessions of the same agent", "kevin in agent1 is separate from kevin in agent2", "personstore:false keeps per-session files"] },
   { id: 62, behavior: "legacy per-session profiles migrate into the person store idempotently",
     tags: ["migrates 3 legacy session files into one per-agent profile idempotently"] },
+  { id: 63, behavior: "schemaV2 extract captures relationship/open_threads/emotional_state with design caps + merge-level self-exclusion",
+    tags: ["schemaV2:true merges relationship/open_threads/emotional_state with design caps", "schemaV2:true applies v1 caps", "schemaV2:true skips a self entry"] },
+  { id: 64, behavior: "schemaV2 is default-off (v1 behavior preserved)",
+    tags: ["schemaV2:false uses v1 prompt and v1 caps", "schemaV2:false with relationship/open_threads in LLM output keeps v1 shape"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

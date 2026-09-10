@@ -65,7 +65,8 @@
           "extractMinutes": { "type": "number", "default": 0 },
           "maxPeople": { "type": "number", "default": 50 },
           "recallLimit": { "type": "number", "default": 800 },
-          "personStore": { "type": "boolean", "default": false }
+          "personStore": { "type": "boolean", "default": false },
+          "schemaV2": { "type": "boolean", "default": false }
         },
         "default": {}
       },
