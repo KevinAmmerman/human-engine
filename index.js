@@ -136,7 +136,7 @@ export default definePluginEntry({
     const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, mood, selfVoice, log });
     const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads, mood });
 
-    const initiative = createInitiative({ cfg, stateDir, log });
+    const initiative = createInitiative({ cfg, stateDir, log, llm });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
 

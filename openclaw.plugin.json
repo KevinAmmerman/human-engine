@@ -257,7 +257,8 @@
             },
             "default": {}
           },
-          "maxContextChars": { "type": "number", "default": 600 }
+          "maxContextChars": { "type": "number", "default": 600 },
+          "maxOpenTasks": { "type": "number", "default": 20 }
         },
         "default": {}
       }
