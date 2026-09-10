@@ -20,7 +20,7 @@ import { createThreads } from "./lib/threads.js";
 import { createInitiative } from "./lib/initiative.js";
 import { createProactivityOutbox } from "./lib/proactivity-outbox.js";
 import * as timing from "./lib/timing-engine.js";
-import { agentIdFromSessionKey } from "./lib/scope.js";
+import { agentIdFromSessionKey, parseAgentScope } from "./lib/scope.js";
 
 const runtime = { api: null, cfg: null };
 
@@ -276,5 +276,136 @@ export default definePluginEntry({
         return { text: reply };
       },
     });
+
+    api.registerCommand({
+      name: "initiative",
+      description: "Inspect or manage your open tasks and standing instructions.",
+      acceptsArgs: true,
+      handler: async (ctx) => {
+        return initiativeCommandHandler(ctx);
+      },
+    });
+
+    function initiativeScopeLabel(scope) {
+      const parsed = parseAgentScope(scope);
+      if (!parsed) return scope;
+      const parts = String(parsed.sessionKey).split(":");
+      // non-PII tail: last few segments after the channel (never the JID/agent id)
+      const tail = parts.slice(parts.length - 2).join(":");
+      return "(" + (parts[0] || "?") + ":" + (tail || parsed.sessionKey.slice(0, 12)) + ")";
+    }
+
+    function initiativeCommandHandler(ctx) {
+      try {
+        const agentId = ctx?.agentId;
+        if (!agentId) return { text: "/initiative requires an agent context." };
+        const sk = ctx?.sessionKey || null;
+        const args = String(ctx?.args || "").trim();
+        const parts = args.split(/\s+/);
+        const sub = (parts[0] || "").toLowerCase();
+
+        if (sub === "add") {
+          const text = parts.slice(1).join(" ").trim();
+          if (!sk) return { text: "/initiative add needs a session context." };
+          if (!text) return { text: "Usage: /initiative add <text>" };
+          const res = initiative.adminAddTask(sk, agentId, text);
+          if (res?.duplicate) return { text: `Steht schon auf der Liste: ${text} [${res.task?.id ? id8(res.task.id) : ""}]` };
+          if (res?.error) return { text: "Could not add that task." };
+          return { text: `Notiert: ${res.task.text} [${id8(res.task.id)}]` };
+        }
+        if (sub === "done" || sub === "forget") {
+          if (!sk) return { text: `/initiative ${sub} needs a session context.` };
+          const ref = parts[1] || "";
+          if (!ref) return { text: `Usage: /initiative ${sub} <index|id-prefix>` };
+          const res = initiative.adminSetTaskStatus(sk, agentId, ref, sub === "done" ? "done" : "expired");
+          if (!res.ok) return { text: `Nicht gefunden: ${ref}. Nutze /initiative list.` };
+          return { text: sub === "done" ? `Erledigt: ${res.task.text} [${id8(res.task.id)}]` : `Vergessen: ${res.task.text} [${id8(res.task.id)}]` };
+        }
+        if (sub === "directive") {
+          const text = parts.slice(1).join(" ").trim();
+          if (!sk) return { text: "/initiative directive needs a session context." };
+          if (!text) return { text: "Usage: /initiative directive <text>" };
+          const res = initiative.adminAddDirective(sk, agentId, text);
+          if (res?.duplicate) return { text: `Direktive steht schon: ${text}` };
+          if (res?.error) return { text: "Could not add that directive." };
+          return { text: `Direktive notiert: ${res.directive}` };
+        }
+        if (sub === "directives") {
+          const out = renderDirectives(sk, agentId);
+          return { text: out };
+        }
+        if (sub === "help" || (sub && !["list"].includes(sub))) {
+          return { text: usage() };
+        }
+        // list / empty
+        const out = renderList(sk, agentId);
+        return { text: out };
+      } catch {
+        return { text: "Something went wrong with /initiative." };
+      }
+
+      function usage() {
+        return "Usage:\n/initiative \u2014 list open tasks\n/initiative add <text>\n/initiative done <index|id>\n/initiative forget <index|id>\n/initiative directive <text>\n/initiative directives";
+      }
+
+      function id8(id) {
+        return String(id || "").replace(/^t-/, "").slice(0, 8);
+      }
+
+      function ageDays(createdAt) {
+        const d = Math.max(0, Math.floor((Date.now() - (createdAt || Date.now())) / 86400e3));
+        return d > 0 ? `${d}d` : "heute";
+      }
+
+      function renderTaskLine(t) {
+        return `- [${id8(t.id)}] ${t.text} (seit ${ageDays(t.createdAt)})`;
+      }
+
+      function cap(text) {
+        const s = String(text || "");
+        return s.length > 1500 ? s.slice(0, 1500) + "\u2026" : s;
+      }
+
+      function renderList(sk, agentId) {
+        const data = initiative.adminList(sk, agentId);
+        if (sk) {
+          const open = (data.tasks || []).filter((t) => t.status === "open");
+          if (open.length === 0) return "Keine offenen Tasks.";
+          return cap("Offene Tasks:\n" + open.map(renderTaskLine).join("\n"));
+        }
+        // agent-wide
+        const scopes = data.scopes || [];
+        if (scopes.length === 0) return "Keine offenen Tasks.";
+        const lines = [];
+        for (const st of scopes) {
+          const open = (st.tasks || []).filter((t) => t.status === "open");
+          if (open.length === 0) continue;
+          lines.push(initiativeScopeLabel(st.scope));
+          for (const t of open) lines.push(renderTaskLine(t));
+        }
+        if (lines.length === 0) return "Keine offenen Tasks.";
+        return cap(lines.join("\n"));
+      }
+
+      function renderDirectives(sk, agentId) {
+        const data = initiative.adminList(sk, agentId);
+        if (sk) {
+          const dirs = data.directives || [];
+          if (dirs.length === 0) return "Keine Direktiven.";
+          return cap("Standing Instructions:\n" + dirs.map((d) => `- ${d.text}`).join("\n"));
+        }
+        const scopes = data.scopes || [];
+        if (scopes.length === 0) return "Keine Direktiven.";
+        const lines = [];
+        for (const st of scopes) {
+          const dirs = st.directives || [];
+          if (dirs.length === 0) continue;
+          lines.push(initiativeScopeLabel(st.scope));
+          for (const d of dirs) lines.push(`- ${d.text}`);
+        }
+        if (lines.length === 0) return "Keine Direktiven.";
+        return cap(lines.join("\n"));
+      }
+    }
   },
 });

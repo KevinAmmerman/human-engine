@@ -65,8 +65,9 @@ describe("register() from index.js", () => {
     assert.equal(hooks.gateway_stop?.length, 1);
     assert.equal(Object.keys(hooks).length, 9);
 
-    assert.equal(commands.length, 1);
+    assert.equal(commands.length, 2);
     assert.equal(commands[0].name, "soul");
+    assert.equal(commands[1].name, "initiative");
 
     assert.ok(warnings.some((w) => /degraded mode/i.test(w)));
   });
@@ -89,7 +90,7 @@ describe("register() from index.js", () => {
     assert.equal(hooks.reply_payload_sending?.length, 1);
     assert.equal(hooks.gateway_start?.length, 1);
 
-    assert.equal(commands.length, 1);
+    assert.equal(commands.length, 2);
     assert.equal(commands[0].name, "soul");
   });
 
@@ -101,7 +102,7 @@ describe("register() from index.js", () => {
     });
 
     assert.equal(hooks.before_prompt_build?.length, 4);
-    assert.equal(commands.length, 1);
+    assert.equal(commands.length, 2);
     assert.equal(commands[0].name, "soul");
   });
 

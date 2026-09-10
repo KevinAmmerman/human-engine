@@ -198,7 +198,7 @@ describe("harness — no-residue static proof", () => {
       "reply_dispatch",
       "reply_payload_sending",
     ], "hook snapshot mismatch");
-    assert.deepEqual(commands, ["soul"], "command snapshot mismatch (connect removed)");
+    assert.deepEqual(commands, ["initiative", "soul"], "command snapshot mismatch (connect removed)");
     assert.equal(hookMatches.filter((m) => m[1] === "gateway_start").length, 1, "gateway_start lifecycle hook registered");
     assert.equal(hookMatches.filter((m) => m[1] === "gateway_stop").length, 1, "gateway_stop lifecycle hook registered");
   });

@@ -171,6 +171,25 @@ defaults. **The feature is DEFAULT-OFF** (`initiative.enabled:false`): until
 explicitly enabled it creates no `state/initiative/` files, injects no context,
 and changes no behavior.
 
+### `/initiative` command (manual operator surface, Plan 614)
+
+Inspect or manage tasks & directives from the chat — works even while the
+feature is disabled (`initiative.enabled:false`), since it operates directly on
+the per-scope state:
+
+| Subcommand | Effect |
+|------------|--------|
+| `/initiative` or `/initiative list` | List open tasks for this session (agent-wide when no session context) |
+| `/initiative add <text>` | Add an open task |
+| `/initiative done <index\|id-prefix>` | Mark a task done (1-based index in listed order, or ≥4-char id prefix) |
+| `/initiative forget <index\|id-prefix>` | Mark a task expired |
+| `/initiative directive <text>` | Add a standing instruction |
+| `/initiative directives` | List standing instructions |
+| `/initiative help` | Usage block |
+
+Replies are capped at 1500 chars; agent-wide scope labels are non-PII (never
+the raw JID).
+
 ### Shadow window KPIs (`state/initiative.jsonl`)
 
 While `initiative.shadow:true`, candidates are captured to the shadow log (one

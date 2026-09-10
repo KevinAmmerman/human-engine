@@ -167,6 +167,12 @@ built-in LLM with no cloud dependencies.
   Flip ONE agent to live via `agentProfiles[...].initiative.shadow:false`
   after a healthy shadow window; kill-switch = `initiative.enabled:false`.
   No real names/numbers in code/tests/docs (public repo).
+- **`/initiative` command (Plan 614)**: inspect/manage tasks & directives even
+  while the feature is disabled (manual operator surface): `/initiative list`
+  (or empty), `/initiative add <text>`, `/initiative done <index|id-prefix>`,
+  `/initiative forget <index|id-prefix>`, `/initiative directive <text>`,
+  `/initiative directives`, `/initiative help`. Agent-wide when no session
+  context; scope labels are non-PII (never the raw JID).
 - All hook error handling is in `index.js` wrap() — catches and logs, never
   throws into OpenClaw's hook chain.
 - State is in-memory only (Maps in `state.js`); persistent state lives in
