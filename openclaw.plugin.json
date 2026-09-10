@@ -20,6 +20,7 @@
           "properties": {
             "agentName": { "type": "string" },
             "agentAliases": { "type": "array", "items": { "type": "string" } },
+            "language": { "type": "string" },
             "contactsPath": { "type": "string" },
             "soulPath": { "type": "string" },
             "soulAutoEnhance": { "type": "boolean" },
@@ -38,6 +39,7 @@
       },
       "agentName": { "type": "string", "default": "OpenClaw" },
       "agentAliases": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Additional names the agent is called by (e.g. its former name) — used for hard-trigger mention detection" },
+      "language": { "type": "string", "default": "de", "description": "Conversation-layer language pack code. 'de' is the byte-identical default. Agent profiles may override it per-agent." },
       "soulPath": { "type": "string", "default": "" },
       "contactsPath": { "type": "string", "default": "" },
       "soulAutoEnhance": { "type": "boolean", "default": true },

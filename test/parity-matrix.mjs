@@ -144,6 +144,8 @@ const MATRIX = [
     tags: ["parses clean JSON SPEAK with reason and addressed_to", "parses JSON wrapped in fences", "falls back to the v1 token when model answers a bare token", "garbage → null → stay_silent with empty reason", "caps reason at 60 chars", "caps addressed_to at 40 chars", "v2 SPEAK advances the epoch, STAY_SILENT does not", "v1 mode returns no reason/addressedTo fields", "parseDecideVerdictV2 maps SKIP and parseDecideVerdict handles SKIP", "v2 decide prompt carries the STRICT JSON contract line", "v2 proactive prompt switches to STRICT JSON", "claims reason/addressed_to from the v2 decide result into the log"] },
   { id: 70, behavior: "decide persona includes the group voice card + style constraint (register-aware turn-taking); voiceCard param stays null to avoid duplication",
     tags: ["decide persona carries the voice card and style constraint", "decide persona without card/peek-stats degrades to soul + anti-tell", "decide gets a lean persona"] },
+  { id: 71, behavior: "prompts/labels/trigger-wordlists resolve via language packs; de is byte-identical default; non-de groups run documented reduced proactive mode",
+    tags: ["de is the byte-identical default for unknown codes", "formatAge renders en skeleton labels", "split prompt carries the en reply-language hint", "regenerate prompt switches regenstyle per pack", "dm render prompt switches style/language fields per pack", "decide prompt renders en age labels in transcript and rule", "mood labels + feel-words resolve via language pack", "language defaults to de and is agent-overlayable", "non-de language runs reduced trigger mode"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
