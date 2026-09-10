@@ -742,8 +742,7 @@ describe("gate", () => {
       let captured;
       const leanGate = makeGate({
         persona: {
-          buildPersonaPrompt() { return "full persona with ANTI_TELL and Writing constraints"; },
-          buildSoulPrompt() { return "lean soul prompt"; },
+          buildPersonaPrompt() { return "lean soul prompt"; },
         },
         engine: {
           async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 2 }; },
@@ -751,8 +750,48 @@ describe("gate", () => {
       });
       await leanGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
       assert.equal(captured.persona, "lean soul prompt");
-      assert.ok(!captured.persona.includes("ANTI_TELL"), "decide persona must not carry anti-tell block");
-      assert.ok(!captured.persona.includes("Writing constraints"), "decide persona must not carry writing constraints");
+      assert.equal(captured.voiceCard, null, "voiceCard arg stays null (card travels in persona block)");
+      assert.ok(!("systemPrompt" in captured), "dead systemPrompt arg must not be passed to engine.decide");
+    });
+
+    it("decide persona carries the voice card and style constraint; voiceCard arg stays null", async () => {
+      const persona = await import("../lib/persona.js");
+      persona.setVoiceCardGetter(() => "# Room Voice Card: kurz, emoji-lastig, casual");
+      const peek = [];
+      for (let i = 0; i < 12; i++) peek.push("[Nico] hi number " + i);
+      state.transcriptPeekBySession.set(CHAT_SK, peek);
+
+      let captured;
+      const cardGate = makeGate({
+        persona,
+        cfg: { ...cfg, styleStats: true, agentName: "OpenClaw", agentAliases: [] },
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 3 }; },
+        },
+      });
+      await cardGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.ok(captured.persona.includes("Room Voice Card"), "decide persona should include the voice card");
+      assert.ok(captured.persona.length >= 10, "decide persona should include style constraint / persona content");
+      assert.equal(captured.voiceCard, null, "voiceCard arg stays null to avoid duplication");
+      assert.ok(!("systemPrompt" in captured), "dead systemPrompt arg must not be passed to engine.decide");
+    });
+
+    it("decide persona without card/peek-stats degrades to soul + anti-tell (no break)", async () => {
+      const persona = await import("../lib/persona.js");
+      persona.setVoiceCardGetter(null);
+      state.transcriptPeekBySession.delete(CHAT_SK);
+
+      let captured;
+      const plainGate = makeGate({
+        persona,
+        cfg: { ...cfg, styleStats: true, agentName: "OpenClaw", agentAliases: [] },
+        engine: {
+          async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 4 }; },
+        },
+      });
+      await plainGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(captured.voiceCard, null, "voiceCard arg stays null");
+      assert.ok(!("systemPrompt" in captured), "dead systemPrompt arg must not be passed to engine.decide");
     });
 
     it("decide receives agentContactIds derived from contacts for the agent name", async () => {
