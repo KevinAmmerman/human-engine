@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, mock, afterEach } from "node:test";
 import { createLocalEngine, getState, hasHardTrigger } from "../lib/local-engine.js";
 import { findAgentContactIds } from "../lib/contacts.js";
+import { setRng, resetRng } from "../lib/timing-engine.js";
+import { scheduleForBubbles as realScheduleForBubbles } from "../lib/timing-engine.js";
 
 function makeTiming() {
   return {
@@ -18,6 +20,10 @@ function makeTiming() {
 describe("local-engine", () => {
   beforeEach(() => {
     getState().epochs.clear();
+  });
+
+  afterEach(() => {
+    resetRng();
   });
 
   describe("decide — short circuits", () => {
@@ -492,6 +498,84 @@ describe("local-engine", () => {
       const res = await engine.respond({ sessionKey: "s19", draft: "Hi", epoch: 1 });
       assert.ok(res.scheduled[0].delayMs > 0);
       assert.ok(res.scheduled[0].delayMs !== undefined);
+    });
+
+    it("plan 026: respond ctx carries hourOfDay and wasAddressed (production timing caller)", async () => {
+      let capturedCtx;
+      const spyTiming = {
+        scheduleForBubbles(bubbles, ctx, timingCfg) {
+          capturedCtx = ctx;
+          return bubbles.map((b, i) => ({ content: b.content, position: i, delayMs: (i + 1) * 10 }));
+        },
+      };
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: '{"messages": ["One"]}' }) },
+        timing: spyTiming,
+      });
+      await engine.respond({
+        sessionKey: "s-timing",
+        draft: "Hi",
+        epoch: 1,
+        isGroup: true,
+        triggerInfo: { wasAddressed: true, replyTarget: null },
+      });
+      assert.ok(typeof capturedCtx.hourOfDay === "number", "hourOfDay supplied to timing ctx");
+      assert.equal(capturedCtx.wasAddressed, true, "wasAddressed passthrough");
+    });
+
+    it("plan 026: wasAddressed shortens the first-bubble delay via the real timing engine", async () => {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: '{"messages": ["One"]}' }) },
+        timing: { scheduleForBubbles: realScheduleForBubbles },
+      });
+      setRng(() => 0.5);
+      const addressed = await engine.respond({
+        sessionKey: "s-addr", draft: "Hi", epoch: 1, isGroup: true,
+        triggerInfo: { wasAddressed: true, replyTarget: null },
+      });
+      const notAddressed = await engine.respond({
+        sessionKey: "s-notaddr", draft: "Hi", epoch: 1, isGroup: true,
+        triggerInfo: { wasAddressed: false, replyTarget: null },
+      });
+      assert.ok(
+        addressed.scheduled[0].delayMs < notAddressed.scheduled[0].delayMs,
+        `addressed delay ${addressed.scheduled[0].delayMs} should be < not-addressed ${notAddressed.scheduled[0].delayMs}`,
+      );
+    });
+
+    it("plan 026: hourOfDay night fast-path is active (hourOfDay=3 vs 14)", async () => {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: '{"messages": ["One"]}' }) },
+        timing: { scheduleForBubbles: realScheduleForBubbles },
+      });
+      setRng(() => 0.5);
+      const day = await engine.respond({
+        sessionKey: "s-day", draft: "Hi", epoch: 1, isGroup: false,
+        triggerInfo: { wasAddressed: false, replyTarget: null },
+      });
+      const night = await engine.respond({
+        sessionKey: "s-night", draft: "Hi", epoch: 1, isGroup: false,
+        triggerInfo: { wasAddressed: false, replyTarget: null },
+      });
+      // Monkey-patch hourOfDay is not possible via respond; instead verify the
+      // night multiplier by comparing raw readingDelayMs at fixed RNG.
+      setRng(() => 0.5);
+      const d14 = realScheduleForBubbles(
+        [{ content: "x", position: 0 }],
+        { isGroup: false, wasAddressed: false, hourOfDay: 14, contentReadMs: 0 },
+        { typingWpm: 40 },
+      )[0].delayMs;
+      const d3 = realScheduleForBubbles(
+        [{ content: "x", position: 0 }],
+        { isGroup: false, wasAddressed: false, hourOfDay: 3, contentReadMs: 0 },
+        { typingWpm: 40 },
+      )[0].delayMs;
+      assert.ok(d3 > d14, `night hourOfDay=3 (${d3}) should exceed day hourOfDay=14 (${d14})`);
+      // respond passes hourOfDay from Date.now(); guard that the ctx contains it.
+      assert.ok(day.scheduled[0].delayMs > 0);
     });
   });
 

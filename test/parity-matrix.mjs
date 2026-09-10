@@ -136,6 +136,8 @@ const MATRIX = [
     tags: ["decide receives compact memoryContext for an ingested person", "decide receives null memoryContext for unknown sender", "decide memoryContext includes an explicitly mentioned third person", "renders memoryContext before the transcript between delimiters"] },
   { id: 66, behavior: "recall renders schemaV2 relationship/threads/emotional texture (fresh-gated)",
     tags: ["renders relationship/open_threads/emotional_state when schemaV2", "recall v2 drops emotional_state when older than 48h", "recallCompact applies harder caps"] },
+  { id: 67, behavior: "production timing sets hourOfDay + wasAddressed (night mode and direct-address fast-path active); style stats exclude the agent's own lines",
+    tags: ["plan 026: respond ctx carries hourOfDay and wasAddressed (production timing caller)", "plan 026: wasAddressed shortens the first-bubble delay via the real timing engine", "plan 026: hourOfDay night fast-path is active (hourOfDay=3 vs 14)", "plan 026: triggerInfo.wasAddressed is true for speak-path hard", "plan 026: triggerInfo.wasAddressed is false for speak-path llm (no replyTarget)", "stashes the speak path into speakPathBySession (hard)", "stashes the speak path into speakPathBySession on the burst-reuse path (llm)", "plan 026: excludes the agent's own lines from style stats"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

@@ -95,6 +95,7 @@ describe("naturalize", () => {
     state.transcriptPeekBySession.clear();
     state.chatTypeBySession.clear();
     state.replyTargetBySession.clear();
+    state.speakPathBySession.clear();
 
     naturalize = createNaturalize({
       cfg,
@@ -442,6 +443,52 @@ describe("naturalize", () => {
       assert.equal(captured.triggerInfo.replyTarget.quotedName, "Basti");
       assert.equal(typeof captured.triggerInfo.triggerLen, "number");
       assert.equal(captured.triggerInfo.replyTarget.quotedName, "Basti");
+    });
+
+    it("plan 026: triggerInfo.wasAddressed is true for speak-path hard", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakPathBySession.set(CHAT_SK, "hard");
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(captured.triggerInfo, "triggerInfo forwarded");
+      assert.equal(captured.triggerInfo.wasAddressed, true, "hard path is addressed");
+    });
+
+    it("plan 026: triggerInfo.wasAddressed is false for speak-path llm (no replyTarget)", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakPathBySession.set(CHAT_SK, "llm");
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(captured.triggerInfo, "triggerInfo forwarded");
+      assert.equal(captured.triggerInfo.wasAddressed, false, "llm path without replyTarget is not addressed");
     });
 
     it("plan 515: triggerInfo is null-safe when replyTarget is absent (511 not landed)", async () => {

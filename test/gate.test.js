@@ -102,6 +102,7 @@ describe("gate", () => {
     state.replyContextQueue.clear();
     state.mediaBySession.clear();
     state.replyTargetBySession.clear();
+    state.speakPathBySession.clear();
     gate = makeGate();
   });
 
@@ -604,6 +605,34 @@ describe("gate", () => {
       assert.equal(result, undefined);
       assert.equal(state.speakEpochBySession.get(CHAT_SK)?.epoch, 42);
       assert.ok(typeof state.speakEpochBySession.get(CHAT_SK)?.ts === "number");
+    });
+
+    it("stashes the speak path into speakPathBySession (hard)", async () => {
+      const pathGate = makeGate({
+        engine: { async decide() { return { decision: "speak", epoch: 1, path: "hard" }; } },
+      });
+      await pathGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(state.speakPathBySession.get(CHAT_SK), "hard");
+    });
+
+    it("stashes the speak path into speakPathBySession on the burst-reuse path (llm)", async () => {
+      let decideCount = 0;
+      const burstGate = makeGate({
+        engine: {
+          async decide() {
+            decideCount++;
+            await new Promise((r) => setTimeout(r, 20));
+            return { decision: "speak", epoch: 1, path: "llm" };
+          },
+        },
+      });
+      const results = await Promise.all([
+        burstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m1" }), makeDefaultCtx()),
+        burstGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "m2" }), makeDefaultCtx()),
+      ]);
+      assert.equal(decideCount, 1, "decide called once for the burst");
+      for (const r of results) assert.equal(r, undefined);
+      assert.equal(state.speakPathBySession.get(CHAT_SK), "llm", "burst-reuse speak stashes the path");
     });
 
     it("handles stay_silent decision (handled:true silences the turn, observed buffered)", async () => {
