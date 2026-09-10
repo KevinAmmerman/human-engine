@@ -57,7 +57,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | [022](022-thread-state-meaningful-absence.md) | Thread-State: openTopics/agentAbsentSince + Decide-Injection + Rebuild | P1 | L | 019, 020, 021 | DONE (executed+approved, 1045/0, Parity 73/73; Worst-Case-Prompt ~2.9 KB < 4 KB) |
-| [023](023-return-greeting-thread-callback.md) | return_greeting + Thread-Callback-Trigger (shadow-first) | P2 | M–L | 022 | TODO |
+| [023](023-return-greeting-thread-callback.md) | return_greeting + Thread-Callback-Trigger (shadow-first) | P2 | M–L | 022 | DONE (executed+approved, 1062/0, Parity 75/75; Tick-Scan-basiert gemäß Design §3) |
 | [024](024-decide-contract-v2.md) | Decide-Contract v2 (JSON reason/addressed_to + Token-Fallback) | P2 | M | 016 (hard), 021/022 ideal | DONE (executed+approved, 1016/0, Parity 69/69; proactive SPEAK/SKIP mitmigriert) |
 | [025](025-media-caption-spike.md) | Media-Caption Spike (Report) | P2 | M | — | TODO |
 
