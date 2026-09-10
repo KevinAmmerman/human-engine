@@ -154,6 +154,10 @@ const MATRIX = [
     tags: ["fires on meaningful >24h absence with no awaiting topic and no name in peek", "does not fire below the 24h absence threshold", "does not fire when an awaiting-agent topic exists", "does not fire when the agent's name appears in the last 5 peek lines", "own return budget blocks a 2nd return the same day", "allows a return after a 7-day gap per scope", "logs return_greeting candidates and never sends"] },
   { id: 75, behavior: "thread callback trigger turns agent-owed open threads into funnel candidates (callbackWorthy)",
     tags: ["fires when an awaiting-agent topic is older than min age and younger than expiry", "does not fire when the awaiting topic is too fresh", "does not fire when the awaiting topic is older than 14-day expiry", "does not fire when the topic is owed by a member", "uses the normal budget bucket"] },
+  { id: 76, behavior: "mood decay persists across appraisals (no undecayed baseline re-raise)",
+    tags: ["plan 030: decay persists across appraisals — a 7h-old +2 state starts the next appraisal at the halved baseline"] },
+  { id: 77, behavior: "group mood (flagged) feeds decide room-energy line, first-bubble timing and split brevity — never mentioned aloud",
+    tags: ["plan 030: group chat injects when mood.groupsEnabled is true", "plan 030: group appraisal runs every groupsRefreshEvery when groupsEnabled", "plan 030: group decide receives moodEnergy from mood.snapshotFor when groupsEnabled", "plan 030: group flush passes moodEnergy from mood.snapshotFor into triggerInfo", "plan 030: moodEnergy ±2 shifts the first-bubble delay", "plan 030: high moodEnergy adds the 'more room for energy' guidance line", "plan 030: buildDecidePrompt renders the room-energy line with the energy label when moodEnergy is given", "plan 030: group chat does NOT inject when groupsEnabled is false", "plan 030: DM decide never receives moodEnergy", "plan 030: DM flush keeps triggerInfo.moodEnergy null", "snapshotFor returns null for a neutral state"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

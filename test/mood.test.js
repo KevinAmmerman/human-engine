@@ -63,6 +63,26 @@ describe("mood", () => {
       assert.equal(result, undefined);
     });
 
+    it("plan 030: group chat injects when mood.groupsEnabled is true (same injection contract as DM)", () => {
+      const mood = makeMood({ cfg: defaultCfg({ mood: { enabled: true, groupsEnabled: true } }), stateDir });
+      const file = path.join(stateDir, "mood", "test-agent", "agent_test-agent_whatsapp_group_123_g_us.json");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ valence: 2, energy: 2, note: "abgefahren", updatedAt: Date.now() }));
+      const result = mood.onBeforePromptBuild({}, { sessionKey: GROUP_SK, agentId: "test-agent" });
+      assert.ok(result);
+      assert.ok(result.appendSystemContext.includes("Current mood state"));
+      assert.ok(result.appendSystemContext.includes("valence 2"));
+    });
+
+    it("plan 030: group chat does NOT inject when groupsEnabled is false (default off-contract)", () => {
+      const mood = makeMood({ cfg: defaultCfg(), stateDir });
+      const file = path.join(stateDir, "mood", "test-agent", "agent_test-agent_whatsapp_group_123_g_us.json");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ valence: 2, energy: 2, note: "abgefahren", updatedAt: Date.now() }));
+      const result = mood.onBeforePromptBuild({}, { sessionKey: GROUP_SK, agentId: "test-agent" });
+      assert.equal(result, undefined);
+    });
+
     it("mood unscoped agent returns undefined", () => {
       const mood = makeMood({ cfg: defaultCfg({ agents: ["agent-a"] }), stateDir });
       const result = mood.onBeforePromptBuild({}, { sessionKey: DIRECT_SK, agentId: "agent-b" });
@@ -109,6 +129,26 @@ describe("mood", () => {
         assert.equal(state.note, "stabil");
       });
     });
+
+    it("plan 030: decay persists across appraisals — a 7h-old +2 state starts the next appraisal at the halved baseline", async () => {
+      const prompts = [];
+      const llm = { complete: async (opts) => { prompts.push(opts.messages.map((m) => m.content).join("\n")); return { text: "valence: +2\nenergy: +2\nnote: weiter aufgedreht" }; } };
+      const mood = makeMood({ cfg: defaultCfg({ mood: { enabled: true, refreshEvery: 5, refreshMinutes: 0, decayHours: 6, maxShiftPerUpdate: 1 } }), llm, stateDir, readTranscript: async () => [{ speaker: "User", text: "hi" }] });
+      const file = path.join(stateDir, "mood", "test-agent", "agent_test-agent_whatsapp_direct_1_4917000000001.json");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ valence: 2, energy: 2, note: "alt", updatedAt: Date.now() - 7 * 3600e3 }));
+
+      // First appraisal: baseline decays to +1, appraisal +2 clamped +1 → +2, then updatedAt = now.
+      await mood.maybeUpdateMood("test-agent", DIRECT_SK);
+      assert.ok(prompts[0].includes("valence: 1"), "first appraisal starts from the decayed baseline (valence 1)");
+      const afterFirst = readMood(stateDir, "test-agent", DIRECT_SK);
+      assert.equal(afterFirst.valence, 2, "clamped +1 from decayed baseline 1 → 2");
+
+      // Simulate 7h passing: rewrite updatedAt back 7h, then a second appraisal decays +2 → +1 baseline.
+      fs.writeFileSync(file, JSON.stringify({ ...afterFirst, updatedAt: Date.now() - 7 * 3600e3 }));
+      await mood.maybeUpdateMood("test-agent", DIRECT_SK);
+      assert.ok(prompts[1].includes("valence: 1"), "second appraisal also starts from the halved baseline (accumulated decay)");
+    });
   });
 
   describe("decay", () => {
@@ -125,6 +165,54 @@ describe("mood", () => {
       const kept = applyDecay(fresh, Date.now(), 6);
       assert.equal(kept.valence, 2);
       assert.equal(kept.note, "upbeat");
+    });
+  });
+
+  describe("group mood (plan 030)", () => {
+    const groupFile = () => path.join(stateDir, "mood", "test-agent", "agent_test-agent_whatsapp_group_123_g_us.json");
+
+    it("group appraisal runs every groupsRefreshEvery when groupsEnabled (no DM state written)", async () => {
+      const calls = [];
+      const llm = { complete: async (opts) => { calls.push(opts); return { text: "valence: +1\nenergy: +2\nnote: gut drauf" }; } };
+      const mood = makeMood({ cfg: defaultCfg({ mood: { enabled: true, groupsEnabled: true, groupsRefreshEvery: 2, refreshEvery: 5, refreshMinutes: 0, decayHours: 6, maxShiftPerUpdate: 1 } }), llm, stateDir, readTranscript: async () => [{ speaker: "Nico", text: "hey alle" }] });
+      // 1st group message: no appraisal (n=1 < 2)
+      mood.onMessageReceived({}, { sessionKey: GROUP_SK, agentId: "test-agent" });
+      // 2nd group message: appraisal fires
+      mood.onMessageReceived({}, { sessionKey: GROUP_SK, agentId: "test-agent" });
+      await new Promise((r) => setTimeout(r, 30));
+      assert.equal(calls.length, 1, "one group appraisal on the 2nd message");
+      const state = readMood(stateDir, "test-agent", GROUP_SK);
+      assert.equal(state.valence, 1);
+      assert.equal(state.energy, 2);
+    });
+
+    it("group appraisal is skipped when groupsEnabled is false (no state file, no llm call)", async () => {
+      let called = false;
+      const llm = { complete: async () => { called = true; return { text: "valence: +1\nenergy: +1\nnote: x" }; } };
+      const mood = makeMood({ cfg: defaultCfg({ mood: { enabled: true, groupsEnabled: false, groupsRefreshEvery: 1, refreshEvery: 1, refreshMinutes: 0 } }), llm, stateDir, readTranscript: async () => [{ speaker: "Nico", text: "hi" }] });
+      try { fs.rmSync(groupFile()); } catch {}
+      for (let i = 0; i < 3; i++) mood.onMessageReceived({}, { sessionKey: GROUP_SK, agentId: "test-agent" });
+      await new Promise((r) => setTimeout(r, 30));
+      assert.equal(called, false, "no group appraisal when groupsEnabled false");
+      assert.equal(fs.existsSync(groupFile()), false, "no group mood state file written when groupsEnabled false");
+    });
+
+    it("snapshotFor returns {valence, energy} (decayed) for a group when groupsEnabled, null otherwise", () => {
+      const onMood = makeMood({ cfg: defaultCfg({ mood: { enabled: true, groupsEnabled: true } }), stateDir });
+      const offMood = makeMood({ cfg: defaultCfg({ mood: { enabled: true, groupsEnabled: false } }), stateDir });
+      fs.mkdirSync(path.dirname(groupFile()), { recursive: true });
+      fs.writeFileSync(groupFile(), JSON.stringify({ valence: 2, energy: 2, note: "hype", updatedAt: Date.now() - 8 * 3600e3 }));
+      const snap = onMood.snapshotFor("test-agent", GROUP_SK);
+      assert.deepEqual(snap, { valence: 1, energy: 1 }, "snapshot decays a stale +2 → +1 and returns both axes");
+      assert.equal(offMood.snapshotFor("test-agent", GROUP_SK), null, "groupsEnabled false → no snapshot");
+      assert.equal(onMood.snapshotFor("test-agent", DIRECT_SK), null, "non-group session → no snapshot");
+    });
+
+    it("snapshotFor returns null for a neutral state", () => {
+      const mood = makeMood({ cfg: defaultCfg({ mood: { enabled: true, groupsEnabled: true } }), stateDir });
+      fs.mkdirSync(path.dirname(groupFile()), { recursive: true });
+      fs.writeFileSync(groupFile(), JSON.stringify({ valence: 0, energy: 0, note: "", updatedAt: Date.now() }));
+      assert.equal(mood.snapshotFor("test-agent", GROUP_SK), null);
     });
   });
 
