@@ -22,6 +22,7 @@ errors; **Operator-Aktivierung 2026-09-10: alle Feature-Flags live**):
 | C — Threads & Verständnis | 022–025 | Thread-State (meaningful absence, Decide-Injection, Rebuild), return_greeting + thread_callback Trigger (shadow-first), Decide-Contract v2 (JSON reason/addressed_to), Media-Caption Spike (Report: Media-Facts ohne caption-Feld) |
 | D — Persönlichkeit | 026–032 | Timing-CTX-Felder + Style-Selbstfilter, sanitizeTells-Runtime-Backstop, Voice-Card-in-Decide, Sprach-Packs (de byte-identisch), Mood-Decay persistiert + Gruppen-Mood (flagged), Self-Voice-Spike (Prototyp config-off), Native-Reaktions-Spike (Report) |
 | Follow-ups | 033–035 | Self-Voice-Wiring (`/soul voice` preview/accept/reset + Persona-Render), Media-Kontext (Caption-in-Transcript + Capture-Gap-Fix + kind-gewichtete Lesezeit), Quote-Reply-Zustellung (replyToId) + opt-in Reaktions-Hinweis |
+| P0-Hotfix | — | Host wirft `LLM_COMPLETION_NOT_AUTHORIZED` bei Plugin-llm.complete mit agentId ohne `allowAgentIdOverride: true` (Host-Contract-Änderung; Symptom: Agent komplett stumm, fail-closed). Fix an allen 10 Call-Sites (1130/0, Parity 81/81, deployed 2026-09-10). |
 
 Full per-plan status with test/parity numbers: `../plans/README.md`.
 Spike reports: `../plans/025-media-caption-spike-report.md`,
