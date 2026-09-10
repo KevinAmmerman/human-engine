@@ -177,4 +177,63 @@ describe("initiative", { concurrency: false }, () => {
     assert.ok(state, "state dir/file still created for the scope");
     assert.equal(state.tasks.length, 0, "no tasks without llm");
   });
+
+  it("cap pressure: done/expired tasks are dropped before any open task", async () => {
+    const cfg = makeCfg({ maxOpenTasks: 4 });
+    // Extraction 1: three open tasks.
+    const i1 = createInitiative({ cfg, stateDir: tmpDir, llm: makeLlm({ tasks: [{ text: "task A", kind: "task" }, { text: "task B", kind: "task" }, { text: "task C", kind: "task" }], directives: [], done: [], drop: [] }) });
+    await i1.onMessageReceived({ text: "vergiss nicht: A B C" }, groupCtx());
+    let state = loadState();
+    assert.equal(state.tasks.filter((t) => t.status === "open").length, 3);
+    const ids = state.tasks.map((t) => t.id);
+
+    // Extraction 2: mark A and B done.
+    const i2 = createInitiative({ cfg, stateDir: tmpDir, llm: makeLlm({ tasks: [], directives: [], done: [ids[0], ids[1]], drop: [] }) });
+    await i2.onMessageReceived({ text: "erinner: cleanup" }, groupCtx());
+    state = loadState();
+    assert.equal(state.tasks.filter((t) => t.status === "done").length, 2);
+    assert.equal(state.tasks.filter((t) => t.status === "open").length, 1);
+
+    // Extraction 3: three new open tasks push total to 6 (> 4 cap).
+    const i3 = createInitiative({ cfg, stateDir: tmpDir, llm: makeLlm({ tasks: [{ text: "task D", kind: "task" }, { text: "task E", kind: "task" }, { text: "task F", kind: "task" }], directives: [], done: [], drop: [] }) });
+    await i3.onMessageReceived({ text: "denk dran: D E F" }, groupCtx());
+    state = loadState();
+    assert.ok(state.tasks.length <= 4, `total tasks bounded at maxOpenTasks (got ${state.tasks.length})`);
+    assert.equal(state.tasks.filter((t) => t.status === "done").length, 0, "done tasks dropped first");
+    assert.equal(state.tasks.filter((t) => t.status === "expired").length, 0);
+    const open = state.tasks.filter((t) => t.status === "open");
+    assert.equal(open.length, 4, "open tasks preserved at cap");
+    assert.ok(open.some((t) => t.text === "task C"), "pre-existing open task preserved");
+  });
+
+  it("onMessageReceived does not await the LLM (fire-and-forget extract)", async () => {
+    const cfg = makeCfg();
+    let resolveComplete;
+    const pending = new Promise((res) => { resolveComplete = res; });
+    let completeCalls = 0;
+    const llm = {
+      complete: async () => {
+        completeCalls++;
+        await pending;
+        return { text: JSON.stringify({ tasks: [{ text: "late task", kind: "task" }], directives: [], done: [], drop: [] }) };
+      },
+    };
+    const i = createInitiative({ cfg, stateDir: tmpDir, llm });
+
+    const start = Date.now();
+    await i.onMessageReceived({ text: "merk dir: late task" }, groupCtx());
+    const elapsed = Date.now() - start;
+
+    assert.equal(completeCalls, 1, "extract kicked off (llm called)");
+    assert.ok(elapsed < 200, `onMessageReceived returned without awaiting the LLM (elapsed ${elapsed}ms)`);
+    assert.equal(loadState(), null, "state not written while the LLM is still pending");
+
+    resolveComplete();
+    await new Promise((r) => setTimeout(r, 20));
+
+    const state = loadState();
+    assert.ok(state, "state written once the LLM settles");
+    assert.equal(state.tasks.length, 1);
+    assert.equal(state.tasks[0].text, "late task");
+  });
 });
