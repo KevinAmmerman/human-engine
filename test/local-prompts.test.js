@@ -365,6 +365,32 @@ describe("local-prompts", () => {
       assert.ok(startIdx < p.userMessage.indexOf("[A] hello") && p.userMessage.indexOf("[A] hello") < endIdx);
       assert.ok(startIdx < p.userMessage.indexOf("Candidate: cand") && p.userMessage.indexOf("Candidate: cand") < endIdx);
     });
+
+    it("v1 proactive prompt keeps the one-token line", () => {
+      const p = buildProactiveDecidePrompt({ transcript: [], candidate: "cand" });
+      assert.ok(p.systemPrompt.includes("Answer with EXACTLY one token: SPEAK or SKIP."));
+      assert.ok(!p.systemPrompt.includes("STRICT JSON"));
+    });
+
+    it("v2 proactive prompt switches to STRICT JSON", () => {
+      const p = buildProactiveDecidePrompt({ transcript: [], candidate: "cand", v2Contract: true });
+      assert.ok(p.systemPrompt.includes('Answer with STRICT JSON only: {"decision":"SPEAK"|"SKIP"'));
+      assert.ok(!p.systemPrompt.includes("Answer with EXACTLY one token: SPEAK or SKIP."));
+    });
+  });
+
+  describe("decide prompt v2 contract", () => {
+    it("v1 decide prompt keeps the one-token line byte-identical", () => {
+      const p = buildDecidePrompt({ agentName: "Bot" });
+      assert.ok(p.systemPrompt.includes("Answer with EXACTLY one token: SPEAK or STAY_SILENT."));
+      assert.ok(!p.systemPrompt.includes("STRICT JSON"));
+    });
+
+    it("v2 decide prompt switches to STRICT JSON", () => {
+      const p = buildDecidePrompt({ agentName: "Bot", v2Contract: true });
+      assert.ok(p.systemPrompt.includes('Answer with STRICT JSON only: {"decision":"SPEAK"|"STAY_SILENT"'));
+      assert.ok(!p.systemPrompt.includes("Answer with EXACTLY one token: SPEAK or STAY_SILENT."));
+    });
   });
 
   describe("buildDmRenderPrompt", () => {
