@@ -71,7 +71,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | [029](029-language-parameterization.md) | Sprach-Parameterisierung (language packs, de byte-identisch) | P2 | M | 024 ideal | DONE (executed+approved, 1031/0, Parity 71/71; TODO(029) für mood-Note-Formatregel dokumentiert) |
 | [030](030-mood-expansion-groups.md) | Mood: Decay persistieren + Gruppen-Mood (flagged, shadow-first) | P2 | M | 026 ideal | DONE (executed+approved, 1084/0, Parity 77/77; Timing-Dosierung ±12 % verifiziert) |
 | [031](031-agent-self-voice-spike.md) | Self-Voice Spike (Design + Prototyp hinter Config-Off) | P2 | M | 026 | DONE (executed+approved, 1096/0, Parity 77/77; Prototyp config-off, keine index-Wiring; Follow-up-Slot 033) |
-| [032](032-native-reactions-spike.md) | Native-Reaktionen Spike (Fähigkeits-Report) | P3 | M | — | TODO |
+| [032](032-native-reactions-spike.md) | Native-Reaktionen Spike (Fähigkeits-Report) | P3 | M | — | DONE (executed+approved; Report: Reaktionen = message-action, nicht Plugin-SDK-fähig → model-routed Pfad; Quote-Reply near-trivial via replyToId; Follow-up-Slot 035) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
