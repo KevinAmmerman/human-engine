@@ -16,6 +16,15 @@ const VALID_LLM_RESPONSE = JSON.stringify({
   in_jokes: ["the coffee machine"],
 });
 
+const VALID_SELF_LLM_RESPONSE = JSON.stringify({
+  summary: "Short, warm, mostly lowercase own voice",
+  register: { formality: 3, warmth: 7, casing: "lowercase" },
+  style: { length: "short", formatting: "clean", emoji: "some" },
+  signature_phrases: ["ja klar", "nice", "ok dann"],
+  reaction_patterns: ["acknowledges then adds one point"],
+  rhythm: "quick, one idea per message",
+});
+
 function makeTiming() {
   return {
     scheduleForBubbles(bubbles, ctx, timingCfg) {
@@ -153,6 +162,66 @@ describe("voice-card-local", () => {
 
     const transcript = transcriptFrom(["[A] hi"]);
     const result = await engine.extractVoiceCard({ transcript });
+    assert.equal(result, null);
+  });
+
+  it("extractSelfVoice returns prompt_block and profile on valid LLM output", async () => {
+    let captured;
+    const engine = createLocalEngine({
+      cfg: {},
+      llm: {
+        complete: async (opts) => { captured = opts; return { text: VALID_SELF_LLM_RESPONSE }; },
+      },
+      timing: makeTiming(),
+    });
+
+    const transcript = transcriptFrom(["[Yuki] ja klar", "[Yuki] nice", "[Bob] halt"]);
+    const result = await engine.extractSelfVoice({ transcript, agentId: "agent-a" });
+    assert.ok(result !== null);
+    assert.ok(typeof result.prompt_block === "string");
+    assert.ok(result.prompt_block.includes("Short, warm, mostly lowercase own voice"));
+    assert.ok(result.prompt_block.includes("lowercase"));
+    assert.ok(result.profile.summary === "Short, warm, mostly lowercase own voice");
+    assert.equal(captured.agentId, "agent-a");
+  });
+
+  it("extractSelfVoice returns null on empty transcript", async () => {
+    const engine = createLocalEngine({
+      cfg: {},
+      llm: { complete: async () => ({ text: VALID_SELF_LLM_RESPONSE }) },
+      timing: makeTiming(),
+    });
+
+    const result = await engine.extractSelfVoice({ transcript: [] });
+    assert.equal(result, null);
+  });
+
+  it("extractSelfVoice returns null on null llm", async () => {
+    const engine = createLocalEngine({ cfg: {}, llm: null, timing: makeTiming() });
+    const transcript = transcriptFrom(["[A] hi"]);
+    const result = await engine.extractSelfVoice({ transcript });
+    assert.equal(result, null);
+  });
+
+  it("extractSelfVoice returns null on garbage JSON", async () => {
+    const engine = createLocalEngine({
+      cfg: {},
+      llm: { complete: async () => ({ text: "not valid json" }) },
+      timing: makeTiming(),
+    });
+    const transcript = transcriptFrom(["[A] hi"]);
+    const result = await engine.extractSelfVoice({ transcript });
+    assert.equal(result, null);
+  });
+
+  it("extractSelfVoice returns null on incomplete JSON (missing summary)", async () => {
+    const engine = createLocalEngine({
+      cfg: {},
+      llm: { complete: async () => ({ text: '{"register": {"formality": 5}}' }) },
+      timing: makeTiming(),
+    });
+    const transcript = transcriptFrom(["[A] hi"]);
+    const result = await engine.extractSelfVoice({ transcript });
     assert.equal(result, null);
   });
 
