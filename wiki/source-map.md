@@ -21,14 +21,17 @@ human-engine/
     gate.js                 — Turn-taking gate (speaker-aware dedup, named-first chronological transcript merge, decide-ctx log, onSilence; per-agent identity; memory-in-decide; thread/mood context)
     naturalize.js           — Bubble naturalization (split + time replies, per-bubble group TTS, persistOwnReply, FIFO dispatcher queue, system-fallback filter incl. agent-run-failed, sanitizeTells backstop, exported deliverWithRetry)
     local-engine.js         — Local LLM engine (decide + naturalize calls; parseDecideVerdict/V2; memoryContext/threadContext/moodEnergy threading; extractSelfVoice)
-    config.js               — Default config + one-level deep merge + language key + threads/selfVoice blocks
+    config.js               — Default config + one-level deep merge + language key + threads/selfVoice/initiative blocks
     voice-card.js           — Communication-style profile learning
     social-memory.js        — Person-centric fact extraction & recall (coalesced writes; person store; schemaV2; recallCompact)
     threads.js              — Thread/absence state per scope + decide context line + rebuild (Plan 022, config-off)
     self-voice.js           — Self-voice prototype: own-line voice extraction, preview/accept/reset (Plan 031, config-off)
     observed-store.js       — Plugin-local persistence of silenced + own-reply lines (tail-read + mtime/size cache, Plan 013)
-    proactive.js            — 3-stage proactive funnel (shadow-first)
+    proactive.js            — 3-stage proactive funnel (shadow-first); records shared outbound budget via proactivity-outbox
     dm-proactive.js         — DM-proactive v2: envelope adapter, byKind cadence, shadow log, dispatch
+    proactivity-outbox.js   — Shared per-scope "last proactive outbound" store (proactive + initiative share a min-gap budget, Plan 613)
+    initiative.js           — Initiative engine (Plan 613, default-off): capture (LLM task/directive extraction), recall via before_prompt_build, 5-min master tick, deterministic gate (evaluateInitiative), LLM decide, render + sanitize/expand, shadow/live send; engagement attribution + ignore-streak
+    initiative-store.js     — Initiative durable per-agent×scope state + shadow/live jsonl (14-day retention, outcome backfill)
     dm-gate-core.js         — Shared DM follow-up gate rules (hook + CLI)
     dayfit.js               — DayFit bands from kevin-activity.json
     mood.js                 — Mood state layer (per-DM-session valence/energy, appraisal cadence, decay, dm-only)
@@ -41,7 +44,7 @@ human-engine/
     autoconfig.js           — Advisory config warnings for operator
     contacts.js             — contacts.md parsing + sender-ID → name resolution (findAgentContactIds, listContactNames)
     messages.js             — Message conversion + validation utils
-    local-prompts.js        — System prompts for all LLM calls
+    local-prompts.js        — System prompts for all LLM calls (incl. buildTaskExtractPrompt, buildInitiativeDecidePrompt, buildInitiativeRenderPrompt)
   test/
     gate.test.js            — Gate unit tests (incl. chronological merge)
     naturalize.test.js      — Naturalization unit tests (incl. persistOwnReply)
@@ -72,7 +75,9 @@ human-engine/
     hook-contract.test.js   — SDK-shaped hook-context contract tests
     e2e-local.test.js       — End-to-end local integration test
     harness.test.js         — Test harness tests
-    parity-matrix.mjs       — behavioral parity contract (77 rows; optional `kind` field tags static rows, Plan 018)
+    initiative.test.js      — Initiative tests (capture, recall, gate, tick/shadow, live, attribution, caps, isolation)
+    proactivity-outbox.test.js — Proactivity outbox tests (round-trip, cap eviction, fail-open, file perms)
+    parity-matrix.mjs       — behavioral parity contract (87 rows; optional `kind` field tags static rows, Plan 018)
     fixtures/
       decide-scenarios.json — 20+ labeled decide test scenarios
     helpers/

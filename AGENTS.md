@@ -8,10 +8,10 @@ in-process in the OpenClaw gateway and shares its LLM instance.
 
 ## Verification
 
-- Tests: `npm test` — node:test suite, all must pass (1130 pass / 0 fail as of
+- Tests: `npm test` — node:test suite, all must pass (1186 pass / 0 fail as of
   this doc; update this line only when it changes structurally).
 - Parity matrix: `node test/parity-matrix.mjs --check` — release contract,
-  must be fully covered (81/81).
+  must be fully covered (87/87).
 
 <!-- wiki-pointer begin -->
 ## Wiki
@@ -28,13 +28,16 @@ See `wiki/architecture/overview.md`. In short: `index.js` registers typed hook
 handlers; `lib/gate.js` decides speak/stay-silent via the local engine;
 `lib/naturalize.js` splits and times replies; `lib/proactive.js` is the
 3-stage proactive funnel; `lib/dm-proactive.js` renders due-DM commitments
-shadow-first. Config schema lives in `openclaw.plugin.json`.
+shadow-first; `lib/initiative.js` (+ `lib/initiative-store.js`,
+`lib/proactivity-outbox.js`) is the Initiative task & memory engine (default
+off). Config schema lives in `openclaw.plugin.json`.
 
 ## Config merge semantics
 
 Config resolves with a one-level deep merge from the OpenClaw API over the
 defaults in `lib/config.js` (nested keys: `socialLearning`, `socialMemory`,
-`decide`, `humanize`, `timing`, `naturalize`, `proactive`, `dmProactive`).
+`decide`, `humanize`, `timing`, `naturalize`, `proactive`, `dmProactive`,
+`mood`, `threads`, `reactions`, `initiative`).
 A partial override never drops sibling defaults. The schema in
 `openclaw.plugin.json` is strict — keep it in sync with `lib/config.js`.
 

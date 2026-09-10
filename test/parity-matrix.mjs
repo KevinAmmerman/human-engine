@@ -168,6 +168,16 @@ const MATRIX = [
     tags: ["plan 035: carries replyToId on the payload and keeps it on the text-only retry", "plan 035: first bubble carries replyToId, later bubbles do not", "plan 035: raw fallback delivery carries replyToId when a reply target id exists", "plan 035: captures the quoted-message id (ctx.replyToId) into the reply context entry", "plan 035: falls back to the inbound message id (ctx.messageId) when not a quote-reply", "plan 035: reply target carries replyToId from the quoted-message id on speak", "plan 035: reactions hint injected into appendSystemContext for a group when hintEnabled:true", "plan 035: reactions hint is never injected for DM sessions", "plan 035: reactions hint is absent by default (hintEnabled:false)"] },
   { id: 82, behavior: "hot conversations compress bubble delivery timing; split must preserve draft facts (answer-first + mechanical content-preserving fact-guard fallback)",
     tags: ["hot-room timing compression", "hot newestAgeMs", "cold path byte-identical", "ANSWER FIRST:", "NEVER drop a fact the draft contains", "fact-guard fallback", "facts missing from bubbles", "mechanical fragmentation", "guard must not fire", "guard never runs on raw-fallback"] },
+  { id: 83, behavior: "Initiative capture: keyword/cadence-triggered LLM extraction persists deduped tasks + directives, honors done/drop and caps",
+    tags: ["capture keyword trigger persists a task"] },
+  { id: 84, behavior: "Initiative recall: open tasks + directives injected (bounded, untrusted-wrapped) via appendSystemContext; disabled creates no files",
+    tags: ["renders open tasks + directives", "disabled: onMessageReceived + onBeforePromptBuild create no files"] },
+  { id: 85, behavior: "Initiative tick in shadow: due task → one shadow-log entry, never calls subagent.run; candidate consumed after gate pass (idempotent per day)",
+    tags: ["tick in shadow"] },
+  { id: 86, behavior: "Initiative anti-annoyance gate: deterministic reasons (active/quiet hours, budget, min-gap, hot-room, after-speak, cooldown, paused, cross-budget, probability) + ignoreStreak multiplier",
+    tags: ["every gate reason individually", "cross-budget reason fires"] },
+  { id: 87, behavior: "Initiative multi-tenant isolation: per-agent×scope state files; per-agent profile overrides",
+    tags: ["per-agent isolation"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

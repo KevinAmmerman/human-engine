@@ -18,6 +18,10 @@ entirely on the host's built-in LLM.
 - **Social memory** — bounded person-centric memory extracted on cadence,
   recalled on speak.
 - **Agent scoping** — restrict to named agent IDs.
+- **Initiative** — proactive task & memory engine (default OFF, shadow-first):
+  captures tasks/standing directives, recalls the open ones into context, and
+  a tick acts on due tasks through an anti-annoyance gate; shares the outbound
+  budget with `proactive` (Plan 613).
 - **Kill-switch** — disable without unloading: `enabled: false`.
 
 ## Architecture
@@ -127,6 +131,18 @@ All keys under `plugins.entries["human-engine"].config`:
 | `mood.refreshMinutes` | number | `0` | Time-based appraisal (0 = message-count only) |
 | `mood.decayHours` | number | `6` | Hours of quiet before mood drifts toward neutral |
 | `mood.maxShiftPerUpdate` | number | `1` | Max |Δvalence|/|Δenergy| per appraisal |
+| `initiative.enabled` | bool | `false` | Initiative engine master switch (default OFF; zero files/injection when off) |
+| `initiative.shadow` | bool | `true` | Log would-be initiative sends without delivering |
+| `initiative.scopes` | string[] | `["group"]` | Which session kinds participate |
+| `initiative.everyMinutes` | number | `60` | Ambient per-scope tick cadence (`0` disables) |
+| `initiative.minGapMinutes` | number | `240` | Min gap between sends (shared with `proactive`) |
+| `initiative.maxOpenTasks` | number | `20` | Max open tasks kept per scope |
+| `initiative.probability` | number | `0.8` | Probability floor for acting |
+
+Shadow-first: in `initiative.shadow:true` the module only logs to
+`state/initiative.jsonl` and never sends. In live mode
+(`initiative.shadow:false`) the rendered act is delivered via `subagent.run`.
+See `wiki/operations/environment.md` for the full config table + runbook.
 
 Shadow-first: in `dmProactive.shadow:true` the module only logs to
 `state/dm-proactive.jsonl` and never sends. In live mode

@@ -37,3 +37,30 @@ Spike reports: `../plans/025-media-caption-spike-report.md`,
 - Open for the future: plugin-seitiges Reaktions-Senden, sobald der Host den
   message-action-runner als Plugin-SDK-Export freigibt (Report 032 §1.6,
   Option 1).
+
+## Wave 3: Initiative Engine (Plan 613, phased 0–4, DONE)
+
+**Plan 613 — Initiative** (P1, effort L, risk MED): a modular, multi-tenant
+proactive task & memory engine. Built shadow-first and default-OFF
+(`initiative.enabled:false`). Phased delivery:
+
+- **Phase 0** — skeleton, config schema (`initiative` block in
+  `defaultConfig()` + `NESTED_KEYS` + strict manifest schema + agentProfiles),
+  version bump 0.5.0, durable per-agent×scope store
+  `lib/initiative-store.js` + shadow log, no-op `lib/initiative.js` shell,
+  hooks + master tick wiring.
+- **Phase 1** — capture (keyword/cadence-triggered LLM task/directive
+  extraction, `buildTaskExtractPrompt`) + recall (`before_prompt_build`
+  context injection, `maxContextChars`-bounded, untrusted-wrapped).
+- **Phase 2** — tick/gate/decide/render: deterministic `evaluateInitiative`
+  gate (active/quiet hours, budget, min-gap, hot-room, after-speak, cooldown,
+  paused, probability + ignoreStreak multiplier), LLM decide + render +
+  sanitize/expand, shadow log (never `subagent.run` in shadow).
+- **Phase 3** — engagement attribution (`outcome.repliedWithin48h` backfill),
+  ignore-streak, shared outbound budget with `proactive` via
+  `lib/proactivity-outbox.js`, operator runbook.
+- **Phase 4** — parity rows 83–87 + wiki/docs sync.
+
+Deployed state: parity 87/87, `npm test` 1186 pass / 0 fail. Feature remains
+default-OFF pending a shadow-window review per the runbook in
+`wiki/operations/environment.md`.

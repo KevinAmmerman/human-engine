@@ -34,9 +34,51 @@ keyed by an ID not in `agents` is **inert** (autoconfig warns at startup).
 | `enabled: false` | everything no-ops, zero LLM calls |
 | `proactive.enabled: false` | proactive funnel off |
 | `dmProactive.enabled: false` + disable the Cron | DM-proactive lane off (Plan 536 kill-switch pattern) |
+| `initiative.enabled: false` | Initiative engine off (default; zero files, zero injection, no tick) — Plan 613 kill-switch |
 | remove the `agentProfiles[<id>]` entry | agent falls back to the global identity (byte-for-byte single-agent behavior) |
 
 All code steps are backward-compatible: empty profiles = status quo ante.
+
+## Initiative per-agent / per-group overrides (Plan 613)
+
+The Initiative engine is default-OFF and shadow-first. Per-agent/per-group
+overrides live under `agentProfiles["<agentId>"].initiative` — nested objects
+merge one level over the global defaults (same semantics as the other profile
+blocks), so a partial override keeps the sibling defaults.
+
+| Profile key | Purpose |
+|-------------|---------|
+| `initiative.enabled` | Master switch (default `false`) |
+| `initiative.shadow` | Shadow-first (default `true`); `false` = live sends for THIS agent |
+| `initiative.scopes` | Which session kinds participate (`["group"]` default) |
+| `initiative.everyMinutes` | Ambient per-scope tick cadence (`0` disables) |
+| `initiative.capture.everyMessages` / `everyMinutes` | Capture cadence (count and/or minutes) |
+| `initiative.directives.maxPerScope` | Max standing directives per scope |
+| `initiative.maxOpenTasks` | Max open tasks per scope |
+| `initiative.minGapMinutes` | Min gap between sends (shared with `proactive`) |
+| `initiative.probability` | Probability floor for acting |
+
+Example — a per-group cadence override (only the cadence + a tighter daily
+budget differ from the global defaults; everything else inherits):
+
+```jsonc
+"agentProfiles": {
+  "<agentId>": {
+    "initiative": {
+      "shadow": true,          // keep shadow until review
+      "everyMinutes": 30,      // this agent/group ticks faster
+      "maxActsPerDay": 1,      // tighter budget here
+      "capture": { "everyMessages": 10 }
+    }
+  }
+}
+```
+
+Same isolation rules as every feature: state is namespaced per agent×scope
+(`state/initiative/<agentId>/<scope>.json`), and a profile never widens the
+`agents` allowlist. Flip ONE agent live via `shadow:false` only after a healthy
+shadow-window review (see [Environment](./environment.md) Initiative runbook).
+
 
 ## Shadow first-run for new agents
 

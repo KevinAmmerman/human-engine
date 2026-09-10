@@ -1,19 +1,39 @@
 # Changelog
 
-## 0.5.0 — Initiative engine, phase 0: skeleton + config + durable store (plan 613)
+## 0.5.0 — Initiative: a modular, multi-tenant proactive task & memory engine (plan 613)
 
 - **Initiative**: a new per-agent×scope proactive task & memory engine, built
   shadow-first and default-OFF (`initiative.enabled:false` → zero files, zero
-  context injection, zero behavior change).
-- **Phase 0 only**: config schema (`initiative` block in `defaultConfig()` +
+  context injection, zero behavior change; per-agent flip via
+  `agentProfiles["<agentId>"].initiative.shadow:false`).
+- **Capture**: keyword/cadence-triggered LLM extraction
+  (`buildTaskExtractPrompt`) persists deduped tasks + standing directives into
+  the per-agent×scope durable store, honoring `done`/`drop` and the
+  `maxOpenTasks` / `directives.maxPerScope` caps.
+- **Recall**: `before_prompt_build` injects open tasks + directives (bounded by
+  `maxContextChars`, untrusted-wrapped) via `appendSystemContext`.
+- **Tick/gate/decide/render**: a 5-min unref'd master tick scrolls due/open
+  tasks per known scope through a deterministic anti-annoyance gate
+  (`evaluateInitiative`: active/quiet hours, budget, min-gap, hot-room,
+  after-speak, cooldown, paused, probability + ignoreStreak multiplier), an
+  LLM decide (`buildInitiativeDecidePrompt`), and an LLM render
+  (`buildInitiativeRenderPrompt`) + `sanitizeTells` + `expandInlineLists`. In
+  `shadow:true` only the `state/initiative.jsonl` entry is written (never
+  `subagent.run`); live delivers via `api.runtime.subagent.run`.
+- **Shared outbound budget**: `lib/proactivity-outbox.js` records the last
+  proactive outbound per scope, shared with `proactive` (cross-budget gate rule
+  prevents double-pinging a room).
+- **Engagement attribution**: inbound replies within 48 h backfill
+  `outcome.repliedWithin48h` and reset the task's ignore-streak; consecutive
+  unanswered live acts increment it.
+- **Foundation**: config schema (`initiative` block in `defaultConfig()` +
   `NESTED_KEYS` + strict JSON Schema in `openclaw.plugin.json`, agentProfiles
-  overlay), durable per-agent×scope state store `lib/initiative-store.js`
-  (version-1 state shape, tmp+rename 0600 writes, 0700 dirs, 64 KB soft cap,
-  in-memory cache + debounced flush, shadow log with 14-day retention and
-  4 MB cap), and a minimal no-op shell `lib/initiative.js` wired into
-  `index.js` (message_received / before_prompt_build hooks + master tick +
-  gateway_stop). No capture, no extraction, no LLM, no dispatch yet — those
-  arrive in later phases behind the same flag.
+  overlay), durable per-agent×scope store `lib/initiative-store.js`
+  (version-1 shape, tmp+rename 0600 writes, 0700 dirs, 64 KB soft cap,
+  in-memory cache + debounced flush, shadow/live log with 14-day retention and
+  4 MB cap), and the operator runbook (default-OFF, shadow-window KPIs,
+  per-agent live flip, kill-switch) in `wiki/operations/environment.md`.
+- Parity rows 83–87; `npm test` 1186 pass / 0 fail.
 
 ## 0.4.2 — group bubble TTS (plan 548b)
 

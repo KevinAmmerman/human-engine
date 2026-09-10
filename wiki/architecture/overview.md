@@ -39,6 +39,8 @@ worker process.
 | Autoconfig | `lib/autoconfig.js` | Advisory config warnings (no channel writes) |
 | Messages | `lib/messages.js` | Message conversion + validation utilities |
 | Local prompts | `lib/local-prompts.js` | System prompts for all LLM calls |
+| Proactivity outbox | `lib/proactivity-outbox.js` | Shared per-scope "last proactive outbound" store — proactive + initiative share one min-gap budget (Plan 613) |
+| Initiative | `lib/initiative.js` + `lib/initiative-store.js` | Proactive task & memory engine (Plan 613, default-off): capture → recall → tick → gate → decide → render → shadow/live; per-agent×scope durable state + shadow/live log |
 
 ## Execution flow
 
@@ -141,6 +143,26 @@ fires per outbound payload with the real reply text and supports
     replies backfill `outcome.repliedWithin48h`. The followup-cron MUST
     pre-check via `bin/followup-gate.mjs check` (same gate-core, exit
     0=pass / 1=block / 2=no-envelope / 3=usage).
+11. **Initiative engine** (Plan 613, independent of the reactive gate, default
+    OFF — `initiative.enabled:false`; when off it creates no files, injects no
+    context, and changes no behavior). Three flows:
+    - **Capture**: `message_received` buffers per-scope messages; a
+      keyword/cadence trigger fires an LLM extraction (`buildTaskExtractPrompt`)
+      that persists deduped tasks + standing directives into the per-agent×scope
+      durable store (`state/initiative/<agentId>/<scope>.json`), honoring
+      `done`/`drop` and the `maxOpenTasks`/`directives.maxPerScope` caps.
+    - **Recall**: `before_prompt_build` injects open tasks + directives
+      (bounded by `maxContextChars`, untrusted-wrapped) via `appendSystemContext`.
+    - **Act** (a 5-min unref'd master tick): per known scope, scroll a due/open
+      task → deterministic gate (`evaluateInitiative`: active/quiet hours,
+      budget, min-gap, shared cross-budget via the outbox, hot-room, after-speak,
+      cooldown, ignore-streak paused/multiplier, probability) → LLM decide
+      (`buildInitiativeDecidePrompt`) → render (`buildInitiativeRenderPrompt`)
+      + `sanitizeTells` + `expandInlineLists`. In `shadow:true` only the
+      `state/initiative.jsonl` entry is written (never `subagent.run`); live
+      delivers via `api.runtime.subagent.run`, records the shared outbox, and
+      bumps per-scope counters. Inbound replies within 48 h attribute
+      `outcome.repliedWithin48h` and reset the task's ignore-streak.
 
 ## Key dependencies
 
@@ -193,7 +215,9 @@ No external npm packages — all logic is self-contained.
 - **LLM-call purposes**: every `llm.complete` call carries a purpose string
   for traceability: `human-engine-decide`, `human-engine-humanize`,
   `human-engine-extract` (voice card), `human-engine-soul`,
-  `human-engine-memory` (social memory).
+  `human-engine-memory` (social memory), `human-engine-initiative-extract`,
+  `human-engine-initiative-decide`, `human-engine-initiative-render`
+  (Plan 613).
 - **Decide context is chronological**: layers are merged tail-deduped then
   stable-sorted by ts (ts-less entries last); the current message is the
   final line. Regressing to layer concatenation re-introduces the

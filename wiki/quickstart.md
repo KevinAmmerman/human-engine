@@ -56,8 +56,16 @@ built-in LLM with no cloud dependencies.
 - Detects pure-commentary output (model returned only reasoning, no reply)
   and regenerates a real reply once; suppresses instead of leaking commentary
   if regeneration fails.
-- Runs an opt-in proactive turn-taking funnel (shadow-first).
- - Renders due DM follow-ups from `[[fu:…]]` envelopes through a shared
+  - Runs an opt-in proactive turn-taking funnel (shadow-first).
+  - **Initiative (Plan 613, default OFF)**: a per-agent×scope proactive task &
+    memory engine. Captures tasks/standing directives a member hands the agent
+    (keyword/cadence-triggered LLM extraction), recalls the open ones into the
+    agent context (`before_prompt_build`), and a 5-min tick acts on due tasks
+    through a deterministic anti-annoyance gate + LLM decide + render, sharing
+    the outbound budget with `proactive`. Shadow-first — `initiative.enabled`
+    defaults false; when off it creates no files, injects no context, and never
+    sends. See [environment.md](./operations/environment.md).
+  - Renders due DM follow-ups from `[[fu:…]]` envelopes through a shared
    gate-core (shadow delivers gate-passed candidates envelope-stripped;
    gate-fail/duplicate cancel; `[[fu:`-prefixed content is never delivered
    raw; kind normalization `care`→`care_check_in`; sentIds idempotency,
@@ -93,6 +101,9 @@ built-in LLM with no cloud dependencies.
 | `lib/voice-card.js` | Communication-style profile learning; per-agent cache buckets, disk format v2 with migration (Plan 004) |
 | `lib/social-memory.js` | Person-centric fact extraction and recall; per-agent × session profiles, optional per-human person store (Plan 019) + schemaV2 texture (Plan 020) + recallCompact (Plan 021) |
 | `lib/threads.js` | Persisted open-topic/absence state per scope + decide context line + rebuild from observed store (Plan 022, `threads.enabled`) |
+| `lib/initiative.js` | Initiative engine (Plan 613, default-off): capture, recall, tick/gate/decide/render, shadow/live, attribution |
+| `lib/initiative-store.js` | Initiative durable per-agent×scope state + shadow/live jsonl (14-day retention, outcome backfill) |
+| `lib/proactivity-outbox.js` | Shared per-scope "last proactive outbound" store (proactive + initiative share a min-gap budget, Plan 613) |
 | `lib/self-voice.js` | Self-voice prototype: extract the agent's OWN voice from own observed replies, preview/accept/reset behind `selfVoice.enabled` (Plan 031; persona wiring is follow-up 033) |
 | `lib/timing-engine.js` | Human-typing timing calculation |
 | `lib/persona.js` | Persona prompt building (soul + voice-card), per-path soul cache |
@@ -149,6 +160,13 @@ built-in LLM with no cloud dependencies.
   `sentIds`/`byKind` buckets, legacy v2 flat data migrates to a
   `__legacy__` read-only bucket). New state files MUST carry a `version`
   field and migrate-on-load (Plan 004 pattern).
+- **Initiative is multi-tenant + default-OFF (Plan 613)**: per-agent overrides
+  live at `agentProfiles["<agentId>"].initiative`, state is namespaced per
+  agent×scope (`state/initiative/<agentId>/<scope>.json` + shared
+  `state/initiative.jsonl` shadow/live log + shared `state/proactivity-outbox.json`).
+  Flip ONE agent to live via `agentProfiles[...].initiative.shadow:false`
+  after a healthy shadow window; kill-switch = `initiative.enabled:false`.
+  No real names/numbers in code/tests/docs (public repo).
 - All hook error handling is in `index.js` wrap() — catches and logs, never
   throws into OpenClaw's hook chain.
 - State is in-memory only (Maps in `state.js`); persistent state lives in
@@ -196,7 +214,7 @@ built-in LLM with no cloud dependencies.
 - Tests use inline fakes plus `test/helpers/sdk-hook-ctx.js` for SDK-shaped
   hook contexts (no shared fake-api helper).
 - Parity matrix at `test/parity-matrix.mjs` is the behavioral contract — must
-  stay fully covered (81/81; two rows are tagged `kind:"static"` — review
+  stay fully covered (87/87; two rows are tagged `kind:"static"` — review
   recommended, not a contract) before any release.
 
 ## Source map
