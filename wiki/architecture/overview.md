@@ -20,7 +20,9 @@ worker process.
 | Local engine | `lib/local-engine.js` | LLM-based decide + naturalize via host's `llm.complete` |
 | Config | `lib/config.js` | Default config + one-level deep merge from OpenClaw API |
 | Voice card | `lib/voice-card.js` | Style-profile learning, onBeforePromptBuild injection |
-| Social memory | `lib/social-memory.js` | Person-centric fact extraction, cadence, recall (coalesced writes) |
+| Social memory | `lib/social-memory.js` | Person-centric fact extraction, cadence, recall (coalesced writes); optional per-human person store (Plan 019) + schemaV2 texture (Plan 020) + recallCompact bounded selector (Plan 021) |
+| Threads | `lib/threads.js` | Persisted open-topic/absence state per scope; absence/thread context line for decide; rebuild from observed store + person profiles (Plan 022, off by default) |
+| Self-voice | `lib/self-voice.js` | Prototype: extract the agent's own voice from own observed replies; preview/accept/reset semantics, config-off (Plan 031) |
 | Observed store | `lib/observed-store.js` | Plugin-local persistence of silenced + own-reply lines to `state/observed/` |
 | Proactive | `lib/proactive.js` | 3-stage proactive funnel (triggers → anti-annoyance → subagent.run) |
 | DM gate core | `lib/dm-gate-core.js` | Shared DM follow-up gate rules (hook + CLI, one source of truth) |
@@ -49,12 +51,20 @@ fires per outbound payload with the real reply text and supports
 
 1. **`message_received`** hook: gate records chat type, caches the resolved
    sender name, pushes the transcript peek line, ingests into social memory
-   (chat sessions only), and feeds the proactive inbound funnel.
+   (chat sessions only; ingest dedupes hook refires within 60 s, Plan 011),
+   feeds the proactive inbound funnel, and pings thread state activity
+   (Plan 022, when `threads.enabled`). Mood appraises DM sessions (and
+   group sessions when `mood.groupsEnabled`, Plan 030).
 2. **`before_agent_reply`** hook (gate): runs the turn-taking decide on the
    cleaned inbound body. Hard triggers (DM, media, agent-name/alias mention,
    agent-contact mention, quote-reply to the agent's own message)
    short-circuit to `speak` with zero LLM calls; otherwise the local LLM
-   decides with persona + transcript context. The transcript is merged from
+   decides with the FULL persona (soul + voice card + style + anti-tell,
+   Plan 028) + compact person memory (Plan 021) + optional thread/absence
+   context (Plan 022) + optional room-energy line (Plan 030) + transcript.
+   Verdict parsing tolerates model noise (Plan 016); under
+   `decide.v2Contract` the model answers JSON with reason/addressed_to
+   (Plan 024). The transcript is merged from
    three layers — hydrated session transcript (session-transcript-runtime
    SDK, ts backfilled from `e.timestamp`/`e.message.timestamp`,
    `NO_REPLY` assistant artifacts filtered), the observed store

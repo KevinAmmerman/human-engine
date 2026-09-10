@@ -8,10 +8,18 @@ in-process in the OpenClaw gateway and shares its LLM instance.
 
 ## Verification
 
-- Tests: `npm test` — node:test suite, all must pass (921 pass / 0 fail as of
+- Tests: `npm test` — node:test suite, all must pass (1096 pass / 0 fail as of
   this doc; update this line only when it changes structurally).
 - Parity matrix: `node test/parity-matrix.mjs --check` — release contract,
-  must be fully covered (56/56).
+  must be fully covered (77/77).
+
+<!-- wiki-pointer begin -->
+## Wiki
+
+This repo has agent-optimized documentation in `wiki/`. Start here:
+[wiki/quickstart.md](wiki/quickstart.md). When the wiki is stale (check
+`wiki/.last-update.json`), run `wiki update`.
+<!-- wiki-pointer end -->
 - No build, lint, or typecheck — the plugin is plain ES modules on Node 24+.
 
 ## Architecture

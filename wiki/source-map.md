@@ -10,21 +10,23 @@ human-engine/
   CHANGELOG.md              — Release history (0.4.0–0.1.0)
   LICENSE                   — MIT
   .gitignore                — Ignored: node_modules/, state/, logs/, *.log
-  plans/                    — improve-skill plan index (multi-tenancy wave 001–008 + legacy 586 reference), see wiki/plans.md
+  plans/                    — improve-skill plan index (wave 001–008 multi-tenancy + wave 009–032 deep-audit + spike reports), see wiki/plans.md
   bin/
     followup-gate.mjs       — CLI layer-1 pre-send check for the followup-cron (exit 0/1/2/3); agent-aware scoping (Plan 005)
   docs/
     design-dm-proactive-v2.md — DM-proactive v2 binding design (Plan 526, Option A)
     media-findings.md       — Media handling findings
   lib/
-    scope.js                — Canonical session-key parser (agentId/channel/kind/rest, DM/group/chat classification) — Plans 001
-    gate.js                 — Turn-taking gate (speak/stay-silent, named-first chronological transcript merge, decide-ctx log, onSilence; per-agent identity)
-    naturalize.js           — Bubble naturalization (split + time replies, per-bubble group TTS, persistOwnReply, FIFO dispatcher queue, system-fallback filter incl. agent-run-failed)
-    local-engine.js         — Local LLM engine (decide + naturalize calls)
-    config.js               — Default config + one-level deep merge
+    scope.js                — Canonical session-key parser (agentId/channel/kind/rest, DM/group/chat classification) + parseAgentScope composite-scope helper + pathSafe — Plans 001/014
+    gate.js                 — Turn-taking gate (speaker-aware dedup, named-first chronological transcript merge, decide-ctx log, onSilence; per-agent identity; memory-in-decide; thread/mood context)
+    naturalize.js           — Bubble naturalization (split + time replies, per-bubble group TTS, persistOwnReply, FIFO dispatcher queue, system-fallback filter incl. agent-run-failed, sanitizeTells backstop, exported deliverWithRetry)
+    local-engine.js         — Local LLM engine (decide + naturalize calls; parseDecideVerdict/V2; memoryContext/threadContext/moodEnergy threading; extractSelfVoice)
+    config.js               — Default config + one-level deep merge + language key + threads/selfVoice blocks
     voice-card.js           — Communication-style profile learning
-    social-memory.js        — Person-centric fact extraction & recall (coalesced writes)
-    observed-store.js       — Plugin-local persistence of silenced + own-reply lines
+    social-memory.js        — Person-centric fact extraction & recall (coalesced writes; person store; schemaV2; recallCompact)
+    threads.js              — Thread/absence state per scope + decide context line + rebuild (Plan 022, config-off)
+    self-voice.js           — Self-voice prototype: own-line voice extraction, preview/accept/reset (Plan 031, config-off)
+    observed-store.js       — Plugin-local persistence of silenced + own-reply lines (tail-read + mtime/size cache, Plan 013)
     proactive.js            — 3-stage proactive funnel (shadow-first)
     dm-proactive.js         — DM-proactive v2: envelope adapter, byKind cadence, shadow log, dispatch
     dm-gate-core.js         — Shared DM follow-up gate rules (hook + CLI)
@@ -70,7 +72,7 @@ human-engine/
     hook-contract.test.js   — SDK-shaped hook-context contract tests
     e2e-local.test.js       — End-to-end local integration test
     harness.test.js         — Test harness tests
-    parity-matrix.mjs       — 42-item behavioral parity check
+    parity-matrix.mjs       — behavioral parity contract (77 rows; optional `kind` field tags static rows, Plan 018)
     fixtures/
       decide-scenarios.json — 20+ labeled decide test scenarios
     helpers/

@@ -1,12 +1,13 @@
 {
-  "commit": "37090dd",
-  "timestamp": "2026-09-09T16:00:00Z",
+  "commit": "TBD-AFTER-COMMIT",
+  "timestamp": "2026-09-10T00:00:00Z",
   "filesChanged": [
     "wiki/quickstart.md",
     "wiki/architecture/overview.md",
     "wiki/operations/environment.md",
     "wiki/source-map.md",
-    "wiki/plans.md"
+    "wiki/plans.md",
+    "AGENTS.md"
   ],
   "generator": "opencode-wiki-update",
   "version": "1.0.0"

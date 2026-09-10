@@ -28,8 +28,16 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `socialMemory.extractMinutes` | number | `0` | Time-based extraction |
 | `socialMemory.maxPeople` | number | `50` | Max tracked people |
 | `socialMemory.recallLimit` | number | `800` | Max recall chars |
+| `socialMemory.personStore` | bool | `false` | Person store: ONE profile file per AGENT (cross-session persons, idempotent migration moves legacy session files to `legacy-sessions/`) — Plan 019 |
+| `socialMemory.schemaV2` | bool | `false` | V2 person schema (relationship/open_threads/emotional_state with design caps, merge-level self-exclusion) — Plan 020 |
+| `language` | string | `"de"` | Language pack for prompts/labels/trigger wordlists; per-agent overridable via agentProfiles; `de` byte-identical, non-de groups run documented reduced proactive mode — Plan 029 |
 | `autoconfig` | bool | `false` | Log advisory config warnings on startup |
 | `decide.temperature` | number | `0.2` | Decide temperature |
+| `decide.v2Contract` | bool | `false` | Decide outputs JSON `{decision, reason, addressed_to}` (maxTokens 48) with token fallback — Plan 024 |
+| `threads.enabled` | bool | `false` | Thread state: persisted openTopics/agentAbsentSince + absence/thread context line in decide — Plan 022 |
+| `threads.absenceThresholdHours` | number | `24` | Absence threshold for the decide context line |
+| `threads.topicExpiryDays` | number | `14` | Open-topic expiry |
+| `selfVoice.enabled` | bool | `false` | Self-voice prototype (extract own-line voice card per agent; NOT wired into persona yet — command wiring is follow-up plan 033) — Plan 031 |
 | `humanize.maxBubbles` | number | `5` | Max reply bubbles |
 | `humanize.temperature` | number | `0.9` | Naturalization temperature |
 | `naturalize.speakEpochTtlMs` | number | `300000` | Speak-epoch expiry before a captured reply is dropped |
@@ -46,6 +54,10 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `proactive.probability` | number | `0.5` | Seeded probability floor |
 | `proactive.cooldownBaseMinutes` | number | `180` | Base cooldown after a send |
 | `proactive.triggers.*` | bool | `true` | Candidate triggers (unanswered_question, stalled_exchange, context_match, follow_up_commitment) |
+| `proactive.triggers.returnGreeting` | bool | `false` | return_greeting trigger (meaningful >24h absence, own guards + budget, 7-day per-scope gap; tick-scanned) — Plan 023 |
+| `proactive.triggers.threadCallback` | bool | `false` | thread_callback trigger (agent-owed open threads, ≥20h old) — Plan 023 |
+| `proactive.returnGreetingBudgetPerDay` | number | `1` | Own daily budget for return_greeting |
+| `proactive.threadCallbackMinAgeHours` | number | `20` | Min age for a thread-callback candidate |
 | `dmProactive.agents` | array | `[]` | DM-proactive allowlist override — when non-empty it OVERRIDES global `cfg.agents` for the DM-proactive subtree only (Plan 005, adopted from 586) |
 | `dmProactive.enabled` | bool | `false` | Enable DM follow-up rendering |
 | `dmProactive.shadow` | bool | `true` | Log would-be sends without delivering |
@@ -57,10 +69,12 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `dmProactive.dayFitPauseHours` | number | `12` | Pause sends when DayFit band is this many hours stale |
 | `dmProactive.dayFitActivityPath` | string | `""` | Per-agent DayFit activity file override (falls back to the global kevin-activity.json default) |
 | `dmProactive.inferredCapPerDay` | number | `2` | Cap for inferred (non-envelope) candidates |
-| `mood.enabled` | bool | `false` | Mood layer master switch — stateful valence/energy per DM session, dm-only (Plan 570) |
+| `mood.enabled` | bool | `false` | Mood layer master switch — stateful valence/energy per DM session (Plan 570) |
 | `mood.refreshEvery` / `mood.refreshMinutes` | number | `5` / `0` | Appraisal cadence (message-count and/or minutes; count-based wins while minutes=0) |
-| `mood.decayHours` | number | `6` | Hours without update before valence/energy decay toward neutral |
+| `mood.decayHours` | number | `6` | Hours without update before valence/energy decay toward neutral (decay now persists across appraisals — Plan 030) |
 | `mood.maxShiftPerUpdate` | number | `1` | Max |Δ| per axis per appraisal |
+| `mood.groupsEnabled` | bool | `false` | GROUP mood: appraisal on group sessions, room-energy line in decide, mood-coupled timing (±12 %) and split brevity — Plan 030 |
+| `mood.groupsRefreshEvery` | number | `10` | Group appraisal cadence (messages) |
 
 There is no model-override key: every LLM call uses the host's built-in
 `llm.complete`. Nested objects deep-merge one level over defaults, so a
@@ -103,12 +117,15 @@ runtime, never committed. Files are written 0600, dirs 0700, via tmp+rename.
 | Path | Purpose |
 |------|---------|
 | `state/social-learning-cache.json` | Voice card cache, format v2: per-agent buckets `{version:2, agents:{<agentId>:{cache,counter}}}`; v1 flat files migrate on load (Plan 004) |
-| `state/social-memory/<agentId>/<sessionKey>.json` | Social memory profiles per agent × session |
-| `state/observed/<sessionKey>.jsonl` | Silenced-member AND agent-own-reply lines (Plan 528), 200-line rotation |
+| `state/social-memory/<agentId>/<sessionKey>.json` | Social memory profiles per agent × session (legacy shape; when `personStore:true` these migrate into the person store, files MOVE to `legacy-sessions/` — never deleted) |
+| `state/social-memory/<agentId>.json` | Person store (Plan 019, when `socialMemory.personStore:true`): ONE profile per agent `{version:1, people:{…}}`, cross-session per-human; per-agent 64 KB oversize eviction + maxPeople |
+| `state/social-threads/<agentId>/<sessionKey>.json` | Thread state (Plan 022, when `threads.enabled`): `{version:1, openTopics, lastAgentSpeakTs, lastGroupActivityTs, agentAbsentSince}`; rebuild from observed store + person profiles when missing |
+| `state/self-voice/<agentId>.json` | Self-voice card state (Plan 031 prototype, `selfVoice.enabled`): version 1, preview/accept/reset semantics |
+| `state/observed/<sessionKey>.jsonl` | Silenced-member AND agent-own-reply lines (Plan 528), 200-line rotation; readObserved is tail-read + mtime/size cached (Plan 013) |
 | `state/proactive.json` | Proactive budgets/cooldowns, format v2: `{version:2, agents:{<agentId>:{counters,cooldowns,engagements}}}`; v1 flat scope-keys migrate on load (split at first `::`, no-agent → `__legacy__`) (Plan 005) |
-| `state/dm-proactive-state.json` | DM-proactive v3: `{version:3, scopes, sentIds:{<agentId>:[…]}, byKind:{<agentId>:{kind:{…}}}}`; v2 flat `sentIds`/`byKind` migrate to a `__legacy__` bucket (reads fall back, writes never touch it) (Plan 005) |
+| `state/dm-proactive-state.json` | DM-proactive v4 (Plan 017): `{version:4, agents:{<agentId>:{sentIds,byKind,budget}}}` — budget now per-agent (was flat cross-agent); v3 flat `scopes` migrate on load, CLI reads per-agent bucket first with flat fallback |
 | `state/dm-proactive.jsonl` | DM-proactive shadow/live log v2 (14-day retention, outcome backfill) |
-| `state/mood/<agentId>/<sessionKey>.json` | Mood layer: per-DM-session valence/energy state (Plan 570) |
+| `state/mood/<agentId>/<sessionKey>.json` | Mood layer: per-session valence/energy state (DM sessions always; group sessions when `mood.groupsEnabled:true`) (Plan 570/030) |
 
 One file is read (never written) from OUTSIDE the plugin dir:
 | Path | Purpose |
@@ -140,3 +157,19 @@ all live-verified 2026-09-04:
 
 No secrets or credentials. The plugin uses the host's built-in LLM exclusively.
 No API keys, no tokens.
+
+## Wave-2 rollout notes (Plans 009–032)
+
+- All new feature flags are **default OFF** (`personStore`, `schemaV2`,
+  `threads.enabled`, `decide.v2Contract`, `mood.groupsEnabled`,
+  `proactive.triggers.returnGreeting`, `proactive.triggers.threadCallback`,
+  `selfVoice.enabled`). Flipping any of them is a deliberate operator step.
+- Recommended live-flip order after review: `personStore` (with a state
+  backup — migration moves files, never deletes) → `schemaV2` →
+  `threads.enabled` (one group, 7-day decide-quality review) → the proactive
+  trigger flags (shadow-first per the Plan-006 checklist) → `decide.v2Contract`
+  (after a decide-eval run).
+- Follow-up plan slots reserved: **033** self-voice command wiring
+  (plan 031's report), **034** media caption build (plan 025's report),
+  **035** native reactions (plan 032's report — reactions are a host
+  message-action, NOT plugin-SDK reachable; model-routed path proposed).

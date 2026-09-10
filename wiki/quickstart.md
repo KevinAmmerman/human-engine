@@ -15,7 +15,13 @@ built-in LLM with no cloud dependencies.
 
 ## What this repository does
 
-- Decides when the agent should speak or stay silent (turn-taking gate).
+- Decides when the agent should speak or stay silent (turn-taking gate). The
+  decide is register-aware (full persona incl. voice card, Plan 028), receives
+  compact person memory before the verdict (Plan 021), an absence/open-thread
+  context line (Plan 022, `threads.enabled`), a room-energy line (Plan 030,
+  `mood.groupsEnabled`), and an opt-in JSON contract with audit reasons
+  (Plan 024, `decide.v2Contract`). Verdict parsing tolerates model noise
+  (fences/JSON/prose, Plan 016).
 - Naturalizes multi-bubble replies with human-like timing — groups by default;
   DMs can opt out via `naturalize.disableDM: true` (DM replies then deliver as
   one raw message, no split/timing — Plan 587; own-reply persistence still runs).
@@ -24,7 +30,14 @@ built-in LLM with no cloud dependencies.
   to text-only on host reject); DM path untouched (Plan 548b, commit `fcee7b5`).
 - Maintains per-agent persona prompts with soul auto-enhance.
 - Learns a voice card (communication-style profile) per session.
-- Extracts and recalls person-centric social memory on cadence.
+- Extracts and recalls person-centric social memory on cadence. Memory is
+  optionally per-HUMAN cross-session (`socialMemory.personStore`, Plan 019 —
+  one profile per agent, legacy session files migrate into
+  `legacy-sessions/`), and optionally carries relationship texture:
+  `relationship`, `open_threads`, `emotional_state` (`socialMemory.schemaV2`,
+  Plan 020). Recall renders texture (Plan 021) and a bounded compact recall
+  feeds the decide prompt. Ingest dedupes hook refires (Plan 011) so the
+  extract cadence counts REAL messages.
 - Persists silenced messages to a plugin-local observed store
   (`state/observed/`) and layers them into the decide transcript —
   including the agent's own replies (restart-surviving self-context).
@@ -36,7 +49,10 @@ built-in LLM with no cloud dependencies.
   WhatsApp @-mention (lid/phone via contacts), and quote-reply to the
   agent's own message (`path=reply`).
 - Strips leaked model monologue (meta-commentary) before delivery
-  (`stripMetaCommentary`) on both the humanize and raw-fallback paths.
+  (`stripMetaCommentary`) on both the humanize and raw-fallback paths, plus a
+  runtime tell backstop (`sanitizeTells`, Plan 027): mechanical tells
+  (em-dash/markdown/lists/headers) are sanitized per draft AND per bubble,
+  fail-open; semantic tells are logged only.
 - Detects pure-commentary output (model returned only reasoning, no reply)
   and regenerates a real reply once; suppresses instead of leaking commentary
   if regeneration fails.
@@ -75,7 +91,9 @@ built-in LLM with no cloud dependencies.
 | `bin/followup-gate.mjs` | CLI layer-1 pre-send check for the followup-cron; agent-aware (`isScopedDmAgent`, per-agent sentIds) |
 | `lib/config.js` | Config resolution + `agentProfiles` per-agent overlay (`resolveAgentConfig`, Plan 002) + `dmProactiveAgents`/`isScopedDmAgent` (Plan 005) |
 | `lib/voice-card.js` | Communication-style profile learning; per-agent cache buckets, disk format v2 with migration (Plan 004) |
-| `lib/social-memory.js` | Person-centric fact extraction and recall; per-agent × session profiles |
+| `lib/social-memory.js` | Person-centric fact extraction and recall; per-agent × session profiles, optional per-human person store (Plan 019) + schemaV2 texture (Plan 020) + recallCompact (Plan 021) |
+| `lib/threads.js` | Persisted open-topic/absence state per scope + decide context line + rebuild from observed store (Plan 022, `threads.enabled`) |
+| `lib/self-voice.js` | Self-voice prototype: extract the agent's OWN voice from own observed replies, preview/accept/reset behind `selfVoice.enabled` (Plan 031; persona wiring is follow-up 033) |
 | `lib/timing-engine.js` | Human-typing timing calculation |
 | `lib/persona.js` | Persona prompt building (soul + voice-card), per-path soul cache |
 | `lib/state.js` | In-memory ephemeral state (Maps with size caps) |
@@ -90,7 +108,7 @@ built-in LLM with no cloud dependencies.
 - [Build, test, lint](./operations/build-test-lint.md)
 - [Environment](./operations/environment.md)
 - [Source map](./source-map.md)
-- [Plans](./plans.md) — improve-skill wave index (001–008, multi-tenancy)
+- [Plans](./plans.md) — improve-skill wave index (001–008 multi-tenancy, 009–032 wave 2, all DONE; follow-up slots 033–035 reserved)
 - Design: [conversational time](./design/conversational-time.md),
   [meaningful absence](./design/meaningful-absence.md),
   [social memory v2](./design/social-memory-v2.md),
@@ -167,7 +185,8 @@ built-in LLM with no cloud dependencies.
 - Tests use inline fakes plus `test/helpers/sdk-hook-ctx.js` for SDK-shaped
   hook contexts (no shared fake-api helper).
 - Parity matrix at `test/parity-matrix.mjs` is the behavioral contract — must
-  stay 46/46 before any release.
+  stay fully covered (77/77; two rows are tagged `kind:"static"` — review
+  recommended, not a contract) before any release.
 
 ## Source map
 

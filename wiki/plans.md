@@ -1,35 +1,35 @@
 # Plans
 
-Improve-skill wave: **Multi-Tenancy** (generated 2026-09-09, executed same
-day). Goal: add agents and WhatsApp groups/channels declaratively — own
-personality, own contacts, own social cards, own budgets, everything
-isolated per agent and per channel. All plans executed via executor
-subagents and advisor-reviewed; wave merged to main and deployed.
+Improve-skill waves, all executed via executor subagents and advisor-reviewed.
 
-## Execution order & status
+## Wave 1: Multi-Tenancy (2026-09-09, Plans 001–008, all DONE)
 
-| Plan | Title | Priority | Effort | Depends on | Status |
-|------|-------|----------|--------|------------|--------|
-| [001](../plans/001-canonical-scope-parser.md) | Kanonischer Session-Scope-Parser (`lib/scope.js`) | P1 | M | — | DONE |
-| [002](../plans/002-agent-profiles-config.md) | Per-Agent-Config-Profile (`agentProfiles` + Resolver + Schema) | P1 | M | 001 | DONE |
-| [003](../plans/003-per-agent-identity.md) | Identity-Consumer pro Agent (Name/Aliases/Contacts/Soul/Self-Filter) | P1 | L | 001, 002 | DONE |
-| [004](../plans/004-social-cards-per-agent.md) | Social Cards pro Agent (Voice-Card-Cache v2, per-agent Eviction) | P1 | M | 002, 003 | DONE |
-| [005](../plans/005-proactive-tenancy.md) | Proactive/DM-Proactive-State pro Agent + `dmProactive.agents` + DayFit-Pfad | P1 | L | 001, 002, 003 | DONE |
-| [006](../plans/006-onboarding-hardening.md) | Onboarding-Runbook + Autoconfig-Validierung + Vertrags-Matrix + Rollout-Checkliste | P2 | M | 001–005 | DONE |
-| [007](../plans/007-fallback-filter-agent-run-failed.md) | Fallback-Filter: „⚠️ Agent run failed" nie capturen (Prod-Incident) | P1 | S | — | DONE |
-| [008](../plans/008-llm-caller-agentid.md) | `agentId` an alle llm.complete-Calls (korrektes Routing/Audit) | P2 | M | 001/003 | DONE |
+Goal: add agents and WhatsApp groups/channels declaratively — own personality,
+own contacts, own social cards, own budgets, everything isolated per agent
+and per channel. See `../plans/README.md` (wave-1 table) for per-plan status
+and test/parity numbers.
 
-Status breakdown: 8 DONE, 0 TODO, 0 BLOCKED.
+## Wave 2: Deep-Audit Verständnis / Social Memory / Persönlichkeit (2026-09-10, Plans 009–032, all DONE)
 
-## Notes
+24 plans across four waves, merged to main and deployed (gateway restarted
+2026-09-10, plugin load verified, zero human-engine errors):
 
-- Test growth across the wave: 915 → 921 pass (plus E2E anchors:
-  multi-agent pipeline, social-card isolation, proactive tenancy,
-  onboarding, agent-run-failed suppression).
-- Parity matrix: 51 → 56 rows (rows 52–56 are the multi-tenancy contract).
-- Known host-side issue NOT covered here: agent runs can fail with
-  „Session transcript keyed user is outside the current turn" (OpenClaw
-  core; pre-dates the wave). The plugin handles the failure safely since
-  Plan 007 (silent no-reply instead of leaking error text).
-- Onboarding for the next agent/group: see
-  [operations/onboarding-multi-tenant.md](./operations/onboarding-multi-tenant.md).
+| Wave | Plans | Kern |
+|------|-------|------|
+| A — Foundation | 009–018 | Speaker-aware Transcript-Dedup, Untrusted-Wrapping komplett, Ingest-Kadenz, Log-Redaction + Perms 0700, Observed-Tail-Read, Scope-Disziplin (parseAgentScope), Version-Sync 0.4.2 + openThread-Stub entfernt, Decide-Parse robust, DM-Budget per Agent (v4), Test-Härtung (TTS-Retry, onSilence-E2E, Parity `kind`) |
+| B — Social Memory | 019–021 | Person-Store (Memory pro MENSCH, cross-session, Migration), schemaV2 (relationship/open_threads/emotional_state), Recall-Textur + Memory-in-Decide + unified memoryReference |
+| C — Threads & Verständnis | 022–025 | Thread-State (meaningful absence, Decide-Injection, Rebuild), return_greeting + thread_callback Trigger (shadow-first), Decide-Contract v2 (JSON reason/addressed_to), Media-Caption Spike (Report: Media-Facts ohne caption-Feld) |
+| D — Persönlichkeit | 026–032 | Timing-CTX-Felder + Style-Selbstfilter, sanitizeTells-Runtime-Backstop, Voice-Card-in-Decide, Sprach-Packs (de byte-identisch), Mood-Decay persistiert + Gruppen-Mood (flagged), Self-Voice-Spike (Prototyp config-off), Native-Reaktions-Spike (Report) |
+
+Full per-plan status with test/parity numbers: `../plans/README.md`.
+Spike reports: `../plans/025-media-caption-spike-report.md`,
+`../plans/031-self-voice-spike-report.md`,
+`../plans/032-native-reactions-spike-report.md`.
+
+## Reserved follow-up slots
+
+- **033** — self-voice command wiring (accept/reset) + persona rendering
+  (plan 031's report)
+- **034** — media caption build: caption-in-body path (plan 025's report)
+- **035** — native reactions via model-routed message-action (plan 032's
+  report; reactions are NOT plugin-SDK reachable)
