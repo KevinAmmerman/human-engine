@@ -128,14 +128,16 @@ describe("gate", () => {
       assert.equal(state.senderBySession.get(CHAT_SK), "Nico");
     });
 
-    it("plan 035: captures the quoted-message id (ctx.replyToId) into the reply context entry", () => {
+    it("plan 035/616: captures the inbound member-message id (ctx.messageId), not the quoted id, as the reply target", () => {
       gate.onMessageReceived(
         { text: "danke!" },
-        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001", replyToId: "quoted-msg-999" }),
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001", replyToId: "quoted-msg-999", messageId: "inbound-msg-123" }),
       );
       const entry = (state.replyContextQueue.get(CHAT_SK + "|user-1") || [])[0];
       assert.ok(entry, "reply context entry captured");
-      assert.equal(entry.msgId, "quoted-msg-999", "quoted-message id wins (ctx.replyToId)");
+      // Outbound anchor (plan 616): the reply must quote the INBOUND member
+      // message, not the message the member quoted (which may be the agent's own).
+      assert.equal(entry.msgId, "inbound-msg-123", "inbound id wins over the quoted id");
     });
 
     it("plan 035: falls back to the inbound message id (ctx.messageId) when not a quote-reply", () => {
@@ -1072,6 +1074,40 @@ describe("gate", () => {
       assert.ok(entry, "reply target persisted on speak");
       assert.equal(entry.replyToAgent, true);
       assert.equal(entry.replyToId, "quoted-msg-777", "replyToId = quoted-message id");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("plan 616: when a member quotes the agent's own message, the reply anchors to the member's inbound message, not the quoted (own) id", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-replytarget-anchor-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
+
+      const anchorGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      // Member quotes the AGENT's own message (replyToSender = the agent's own
+      // contact, so replyToAgent=true) and sends it as a NEW inbound message.
+      anchorGate.onMessageReceived(
+        { text: "danke!" },
+        makeDefaultCtx({
+          senderId: "user-1",
+          replyToSender: "81000000000001",
+          replyToBody: "Ja, gut",
+          replyToId: "agent-own-msg-id",
+          messageId: "member-msg-id",
+        }),
+      );
+      await anchorGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx({ senderId: "user-1" }));
+      const entry = state.replyTargetBySession.get(CHAT_SK);
+      assert.ok(entry, "reply target persisted on speak");
+      assert.equal(entry.replyToAgent, true, "member quoted the agent's own message");
+      // Outbound anchor must be the member's inbound message, NOT the agent's own.
+      assert.equal(entry.replyToId, "member-msg-id", "replyToId anchors to the inbound member message, not the agent's own");
+      assert.notEqual(entry.replyToId, "agent-own-msg-id", "must never quote the agent's own message");
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
