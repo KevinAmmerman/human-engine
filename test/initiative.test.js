@@ -256,10 +256,13 @@ describe("initiative", { concurrency: false }, () => {
 
   it("evaluateInitiative: every gate reason individually", () => {
     const ini = makeCfg().initiative;
+    // 2026-09-10T12:00:00Z = 14:00 Berlin — safely inside active 08:00-22:00,
+    // outside quiet 22:00-07:00, independent of host wall clock.
+    const SAFE_NOW = Date.parse("2026-09-10T12:00:00Z");
     const baseCtx = {
       enabled: true,
       scopeAllowed: true,
-      now: Date.now(),
+      now: SAFE_NOW,
       ini,
       actsToday: 0,
       lastActAt: 0,
@@ -277,8 +280,9 @@ describe("initiative", { concurrency: false }, () => {
     // wrong scope
     g = evaluateInitiative(open, { ...baseCtx, scopeAllowed: false });
     assert.ok(g.reasons.includes("scope"));
-    // active-hours (now outside default 08:00-22:00 → craft now at night)
-    const night = new Date("2026-09-10T23:00:00").getTime();
+    // active-hours (now outside default 08:00-22:00 → craft now at night;
+    // 21:00Z = 23:00 Berlin regardless of host TZ)
+    const night = Date.parse("2026-09-10T21:00:00Z");
     g = evaluateInitiative(open, { ...baseCtx, now: night });
     assert.ok(g.reasons.includes("active-hours"), `got ${g.reasons}`);
     // quiet-hours (night falls in quietStart 22:00..07:00)
@@ -288,16 +292,16 @@ describe("initiative", { concurrency: false }, () => {
     g = evaluateInitiative(open, { ...baseCtx, actsToday: 2 });
     assert.ok(g.reasons.includes("budget"));
     // min-gap
-    g = evaluateInitiative(open, { ...baseCtx, lastActAt: Date.now() - 10 * 60000 });
+    g = evaluateInitiative(open, { ...baseCtx, lastActAt: SAFE_NOW - 10 * 60000 });
     assert.ok(g.reasons.includes("min-gap"));
     // hot-room
-    g = evaluateInitiative(open, { ...baseCtx, lastHumanAt: Date.now() - 1000 });
+    g = evaluateInitiative(open, { ...baseCtx, lastHumanAt: SAFE_NOW - 1000 });
     assert.ok(g.reasons.includes("hot-room"));
     // after-speak
-    g = evaluateInitiative(open, { ...baseCtx, agentLastSpeakTs: Date.now() - 1000 });
+    g = evaluateInitiative(open, { ...baseCtx, agentLastSpeakTs: SAFE_NOW - 1000 });
     assert.ok(g.reasons.includes("after-speak"));
     // cooldown
-    g = evaluateInitiative(open, { ...baseCtx, cooldownUntil: Date.now() + 600000 });
+    g = evaluateInitiative(open, { ...baseCtx, cooldownUntil: SAFE_NOW + 600000 });
     assert.ok(g.reasons.includes("cooldown"));
     // task-closed
     g = evaluateInitiative({ status: "done" }, baseCtx);
@@ -580,7 +584,9 @@ describe("initiative", { concurrency: false }, () => {
   it("gate: cross-budget reason fires when crossLastOutboundAt recent, not when old/absent", () => {
     const ini = makeCfg().initiative;
     const open = { status: "open" };
-    const now = Date.now();
+    // 2026-09-10T12:00:00Z = 14:00 Berlin — safely inside active 08:00-22:00,
+    // outside quiet 22:00-07:00, independent of host wall clock.
+    const now = Date.parse("2026-09-10T12:00:00Z");
     const base = { enabled: true, scopeAllowed: true, now, ini, actsToday: 0, lastActAt: 0, lastHumanAt: 0, cooldownUntil: 0, agentLastSpeakTs: 0, ignoreStreak: 0, rng: () => 0.0 };
     // recent cross outbound → cross-budget
     const recent = evaluateInitiative(open, { ...base, crossLastOutboundAt: now - 1000 });
