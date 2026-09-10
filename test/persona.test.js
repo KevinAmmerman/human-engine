@@ -3,7 +3,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { buildPersonaPrompt, buildPersonaPromptWithMemory, setVoiceCardGetter } from "../lib/persona.js";
+import { buildPersonaPrompt, buildPersonaPromptWithMemory, setVoiceCardGetter, setSelfVoiceGetter } from "../lib/persona.js";
 import { transcriptPeekBySession } from "../lib/state.js";
 import { ANTI_TELL_BLOCK } from "../lib/anti-tell.js";
 
@@ -11,6 +11,7 @@ describe("persona", () => {
   beforeEach(() => {
     transcriptPeekBySession.clear();
     setVoiceCardGetter(null);
+    setSelfVoiceGetter(null);
   });
 
   describe("buildPersonaPrompt", () => {
@@ -106,6 +107,46 @@ describe("persona", () => {
       const soulPath = "/nonexistent";
       const result = buildPersonaPrompt({ soulPath, antiTell: false, styleStats: false }, "sk-soul");
       assert.equal(result, null);
+    });
+
+    it("self-voice renders between soul and the group voice card, wrapped", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "soul-selfvoice-"));
+      const soulPath = path.join(tmpDir, "S.md");
+      fs.writeFileSync(soulPath, "I am Yuki.\n");
+      setVoiceCardGetter(() => "# GROUP CARD");
+      setSelfVoiceGetter((agentId) => {
+        assert.equal(agentId, "agent-x");
+        return "# MY OWN VOICE CARD";
+      });
+      const result = buildPersonaPrompt({ soulPath, antiTell: false, styleStats: false }, "sk-sv", "agent-x");
+      assert.ok(result.includes("# MY OWN VOICE CARD"), "self-voice card present");
+      assert.ok(result.includes("# GROUP CARD"), "group voice card present");
+      const soulIdx = result.indexOf("I am Yuki.");
+      const selfIdx = result.indexOf("# MY OWN VOICE CARD");
+      const groupIdx = result.indexOf("# GROUP CARD");
+      assert.ok(soulIdx < selfIdx && selfIdx < groupIdx, "self-voice sits between soul and group card");
+      assert.ok(result.includes("<<<GROUP CHAT LOG (untrusted)>>>"), "self-voice wrapped");
+      assert.ok(result.includes("<<<END GROUP CHAT LOG>>>"), "self-voice wrapped");
+      assert.ok(result.includes("Your own voice (keep it consistent):"), "self-voice section labelled");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("self-voice getter receives the agentId (per-agent, not per-session)", () => {
+      let seen;
+      setSelfVoiceGetter((agentId) => { seen = agentId; return "# SV"; });
+      buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "sk-5", "agent-sv");
+      assert.equal(seen, "agent-sv");
+    });
+
+    it("self-voice inactive (null) renders no section", () => {
+      setSelfVoiceGetter(() => null);
+      const result = buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "sk-6");
+      assert.ok(!result || !result.includes("Your own voice"), "no self-voice section when inactive");
+    });
+
+    it("self-voice getter unset renders no section", () => {
+      const result = buildPersonaPrompt({ soulPath: "/nonexistent", antiTell: false, styleStats: false }, "sk-7");
+      assert.ok(!result || !result.includes("Your own voice"), "no self-voice section when getter unset");
     });
 
     it("returns null with no soul, no voice card, anti-tell disabled, and small sample", () => {
