@@ -25,6 +25,7 @@
             "soulPath": { "type": "string" },
             "soulAutoEnhance": { "type": "boolean" },
             "socialLearning": { "type": "object" },
+            "selfVoice": { "type": "object" },
             "socialMemory": { "type": "object" },
             "proactive": { "type": "object" },
             "dmProactive": { "type": "object" },
@@ -46,6 +47,16 @@
       "soulAutoEnhance": { "type": "boolean", "default": true },
       "antiTell": { "type": "boolean", "default": true },
       "styleStats": { "type": "boolean", "default": true },
+      "selfVoice": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "refreshMinutes": { "type": "number", "default": 60 },
+          "minVolume": { "type": "number", "default": 30 }
+        },
+        "default": {}
+      },
       "socialLearning": {
         "type": "object",
         "additionalProperties": false,
