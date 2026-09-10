@@ -158,18 +158,27 @@ all live-verified 2026-09-04:
 No secrets or credentials. The plugin uses the host's built-in LLM exclusively.
 No API keys, no tokens.
 
-## Wave-2 rollout notes (Plans 009–032)
+## Wave-2 rollout notes (Plans 009–032 + 033–035)
 
-- All new feature flags are **default OFF** (`personStore`, `schemaV2`,
-  `threads.enabled`, `decide.v2Contract`, `mood.groupsEnabled`,
-  `proactive.triggers.returnGreeting`, `proactive.triggers.threadCallback`,
-  `selfVoice.enabled`). Flipping any of them is a deliberate operator step.
-- Recommended live-flip order after review: `personStore` (with a state
-  backup — migration moves files, never deletes) → `schemaV2` →
-  `threads.enabled` (one group, 7-day decide-quality review) → the proactive
-  trigger flags (shadow-first per the Plan-006 checklist) → `decide.v2Contract`
-  (after a decide-eval run).
-- Follow-up plan slots reserved: **033** self-voice command wiring
-  (plan 031's report), **034** media caption build (plan 025's report),
-  **035** native reactions (plan 032's report — reactions are a host
-  message-action, NOT plugin-SDK reachable; model-routed path proposed).
+**LIVE STATUS (2026-09-10, Operator-Aktivierung):** alle Verständnis-/Memory-
+/Persönlichkeits-Flags sind AKTIV: `personStore: true`, `schemaV2: true`,
+`threads.enabled: true`, `decide.v2Contract: true`,
+`mood.groupsEnabled: true`, `selfVoice.enabled: true`,
+`proactive.triggers.returnGreeting/threadCallback: true` (alle 8 Trigger-
+Keys explizit gesetzt — One-Level-Merge). Backups:
+`~/backups/openclaw.json.bak-wave2-activation-*` +
+`~/backups/human-engine-state-social-memory-*.tar.gz`.
+
+- Person-Store-Migration läuft LAZY beim ersten Profil-Zugriff je Agent
+  (Ingest/Recall nach Traffic); Legacy-Dateien wandern nach
+  `legacy-sessions/`, nichts wird gelöscht.
+- Self-Voice: Extract startet ab ≥30 eigenen Zeilen je Agent; die Karte wird
+  erst nach Owner-ACCEPT aktiv (`/soul voice` → preview → `accept`).
+  Objektiv sichtbar: `selfVoiceLen=N` in der decide-ctx-Logzeile.
+- Decide-Gründe: mit `v2Contract` zeigt die claim-Logzeile
+  `reason=… addressed=…` je Entscheidung (Token-Fallback = Modell-Regression-
+  Signal).
+- **Proaktive SENDS bleiben im Shadow** (`proactive.shadow: true`,
+  `dmProactive.shadow: true`) — return_greeting/thread_callback-Kandidaten
+  werden geloggt, nicht gesendet; die Shadow-Fenster sind die bestehenden
+  Owner-Gates (Q4-Kriterien).

@@ -185,7 +185,7 @@ built-in LLM with no cloud dependencies.
 - Tests use inline fakes plus `test/helpers/sdk-hook-ctx.js` for SDK-shaped
   hook contexts (no shared fake-api helper).
 - Parity matrix at `test/parity-matrix.mjs` is the behavioral contract — must
-  stay fully covered (77/77; two rows are tagged `kind:"static"` — review
+  stay fully covered (80/80; two rows are tagged `kind:"static"` — review
   recommended, not a contract) before any release.
 
 ## Source map

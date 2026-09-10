@@ -72,6 +72,9 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | [030](030-mood-expansion-groups.md) | Mood: Decay persistieren + Gruppen-Mood (flagged, shadow-first) | P2 | M | 026 ideal | DONE (executed+approved, 1084/0, Parity 77/77; Timing-Dosierung ±12 % verifiziert) |
 | [031](031-agent-self-voice-spike.md) | Self-Voice Spike (Design + Prototyp hinter Config-Off) | P2 | M | 026 | DONE (executed+approved, 1096/0, Parity 77/77; Prototyp config-off, keine index-Wiring; Follow-up-Slot 033) |
 | [032](032-native-reactions-spike.md) | Native-Reaktionen Spike (Fähigkeits-Report) | P3 | M | — | DONE (executed+approved; Report: Reaktionen = message-action, nicht Plugin-SDK-fähig → model-routed Pfad; Quote-Reply near-trivial via replyToId; Follow-up-Slot 035) |
+| [033](033-self-voice-wiring.md) | Self-Voice-Wiring: `/soul voice`-Governance + Persona-Render | P2 | M | 031 | DONE (executed+approved, 1112/0, Parity 78/78; Owner-accept-gated) |
+| [034](034-media-context.md) | Media-Kontext: Caption-in-Transcript + Capture-Gap-Fix + kind-gewichtete Lesezeit | P1 | S–M | 025-Report | DONE (executed+approved, 1115/0, Parity 79/79) |
+| [035](035-quote-reply-reactions.md) | Quote-Reply-Zustellung via replyToId + opt-in Reaktions-Hinweis | P2 | M | 032-Report | DONE (executed+approved, 1129/0, Parity 80/80; ctx.replyToId bevorzugt, ctx.messageId fallback) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
