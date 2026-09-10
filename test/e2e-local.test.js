@@ -361,7 +361,9 @@ describe("e2e-local", () => {
 
     function makeSoulPersona() {
       return {
-        buildPersonaPrompt(cfg, sk) { return "test persona"; },
+        buildPersonaPrompt(cfg, sk) {
+          try { return fs.readFileSync(cfg.soulPath, "utf8").trim(); } catch { return null; }
+        },
         buildPersonaPromptWithMemory() { return "test persona + memory"; },
         buildSoulPrompt(cfg) {
           try { return fs.readFileSync(cfg.soulPath, "utf8").trim(); } catch { return null; }
@@ -793,7 +795,9 @@ describe("e2e-local", () => {
 
     function makeSoulPersona() {
       return {
-        buildPersonaPrompt(cfg, sk) { return "test persona"; },
+        buildPersonaPrompt(cfg, sk) {
+          try { return fs.readFileSync(cfg.soulPath, "utf8").trim(); } catch { return null; }
+        },
         buildPersonaPromptWithMemory() { return "test persona + memory"; },
         buildSoulPrompt(cfg) {
           try { return fs.readFileSync(cfg.soulPath, "utf8").trim(); } catch { return null; }

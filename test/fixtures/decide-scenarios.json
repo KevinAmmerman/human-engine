@@ -753,6 +753,58 @@
       "expect": "speak",
       "deterministic": false,
       "rationale": "Message uses second-person address and continues the exchange with the agent; obviously directed at the agent despite no name/@mention (incident 2026-09-04 11:38)."
+    },
+    {
+      "name": "Casual group: playful banter stays silent (register-aware)",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "haha nice lol",
+      "agentName": "OpenClaw",
+      "messages": [
+        {
+          "text": "haha nice lol"
+        }
+      ],
+      "transcript": [
+        [
+          "Alice",
+          "did you see the new meme"
+        ],
+        [
+          "Bob",
+          "haha nice lol"
+        ]
+      ],
+      "expect": "stay_silent",
+      "deterministic": false,
+      "path": "llm",
+      "rationale": "Loose, emoji-lastig group: playful reaction between members; the agent's intervention threshold should be higher here, so it stays silent."
+    },
+    {
+      "name": "Formal group: substantive question to the room still warrants a response",
+      "isDM": false,
+      "hasMedia": false,
+      "prompt": "Können wir bitte die Agenda für den nächsten Termin finalisieren?",
+      "agentName": "OpenClaw",
+      "messages": [
+        {
+          "text": "Können wir bitte die Agenda für den nächsten Termin finalisieren?"
+        }
+      ],
+      "transcript": [
+        [
+          "Alice",
+          "Wir sollten die Meilensteine klären."
+        ],
+        [
+          "Bob",
+          "Können wir bitte die Agenda für den nächsten Termin finalisieren?"
+        ]
+      ],
+      "expect": "speak",
+      "deterministic": false,
+      "path": "llm",
+      "rationale": "Formal group: an open, substantive request is a natural intervention point for the agent even without a name mention."
     }
   ]
 }
