@@ -166,6 +166,8 @@ const MATRIX = [
     tags: ["plugin llm.complete calls carry allowAgentIdOverride (host LLM_COMPLETION_NOT_AUTHORIZED guard)"] },
   { id: 80, behavior: "quote replies deliver with replyToId on the first bubble (host maps it to WhatsApp quotedMessageKey); reaction capability hint is opt-in, model-routed, never plugin-sent",
     tags: ["plan 035: carries replyToId on the payload and keeps it on the text-only retry", "plan 035: first bubble carries replyToId, later bubbles do not", "plan 035: raw fallback delivery carries replyToId when a reply target id exists", "plan 035: captures the quoted-message id (ctx.replyToId) into the reply context entry", "plan 035: falls back to the inbound message id (ctx.messageId) when not a quote-reply", "plan 035: reply target carries replyToId from the quoted-message id on speak", "plan 035: reactions hint injected into appendSystemContext for a group when hintEnabled:true", "plan 035: reactions hint is never injected for DM sessions", "plan 035: reactions hint is absent by default (hintEnabled:false)"] },
+  { id: 82, behavior: "hot conversations compress bubble delivery timing; split must preserve draft facts (answer-first + mechanical fact-guard fallback)",
+    tags: ["hot-room timing compression", "hot newestAgeMs", "cold path byte-identical", "ANSWER FIRST:", "NEVER drop a fact the draft contains", "fact-guard fallback", "facts missing from bubbles", "guard must not fire", "guard never runs on raw-fallback"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

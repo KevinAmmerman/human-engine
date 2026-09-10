@@ -185,6 +185,14 @@ describe("local-prompts", () => {
       assert.ok(p.systemPrompt.includes("3"));
     });
 
+    it("P0 hotfix: split prompt carries the ANSWER FIRST fact-preservation rule", () => {
+      const p = buildSplitPrompt({ draft: "hi" });
+      assert.ok(p.systemPrompt.includes("ANSWER FIRST:"), "ANSWER FIRST rule present");
+      assert.ok(p.systemPrompt.includes("the FIRST bubbles carry it"), "answer-first placement rule");
+      assert.ok(p.systemPrompt.includes("NEVER drop a fact the draft contains"), "never-drop-fact rule");
+      assert.ok(p.systemPrompt.includes("every time, price and name in the draft must appear in the bubbles"), "full fact rule");
+    });
+
     it("carries the untrusted-data directive", () => {
       const p = buildSplitPrompt({ draft: "hi" });
       assert.ok(p.systemPrompt.includes(UNTRUSTED));

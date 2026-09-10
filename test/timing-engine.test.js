@@ -220,6 +220,75 @@ describe("timing-engine", () => {
     });
   });
 
+  describe("hot-room timing compression (P0 answer-delivery hotfix)", () => {
+    const HOT = 30_000;   // newest message < 3min → hot
+    const COLD = 600_000; // >= 180s → cold (today's behavior)
+
+    it("hot newestAgeMs (30s) yields significantly shorter first-bubble delays than cold (same RNG)", () => {
+      setRng(() => 0.5);
+      const bubbles = [{ content: "Das Restaurant ist ab 12 Uhr geöffnet." }];
+      const hot = scheduleForBubbles(bubbles, { isGroup: true, newestAgeMs: HOT }, { typingWpm: 40 });
+      const cold = scheduleForBubbles(bubbles, { isGroup: true, newestAgeMs: COLD }, { typingWpm: 40 });
+      assert.ok(hot[0].delayMs < cold[0].delayMs, `hot ${hot[0].delayMs} should be < cold ${cold[0].delayMs}`);
+      resetRng();
+    });
+
+    it("cold path (newestAgeMs null or 600000) is byte-identical to today's behavior", () => {
+      setRng(() => 0.5);
+      const bubbles = [{ content: "Hi" }, { content: "How are you?" }, { content: "Great!" }];
+      const noAge = scheduleForBubbles(bubbles, { isGroup: false }, { typingWpm: 40 });
+      const cold600 = scheduleForBubbles(bubbles, { isGroup: false, newestAgeMs: 600_000 }, { typingWpm: 40 });
+      const legacy = scheduleForBubbles(bubbles, { isGroup: false, newestAgeMs: null }, { typingWpm: 40 });
+      assert.deepEqual(cold600, noAge, "newestAgeMs=600000 matches no-newestAgeMs");
+      assert.deepEqual(legacy, noAge, "newestAgeMs=null matches no-newestAgeMs");
+      resetRng();
+    });
+
+    it("readingDelayMs applies the 0.35x hot factor and still clamps 2000-30000", () => {
+      setRng(() => 0.5);
+      const ctx = { isGroup: false, contentReadMs: 4000 };
+      const cold = readingDelayMs({ ...ctx, newestAgeMs: COLD });
+      const hot = readingDelayMs({ ...ctx, newestAgeMs: HOT });
+      assert.ok(hot < cold, `hot ${hot} should be < cold ${cold}`);
+      assert.ok(hot >= 2000 && hot <= 30000, `hot out of range: ${hot}`);
+      resetRng();
+    });
+
+    it("typingMs caps at 8000ms per bubble in a hot room", () => {
+      setRng(() => 0.99);
+      const long = "x".repeat(20000);
+      const hotTyping = typingMs(long, 40, { maxTypingMs: 60000 }, { newestAgeMs: HOT });
+      const coldTyping = typingMs(long, 40, { maxTypingMs: 60000 }, { newestAgeMs: COLD });
+      assert.ok(hotTyping <= 8000, `hot typing capped at 8000, got ${hotTyping}`);
+      assert.ok(coldTyping <= 60000, `cold typing keeps the 60000 default cap`);
+      resetRng();
+    });
+
+    it("per-bubble delays stay cumulative in a hot room", () => {
+      setRng(() => 0.5);
+      const bubbles = [
+        { content: "Um 15:00 Uhr." },
+        { content: "Der Eintritt kostet 12,50 €." },
+        { content: "Ja genau, dort." },
+      ];
+      const scheduled = scheduleForBubbles(bubbles, { isGroup: true, newestAgeMs: HOT }, { typingWpm: 40 });
+      assert.ok(scheduled[1].delayMs > scheduled[0].delayMs);
+      assert.ok(scheduled[2].delayMs > scheduled[1].delayMs);
+      resetRng();
+    });
+
+    it("hot thinkPause and bubbleGap scale down vs cold", () => {
+      setRng(() => 0.5);
+      const hotPause = thinkPauseMs({ newestAgeMs: HOT });
+      const coldPause = thinkPauseMs({ newestAgeMs: COLD });
+      assert.ok(hotPause <= coldPause, `hot pause ${hotPause} <= cold ${coldPause}`);
+      const hotGap = bubbleGapMs({}, { newestAgeMs: HOT });
+      const coldGap = bubbleGapMs({}, { newestAgeMs: COLD });
+      assert.ok(hotGap <= coldGap, `hot gap ${hotGap} <= cold ${coldGap}`);
+      resetRng();
+    });
+  });
+
   describe("variation across 1000 samples", () => {
     it("readingDelayMs stddev > 0", () => {
       setRng(deterministicRng(Array.from({ length: 2000 }, (_, i) => (i % 100) / 100)));
