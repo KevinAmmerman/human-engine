@@ -68,7 +68,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | [026](026-timing-ctx-fields-style-selffilter.md) | Timing-CTX (hourOfDay/wasAddressed) + Style-Selbstfilter | P1 | S–M | — | DONE (executed+approved, 986/0, Parity 67/67) |
 | [027](027-detect-tells-runtime-backstop.md) | detectTells-Runtime-Backstop (sanitize + log) | P2 | S–M | — | DONE (executed+approved, 999/0, Parity 68/68) |
 | [028](028-voice-card-in-decide.md) | Voice-Card in den Decide (Register-aware Gate) | P2 | S–M | 024 ideal, 026 | DONE (executed+approved, 1022/0, Parity 70/70; decide-eval 75/75, 2 neue casual/formal-Szenarien) |
-| [029](029-language-parameterization.md) | Sprach-Parameterisierung (language packs, de byte-identisch) | P2 | M | 024 ideal | TODO |
+| [029](029-language-parameterization.md) | Sprach-Parameterisierung (language packs, de byte-identisch) | P2 | M | 024 ideal | DONE (executed+approved, 1031/0, Parity 71/71; TODO(029) für mood-Note-Formatregel dokumentiert) |
 | [030](030-mood-expansion-groups.md) | Mood: Decay persistieren + Gruppen-Mood (flagged, shadow-first) | P2 | M | 026 ideal | TODO |
 | [031](031-agent-self-voice-spike.md) | Self-Voice Spike (Design + Prototyp hinter Config-Off) | P2 | M | 026 | TODO |
 | [032](032-native-reactions-spike.md) | Native-Reaktionen Spike (Fähigkeits-Report) | P3 | M | — | TODO |
