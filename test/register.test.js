@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mkdtempSync, statSync, mkdirSync } from "node:fs";
+import { mkdtempSync, statSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bubbleTimers } from "../lib/naturalize.js";
@@ -171,5 +171,77 @@ describe("register() from index.js", () => {
     } finally {
       process.env.HUMAN_ENGINE_STATE_DIR = prev;
     }
+  });
+
+  describe("/soul voice command (self-voice governance)", () => {
+    function registerWithVoice() {
+      const { api, commands } = makeFakeApi({ withLLM: false });
+      api.pluginConfig.selfVoice = { enabled: true, refreshMinutes: 60, minVolume: 3 };
+      pluginEntry.register(api);
+      return { api, commands };
+    }
+    function stateDir() {
+      return process.env.HUMAN_ENGINE_STATE_DIR;
+    }
+    function writeSelfVoiceState(agentId, { active = null, pending = null } = {}) {
+      const dir = join(stateDir(), "self-voice");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, agentId + ".json"),
+        JSON.stringify({ version: 1, activeCard: active, pendingCard: pending, updatedAt: Date.now() }),
+      );
+    }
+    function readSelfVoiceState(agentId) {
+      return JSON.parse(readFileSync(join(stateDir(), "self-voice", agentId + ".json"), "utf8"));
+    }
+
+    it("voice without pending/active returns a friendly empty-state text", async () => {
+      const { commands } = registerWithVoice();
+      const cmd = commands[0];
+      assert.equal(cmd.name, "soul");
+      const result = await cmd.handler({ agentId: "sv-agent", args: "voice" });
+      assert.ok(/no self-voice yet/i.test(result.text), "friendly empty state");
+    });
+
+    it("voice accept without pending returns a friendly noop text and does not write state", async () => {
+      const { commands } = registerWithVoice();
+      const result = await commands[0].handler({ agentId: "sv-nopend", args: "voice accept" });
+      assert.ok(/nothing to accept/i.test(result.text), "noop accept text");
+      const file = join(stateDir(), "self-voice", "sv-nopend.json");
+      const exists = (() => { try { readFileSync(file, "utf8"); return true; } catch { return false; } })();
+      assert.equal(exists, false, "noop accept must not create a state file");
+    });
+
+    it("voice accept with pending moves it to active and returns the N→M accept text", async () => {
+      writeSelfVoiceState("sv-accept", { active: "old card (18 chars)", pending: "brand new pending card" });
+      const { commands } = registerWithVoice();
+      const result = await commands[0].handler({ agentId: "sv-accept", args: "voice accept" });
+      assert.ok(/stimme \u00fcbernommen/i.test(result.text), "accept text present");
+      const state = readSelfVoiceState("sv-accept");
+      assert.equal(state.activeCard, "brand new pending card", "pending promoted to active");
+      assert.equal(state.pendingCard, null, "pending cleared");
+    });
+
+    it("voice reset clears active and returns a confirmation", async () => {
+      writeSelfVoiceState("sv-reset", { active: "some active card", pending: null });
+      const { commands } = registerWithVoice();
+      const result = await commands[0].handler({ agentId: "sv-reset", args: "voice reset" });
+      assert.ok(/self-voice reset/i.test(result.text), "reset confirmation");
+      const state = readSelfVoiceState("sv-reset");
+      assert.equal(state.activeCard, null, "active cleared after reset");
+      assert.equal(state.pendingCard, null, "pending cleared after reset");
+    });
+
+    it("voice reset without any voice returns a friendly noop", async () => {
+      const { commands } = registerWithVoice();
+      const result = await commands[0].handler({ agentId: "sv-novoice", args: "voice reset" });
+      assert.ok(/nothing to reset/i.test(result.text), "noop reset text");
+    });
+
+    it("enhance path stays byte-identical (non-voice subcommand forwards to enhance usage)", async () => {
+      const { commands } = registerWithVoice();
+      const result = await commands[0].handler({ agentId: "sv-agent", args: "garbage" });
+      assert.ok(/Usage: \/soul enhance/i.test(result.text), "unknown subcommand keeps enhance usage text");
+    });
   });
 });

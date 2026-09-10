@@ -596,6 +596,49 @@ describe("gate", () => {
       assert.equal(lines.filter((l) => l.includes("decide-ctx")).length, 0, "DM decide stays log-silent for decide-ctx");
     });
 
+    it("decide-ctx selfVoiceLen=0 when persona has no active self-voice card", async () => {
+      const lines = [];
+      const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
+      const ctxGate = makeGate({
+        log,
+        persona: { ...persona, snapshotFor: () => null },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      await ctxGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      const line = lines.find((l) => l.includes("decide-ctx"));
+      assert.ok(line, "decide-ctx log line present");
+      assert.ok(line.includes("selfVoiceLen=0"), "selfVoiceLen=0 when no active card");
+    });
+
+    it("decide-ctx selfVoiceLen>0 when persona exposes an active self-voice card", async () => {
+      const lines = [];
+      const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
+      const fakeCard = "Your own voice: keep it consistent, short, casual.";
+      const ctxGate = makeGate({
+        log,
+        persona: { ...persona, snapshotFor: () => fakeCard },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      await ctxGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      const line = lines.find((l) => l.includes("decide-ctx"));
+      assert.ok(line, "decide-ctx log line present");
+      assert.ok(line.includes(`selfVoiceLen=${fakeCard.length}`), "selfVoiceLen reflects the active card length");
+    });
+
+    it("decide-ctx selfVoiceLen stays 0 when persona.snapshotFor throws (fail-open)", async () => {
+      const lines = [];
+      const log = { info: (m) => lines.push(m), warn() {}, debug() {} };
+      const ctxGate = makeGate({
+        log,
+        persona: { ...persona, snapshotFor: () => { throw new Error("boom"); } },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      await ctxGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      const line = lines.find((l) => l.includes("decide-ctx"));
+      assert.ok(line, "decide-ctx log line present");
+      assert.ok(line.includes("selfVoiceLen=0"), "fail-open selfVoiceLen=0");
+    });
+
     it("handles speak decision (returns undefined, stashes epoch with timestamp)", async () => {
       const speakGate = makeGate({
         engine: { async decide() { return { decision: "speak", epoch: 42 }; } },

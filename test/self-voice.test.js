@@ -80,6 +80,43 @@ describe("self-voice", { concurrency: false }, () => {
     });
   });
 
+  describe("onOwnReply cadence", () => {
+    it("first call triggers a cadence-gated refresh off the hot path; second call within <refreshMinutes does not", async () => {
+      let extractCount = 0;
+      const engine = {
+        extractSelfVoice: async () => {
+          extractCount++;
+          return { prompt_block: "# V" };
+        },
+      };
+      const sv = createSelfVoice({ cfg: makeCfg(), engine, stateDir: tmpDir, observedStore: observed, log });
+      seedOwnReplies(5);
+
+      sv.onOwnReply("test-agent", SK);
+      assert.equal(extractCount, 0, "no synchronous extract on the hot path");
+      await new Promise((r) => setTimeout(r, 20));
+      assert.equal(extractCount, 1, "async refresh fired once after the first call");
+
+      sv.onOwnReply("test-agent", SK);
+      await new Promise((r) => setTimeout(r, 20));
+      assert.equal(extractCount, 1, "second call within refreshMinutes does not refresh again");
+    });
+
+    it("onOwnReply is a no-op when disabled", async () => {
+      const sv = createSelfVoice({
+        cfg: makeCfg({ selfVoice: { enabled: false, refreshMinutes: 60, minVolume: 3 } }),
+        engine: makeEngine("# Card"),
+        stateDir: tmpDir,
+        observedStore: observed,
+        log,
+      });
+      seedOwnReplies(5);
+      sv.onOwnReply("test-agent", SK);
+      await new Promise((r) => setTimeout(r, 20));
+      assert.ok(!fs.existsSync(path.join(tmpDir, "self-voice")), "no state file when disabled");
+    });
+  });
+
   describe("extract/preview/accept/reset loop", () => {
     it("below min volume → no learn, no state file", async () => {
       const sv = createSelfVoice({

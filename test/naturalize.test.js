@@ -134,6 +134,28 @@ describe("naturalize", () => {
   });
 
   describe("onReplyPayloadSending", () => {
+    it("triggers selfVoice.onOwnReply after persistOwnReply (off the hot path)", async () => {
+      let onOwnReplyCalled = 0;
+      let lastArgs = null;
+      const sv = {
+        onOwnReply: (agentId, sk) => { onOwnReplyCalled++; lastArgs = [agentId, sk]; },
+      };
+      const nat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(), selfVoice: sv,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      const result = nat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "own reply text" } },
+        makeDefaultCtx(),
+      );
+      assert.deepEqual(result, { cancel: true });
+      assert.equal(onOwnReplyCalled, 1, "onOwnReply called once per own reply");
+      assert.deepEqual(lastArgs, ["test-agent", CHAT_SK], "onOwnReply receives agentId + sessionKey");
+    });
+
     it("captures real reply text and cancels original payload", async () => {
       const dispatcher = makeDispatcher();
       armSpeakTurn(naturalize, dispatcher);
