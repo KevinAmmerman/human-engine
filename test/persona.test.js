@@ -48,6 +48,27 @@ describe("persona", () => {
       assert.equal(result, null);
     });
 
+    it("plan 026: excludes the agent's own lines from style stats", () => {
+      for (let i = 0; i < 10; i++) {
+        const arr = transcriptPeekBySession.get("sk-own") || [];
+        arr.push("[Nico] plain text");
+        transcriptPeekBySession.set("sk-own", arr);
+      }
+      for (let i = 0; i < 11; i++) {
+        const arr = transcriptPeekBySession.get("sk-own") || [];
+        arr.push("[Yuki] 😀 emoji here");
+        transcriptPeekBySession.set("sk-own", arr);
+      }
+      const result = buildPersonaPrompt(
+        { soulPath: "/nonexistent", antiTell: false, styleStats: true, agentName: "Yuki", agentAliases: ["Yuki-chan"] },
+        "sk-own",
+      );
+      assert.ok(result !== null);
+      assert.ok(result.includes("This group writes"));
+      assert.ok(result.includes("rarely uses emoji"), "own emoji lines must not shift the member emoji rate");
+      assert.ok(!result.includes("uses many emoji"), "own lines must not dominate the stats");
+    });
+
     it("includes both anti-tell and style constraints", () => {
       for (let i = 0; i < 12; i++) {
         const arr = transcriptPeekBySession.get("sk-both") || [];
