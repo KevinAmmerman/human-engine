@@ -594,6 +594,60 @@ describe("naturalize", () => {
       assert.equal(state.replyTargetBySession.has(CHAT_SK), false, "map entry drained even when stale");
     });
 
+    it("plan 035: first bubble carries replyToId, later bubbles do not", async () => {
+      const dispatcher = makeDispatcher();
+      const nat = createNaturalize({
+        cfg, state, engine: makeEngine(), persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.replyTargetBySession.set(CHAT_SK, {
+        quotedName: "Basti",
+        replyToAgent: false,
+        textHead: "was sagst du dazu",
+        replyToId: "quoted-msg-888",
+        ts: Date.now(),
+      });
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0]);
+      assert.equal(sent[0].text, "Bubble one");
+      assert.equal(sent[0].replyToId, "quoted-msg-888", "first bubble carries replyToId");
+      assert.equal(sent[1].text, "Bubble two");
+      assert.equal(sent[1].replyToId, undefined, "second bubble carries no replyToId");
+    });
+
+    it("plan 035: raw fallback delivery carries replyToId when a reply target id exists", async () => {
+      const dispatcher = makeDispatcher();
+      const supEngine = {
+        currentEpoch() { return 0; },
+        async respond() { return { superseded: true }; },
+      };
+      const nat = createNaturalize({
+        cfg, state, engine: supEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.replyTargetBySession.set(CHAT_SK, {
+        quotedName: "Basti",
+        replyToAgent: false,
+        textHead: "was sagst du dazu",
+        replyToId: "quoted-msg-999",
+        ts: Date.now(),
+      });
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "the draft" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      const sent = dispatcher.sendBlockReply.mock.calls[0].arguments[0];
+      assert.equal(sent.text, "the draft");
+      assert.equal(sent.replyToId, "quoted-msg-999", "raw fallback keeps the quote target id");
+    });
+
     it("epoch bump mid-delivery cancels remaining bubbles", async () => {
       let epochCounter = 0;
       const bumpEngine = {
@@ -1592,6 +1646,22 @@ describe("naturalize", () => {
       const ok = await deliverWithRetry(dispatcher, "antwort", null, log);
       assert.equal(ok, false);
       assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
+    });
+
+    it("plan 035: carries replyToId on the payload and keeps it on the text-only retry", async () => {
+      const calls = [];
+      const dispatcher = {
+        sendBlockReply: mock.fn((payload) => {
+          calls.push(payload);
+          return calls.length === 1 ? false : true;
+        }),
+      };
+      const log = { warn: mock.fn() };
+      const ok = await deliverWithRetry(dispatcher, "antwort", null, log, "quoted-msg-555");
+      assert.equal(ok, true);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2);
+      assert.equal(calls[0].replyToId, "quoted-msg-555", "first payload carries replyToId");
+      assert.equal(calls[1].replyToId, "quoted-msg-555", "text-only retry keeps replyToId");
     });
   });
 });

@@ -34,7 +34,8 @@
             "timing": { "type": "object" },
             "humanize": { "type": "object" },
             "decide": { "type": "object" },
-            "threads": { "type": "object" }
+            "threads": { "type": "object" },
+            "reactions": { "type": "object" }
           }
         },
         "default": {}
@@ -196,6 +197,14 @@
           "enabled": { "type": "boolean", "default": false },
           "absenceThresholdHours": { "type": "number", "default": 24 },
           "topicExpiryDays": { "type": "number", "default": 14 }
+        },
+        "default": {}
+      },
+      "reactions": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "hintEnabled": { "type": "boolean", "default": false }
         },
         "default": {}
       }

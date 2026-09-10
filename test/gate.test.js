@@ -127,6 +127,34 @@ describe("gate", () => {
       gate.onMessageReceived({ text: "hi" }, makeDefaultCtx());
       assert.equal(state.senderBySession.get(CHAT_SK), "Nico");
     });
+
+    it("plan 035: captures the quoted-message id (ctx.replyToId) into the reply context entry", () => {
+      gate.onMessageReceived(
+        { text: "danke!" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001", replyToId: "quoted-msg-999" }),
+      );
+      const entry = (state.replyContextQueue.get(CHAT_SK + "|user-1") || [])[0];
+      assert.ok(entry, "reply context entry captured");
+      assert.equal(entry.msgId, "quoted-msg-999", "quoted-message id wins (ctx.replyToId)");
+    });
+
+    it("plan 035: falls back to the inbound message id (ctx.messageId) when not a quote-reply", () => {
+      gate.onMessageReceived(
+        { text: "danke!" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001", messageId: "inbound-msg-123" }),
+      );
+      const entry = (state.replyContextQueue.get(CHAT_SK + "|user-1") || [])[0];
+      assert.equal(entry.msgId, "inbound-msg-123", "inbound id used when no quoted id present");
+    });
+
+    it("plan 035: leaves msgId empty when no id is derivable", () => {
+      gate.onMessageReceived(
+        { text: "danke!" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001" }),
+      );
+      const entry = (state.replyContextQueue.get(CHAT_SK + "|user-1") || [])[0];
+      assert.equal(entry.msgId, "", "no id → empty msgId");
+    });
   });
 
   describe("onBeforeAgentReply (gate decide + silence)", () => {
@@ -1023,6 +1051,52 @@ describe("gate", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
+    it("plan 035: reply target carries replyToId from the quoted-message id on speak", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-replytarget-id-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
+
+      const targetGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      targetGate.onMessageReceived(
+        { text: "danke!" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001", replyToBody: "Ja, gut", replyToId: "quoted-msg-777" }),
+      );
+      await targetGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx({ senderId: "user-1" }));
+      const entry = state.replyTargetBySession.get(CHAT_SK);
+      assert.ok(entry, "reply target persisted on speak");
+      assert.equal(entry.replyToAgent, true);
+      assert.equal(entry.replyToId, "quoted-msg-777", "replyToId = quoted-message id");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("plan 035: reply target replyToId is null when no id was captured", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-replytarget-noid-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(cFile, "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000002 | OpenClaw (Bot) | |\n");
+
+      const targetGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      targetGate.onMessageReceived(
+        { text: "danke!" },
+        makeDefaultCtx({ senderId: "user-1", replyToSender: "81000000000001", replyToBody: "Ja, gut" }),
+      );
+      await targetGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "danke!" }), makeDefaultCtx({ senderId: "user-1" }));
+      const entry = state.replyTargetBySession.get(CHAT_SK);
+      assert.equal(entry.replyToId, null, "no id → replyToId null");
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
     it("does not persist a reply target for plain chatter speak", async () => {
       const chatterGate = makeGate({
         engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
@@ -1610,6 +1684,38 @@ describe("gate", () => {
       state.memoryBySession.set(CHAT_SK, "mem");
       const scopedGate = makeGate({ cfg: { ...cfg, agents: ["other"] } });
       const result = scopedGate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.equal(result, undefined);
+    });
+
+    it("plan 035: reactions hint is absent by default (hintEnabled:false)", () => {
+      const result = gate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.equal(result, undefined, "no injection at all when hint disabled and nothing else to inject");
+      state.memoryBySession.set(CHAT_SK, "Alice: likes climbing");
+      const withMem = gate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.ok(withMem.appendSystemContext.includes("What you know about the people here"));
+      assert.ok(!withMem.appendSystemContext.includes("react action"), "no reaction hint when disabled");
+    });
+
+    it("plan 035: reactions hint injected into appendSystemContext for a group when hintEnabled:true", () => {
+      const hintGate = makeGate({ cfg: { ...cfg, reactions: { hintEnabled: true } } });
+      state.memoryBySession.set(CHAT_SK, "Alice: likes climbing");
+      const result = hintGate.onBeforePromptBuild({}, makeDefaultCtx());
+      assert.ok(result.appendSystemContext.includes("react action"), "hint present for group session");
+      assert.ok(result.appendSystemContext.includes("sparingly"), "hint bounded instruction present");
+    });
+
+    it("plan 035: reactions hint is never injected for DM sessions", () => {
+      const hintGate = makeGate({ cfg: { ...cfg, reactions: { hintEnabled: true } } });
+      const dmSk = "agent:test-agent:telegram:direct:120363000000001";
+      state.memoryBySession.set(dmSk, "mem");
+      const result = hintGate.onBeforePromptBuild({}, makeDefaultCtx({ sessionKey: dmSk }));
+      assert.ok(result.appendSystemContext.includes("What you know about the people here"));
+      assert.ok(!result.appendSystemContext.includes("react action"), "no hint in DM");
+    });
+
+    it("plan 035: reactions hint does not flip a decide-eval scenario (config stays off in base cfg)", () => {
+      // Base `cfg` in this suite has no reactions key → default false → never injected.
+      const result = gate.onBeforePromptBuild({}, makeDefaultCtx());
       assert.equal(result, undefined);
     });
   });

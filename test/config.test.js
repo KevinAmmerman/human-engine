@@ -28,6 +28,7 @@ describe("config", () => {
     assert.deepEqual(cfg.mood, { enabled: false, groupsEnabled: false, groupsRefreshEvery: 10, refreshEvery: 5, refreshMinutes: 0, decayHours: 6, maxShiftPerUpdate: 1 });
     assert.deepEqual(cfg.threads, { enabled: false, absenceThresholdHours: 24, topicExpiryDays: 14 });
     assert.deepEqual(cfg.selfVoice, { enabled: false, refreshMinutes: 60, minVolume: 30 });
+    assert.deepEqual(cfg.reactions, { hintEnabled: false }, "reactions default off");
   });
 
   it("resolveConfig merges with defaults", () => {
@@ -85,6 +86,16 @@ describe("config", () => {
     assert.equal(cfg.proactive.recognitionBudgetPerDay, 1);
     assert.equal(cfg.proactive.triggers.outcomeCelebration, true);
     assert.equal(cfg.proactive.triggers.checkInOnPromise, true);
+  });
+
+  it("resolveConfig deep-merges reactions and keeps sibling defaults", () => {
+    const cfg = resolveConfig({ pluginConfig: { reactions: { hintEnabled: true } } });
+    assert.equal(cfg.reactions.hintEnabled, true, "reactions.hintEnabled override wins");
+  });
+
+  it("resolveConfig keeps reactions default when not overridden", () => {
+    const cfg = resolveConfig({ pluginConfig: { agentName: "TestBot" } });
+    assert.deepEqual(cfg.reactions, { hintEnabled: false }, "reactions default survives unrelated override");
   });
 
   it("resolveConfig deep-merges dmProactive one level and keeps sibling defaults", () => {
