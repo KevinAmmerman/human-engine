@@ -1664,4 +1664,87 @@ describe("naturalize", () => {
       assert.equal(calls[1].replyToId, "quoted-msg-555", "text-only retry keeps replyToId");
     });
   });
+
+  describe("fact-guard backstop (P0 answer-delivery hotfix)", () => {
+    function captureRun(engine, payloadText, overCfg = {}) {
+      const logs = [];
+      const nat = createNaturalize({
+        cfg: { ...cfg, ...overCfg }, state, engine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: payloadText } }, makeDefaultCtx());
+      return { nat, dispatcher, logs };
+    }
+
+    it("drops 2 of 3 numeric facts → fact-guard falls back to the raw draft as one bubble, warn logged", async () => {
+      const dropEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          // Keeps 15:00, drops 12,50 € and 18 Uhr (2/3 missing)
+          return {
+            scheduled: [
+              { content: "Um 15:00 Uhr geöffnet.", position: 0, delayMs: 5 },
+              { content: "Ja genau!", position: 1, delayMs: 10 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const { dispatcher, logs } = captureRun(dropEngine, "Geöffnet 15:00 Uhr, Eintritt 12,50 €, schließt um 18 Uhr.");
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(logs.some((l) => l.includes("fact-guard fallback") && l.includes("(2/3 facts missing")), "warn logged with missing counts");
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1, "raw fallback delivered as a single bubble");
+      const sent = dispatcher.sendBlockReply.mock.calls[0].arguments[0].text;
+      assert.ok(sent.includes("15:00") && sent.includes("12,50") && sent.includes("18 Uhr"), "raw draft preserves all facts");
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("split keeps the facts → normal scheduled delivery, guard does not fire", async () => {
+      const keepEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return {
+            scheduled: [
+              { content: "Um 15:00 Uhr, 12,50 €, schließt 18 Uhr.", position: 0, delayMs: 5 },
+              { content: "Passt.", position: 1, delayMs: 10 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const { dispatcher, logs } = captureRun(keepEngine, "Geöffnet 15:00 Uhr, Eintritt 12,50 €, schließt um 18 Uhr.");
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(logs.some((l) => l.includes("fact-guard fallback")), false, "guard must not fire");
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 2, "bubbles delivered normally");
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+
+    it("raw-fallback path (respond superseded) never runs the fact-guard", async () => {
+      const supEngine = {
+        currentEpoch() { return 0; },
+        async respond() { return { superseded: true }; },
+      };
+      const { dispatcher, logs } = captureRun(supEngine, "Geöffnet 15:00 Uhr, Eintritt 12,50 €, schließt um 18 Uhr.");
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(logs.some((l) => l.includes("fact-guard fallback")), false, "guard never runs on raw-fallback");
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1, "raw draft delivered");
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "Geöffnet 15:00 Uhr, Eintritt 12,50 €, schließt um 18 Uhr.");
+    });
+
+    it("fewer than 2 numeric tokens in the draft → guard does not fire", async () => {
+      const dropEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return { scheduled: [{ content: "ok", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const { dispatcher, logs } = captureRun(dropEngine, "Hallo, alles gut.");
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(logs.some((l) => l.includes("fact-guard fallback")), false);
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+    });
+  });
 });
