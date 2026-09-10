@@ -240,7 +240,7 @@ describe("gate", () => {
       assert.equal(last.text, "[image]");
     });
 
-    it("media with caption keeps the caption as the transcript text", async () => {
+    it("media with caption carries marker+caption as the transcript text", async () => {
       let captured;
       const mediaGate = makeGate({
         engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
@@ -255,7 +255,7 @@ describe("gate", () => {
         makeDefaultCtx(),
       );
       const last = (captured.transcript || []).slice(-1)[0];
-      assert.equal(last.text, "nice send!", "caption text is preserved, not replaced by marker");
+      assert.equal(last.text, "[image] nice send!", "caption text is preserved with the media marker");
       assert.equal(captured.hasMedia, true);
     });
 
@@ -494,6 +494,24 @@ describe("gate", () => {
       assert.equal(appends[0].speaker, "Nico");
       assert.equal(appends[0].text, "Hello bot");
       assert.ok(typeof appends[0].ts === "number");
+    });
+
+    it("capture gap: silent media-only message persists with the marker to the observed store", async () => {
+      const appends = [];
+      const mediaGate = makeGate({
+        observedStore: {
+          readObserved: () => [],
+          appendObserved: (sk, row) => appends.push({ sk, ...row }),
+        },
+        engine: { async decide() { return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      mediaGate.onMessageReceived({ media: [{ kind: "image" }], content: "" }, makeDefaultCtx());
+
+      const result = await mediaGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "" }), makeDefaultCtx());
+      assert.deepEqual(result, { handled: true });
+      assert.equal(appends.length, 1, "media-only silence persists a row despite empty body");
+      assert.equal(appends[0].speaker, "Nico");
+      assert.equal(appends[0].text, "[image]", "observed row carries the media marker, not empty text");
     });
 
     it("own replies survive restart in decide context (fresh observed store reload)", async () => {

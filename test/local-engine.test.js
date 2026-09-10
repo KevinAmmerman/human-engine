@@ -661,6 +661,62 @@ describe("local-engine", () => {
       // respond passes hourOfDay from Date.now(); guard that the ctx contains it.
       assert.ok(day.scheduled[0].delayMs > 0);
     });
+
+    it("plan 034: estimateReadMs is kind-weighted from transcript markers", async () => {
+      const cases = [
+        { line: "[image]", expect: 2500 },
+        { line: "[sticker]", expect: 800 },
+        { line: "[video]", expect: 4000 },
+        { line: "[voice message]", expect: 1500 },
+        { line: "[audio]", expect: 1500 },
+        { line: "[document]", expect: 2000 },
+      ];
+      for (const c of cases) {
+        let capturedCtx;
+        const spyTiming = {
+          scheduleForBubbles(bubbles, ctx, timingCfg) {
+            capturedCtx = ctx;
+            return bubbles.map((b, i) => ({ content: b.content, position: i, delayMs: (i + 1) * 10 }));
+          },
+        };
+        const engine = createLocalEngine({
+          cfg: {},
+          llm: { complete: async () => ({ text: '{"messages": ["One"]}' }) },
+          timing: spyTiming,
+        });
+        await engine.respond({
+          sessionKey: "s-media-" + c.line, draft: "Hi", epoch: 1, isGroup: true,
+          triggerInfo: { wasAddressed: false, replyTarget: null },
+          transcript: [{ speaker: "Nico", text: c.line }],
+        });
+        assert.equal(capturedCtx.contentReadMs, c.expect, `kind ${c.line} → ${c.expect} ms`);
+      }
+    });
+
+    it("plan 034: estimateReadMs sums multiple markers and ignores non-media lines", async () => {
+      let capturedCtx;
+      const spyTiming = {
+        scheduleForBubbles(bubbles, ctx, timingCfg) {
+          capturedCtx = ctx;
+          return bubbles.map((b, i) => ({ content: b.content, position: i, delayMs: (i + 1) * 10 }));
+        },
+      };
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: '{"messages": ["One"]}' }) },
+        timing: spyTiming,
+      });
+      await engine.respond({
+        sessionKey: "s-media-sum", draft: "Hi", epoch: 1, isGroup: true,
+        triggerInfo: { wasAddressed: false, replyTarget: null },
+        transcript: [
+          { speaker: "Nico", text: "[image]" },
+          { speaker: "Nico", text: "[sticker]" },
+          { speaker: "Nico", text: "just text, no marker" },
+        ],
+      });
+      assert.equal(capturedCtx.contentReadMs, 2500 + 800, "image 2500 + sticker 800, text line ignored");
+    });
   });
 
   describe("plan 030: moodEnergy wiring", () => {
