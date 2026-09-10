@@ -1559,6 +1559,61 @@ describe("gate", () => {
     });
   });
 
+  describe("threads injection", () => {
+    it("decide receives threadContext from threads.contextFor when a line is active", async () => {
+      let captured;
+      const threads = {
+        contextFor() {
+          return "You last spoke here 2 days ago.\nA returning member briefly acknowledges the gap or picks up a thread — pick ONE, naturally.";
+        },
+        onActivity() {},
+        onSpeak() {},
+      };
+      const tGate = createGate({
+        cfg,
+        state,
+        engine: { async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; } },
+        persona,
+        socialMemory: makeSocialMemoryStub(),
+        threads,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      await tGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.ok(captured.threadContext, "threadContext passed to decide when active");
+      assert.ok(captured.threadContext.includes("pick ONE"), "thread context line content carried");
+    });
+
+    it("decide receives threadContext:null when threads.contextFor returns nothing", async () => {
+      let captured;
+      const threads = { contextFor() { return null; }, onActivity() {}, onSpeak() {} };
+      const tGate = createGate({
+        cfg,
+        state,
+        engine: { async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; } },
+        persona,
+        socialMemory: makeSocialMemoryStub(),
+        threads,
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      await tGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(captured.threadContext, null, "no threadContext when no condition");
+    });
+
+    it("threadContext is rendered by buildDecidePrompt between the untrusted delimiters", async () => {
+      const { buildDecidePrompt } = await import("../lib/local-prompts.js");
+      const out = buildDecidePrompt({
+        transcript: [],
+        agentName: "Yuki",
+        threadContext: "You last spoke here 2 days ago.\nOpen threads: foo.",
+        v2Contract: false,
+        language: "de",
+      });
+      assert.ok(out.systemPrompt.includes("<<<GROUP CHAT LOG (untrusted)>>>"), "thread context wrapped in untrusted log markers");
+      assert.ok(out.systemPrompt.includes("<<<END GROUP CHAT LOG>>>"), "thread context wrapped in closing marker");
+      assert.ok(out.systemPrompt.includes("You last spoke here 2 days ago."), "thread context content in system prompt");
+    });
+  });
+
   describe("socialMemory integration", () => {
     it("ingests on onMessageReceived for chat sessions", () => {
       const smStub = makeSocialMemoryStub();
