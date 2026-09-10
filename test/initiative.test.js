@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInitiative, evaluateInitiative } from "../lib/initiative.js";
+import { localDayKey as localDayKeyFor } from "../lib/proactive.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "initiative-test-"));
 
@@ -483,6 +484,97 @@ describe("initiative", { concurrency: false }, () => {
     assert.equal(decideCalls, decideAfterFirst, "second tick within throttle window does nothing");
     assert.equal(renderCalls, renderAfterFirst, "no render on throttled tick");
     assert.equal(readLogIn(dirT).length, 1, "still only one log entry");
+  });
+
+  it("transient gate failure does NOT consume the candidate; next tick acts", async () => {
+    const dir = mkdtemp(tmpDir, "retry-gate-");
+    const cfg = makeCfg({ shadow: true, everyMinutes: 10, firstNudgeMinutes: 0 });
+    const clock = makeClock();
+    let decideCalls = 0;
+    const llm = {
+      complete: async ({ purpose }) => {
+        if (purpose === "human-engine-initiative-extract") return { text: JSON.stringify({ tasks: [{ text: "retry task", kind: "task" }], directives: [], done: [], drop: [] }) };
+        if (purpose === "human-engine-initiative-decide") { decideCalls++; return { text: '{"decision":"ACT","reason":"due"}' }; }
+        return { text: "retry shadow" };
+      },
+    };
+    const i = createInitiative({ cfg, stateDir: dir, llm, runtime: { subagent: { run: async () => {} } }, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i.onMessageReceived({ text: "merk dir: retry task" }, groupCtx());
+    await waitForTaskInState(dir);
+
+    // Tick 1 at T0: hot-room blocks (now - lastHumanAt = 0 <= 15min). Must NOT
+    // consume the candidate (no decide spent, no shadow log).
+    await i.tick();
+    assert.equal(readLogIn(dir).length, 0, "hot-room blocked tick writes no log");
+    assert.equal(decideCalls, 0, "gate failure does not spend the decide call");
+
+    // Advance 20 min: hot-window (15) and everyMinutes throttle (10) both clear.
+    clock.t += 20 * 60 * 1000;
+    await i.tick();
+    assert.equal(decideCalls, 1, "candidate re-evaluated after reason cleared");
+    const log = readLogIn(dir);
+    assert.equal(log.length, 1, "second tick acts (shadow log written)");
+    assert.equal(log[0].decide.decision, "ACT");
+  });
+
+  it("gate-pass candidate consumed after gate pass: no re-evaluate same day", async () => {
+    const dir = mkdtemp(tmpDir, "consume-gate-");
+    const cfg = makeCfg({ shadow: true, everyMinutes: 10, firstNudgeMinutes: 0 });
+    const clock = makeClock();
+    let decideCalls = 0;
+    const llm = {
+      complete: async ({ purpose }) => {
+        if (purpose === "human-engine-initiative-extract") return { text: JSON.stringify({ tasks: [{ text: "consume task", kind: "task" }], directives: [], done: [], drop: [] }) };
+        if (purpose === "human-engine-initiative-decide") { decideCalls++; return { text: '{"decision":"ACT","reason":"due"}' }; }
+        return { text: "consume shadow" };
+      },
+    };
+    const i = createInitiative({ cfg, stateDir: dir, llm, runtime: { subagent: { run: async () => {} } }, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i.onMessageReceived({ text: "merk dir: consume task" }, groupCtx());
+    await waitForTaskInState(dir);
+    clock.t += 20 * 60 * 1000;
+
+    await i.tick();
+    assert.equal(decideCalls, 1, "first tick decides");
+    assert.equal(readLogIn(dir).length, 1, "one shadow log entry");
+
+    await i.tick();
+    assert.equal(decideCalls, 1, "candidate consumed after gate pass → no re-decide");
+    assert.equal(readLogIn(dir).length, 1, "still exactly one shadow log entry");
+  });
+
+  it("live mode caps stateObj.acts at ACTS_CAP (64)", async () => {
+    const dir = mkdtemp(tmpDir, "acts-cap-");
+    const cfg = makeCfg({ shadow: false, everyMinutes: 10, firstNudgeMinutes: 0 });
+    const clock = makeClock();
+    let sent = 0;
+    const runtime = { subagent: { run: async () => { sent++; } } };
+    const llm = {
+      complete: async ({ purpose }) => {
+        if (purpose === "human-engine-initiative-extract") return { text: JSON.stringify({ tasks: [{ text: "live task", kind: "task" }], directives: [], done: [], drop: [] }) };
+        if (purpose === "human-engine-initiative-decide") return { text: '{"decision":"ACT","reason":"due"}' };
+        return { text: "live message" };
+      },
+    };
+    const i = createInitiative({ cfg, stateDir: dir, llm, runtime, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i.onMessageReceived({ text: "merk dir: live task" }, groupCtx());
+    await waitForTaskInState(dir);
+
+    // Pre-fill 64 acts (same day, actsToday kept low so budget passes), then one
+    // live send appends a 65th → trimmed back to 64.
+    const st = i.__store.getOrInit(SCOPE, "test-agent");
+    st.acts = Array.from({ length: 64 }, (_, k) => ({ ts: clock.t, taskId: "t" + k, id: "c" + k, kind: "task" }));
+    st.actsToday = 0;
+    st.day = localDayKeyFor(clock.t);
+    i.__store.save(SCOPE, st);
+
+    clock.t += 20 * 60 * 1000;
+    await i.tick();
+
+    assert.equal(sent, 1, "live subagent.run called once");
+    const finalState = loadStateIn(dir);
+    assert.ok(Array.isArray(finalState.acts), "acts persisted");
+    assert.equal(finalState.acts.length, 64, "acts trimmed at ACTS_CAP (64)");
   });
 });
 
