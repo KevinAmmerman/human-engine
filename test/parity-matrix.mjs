@@ -132,6 +132,10 @@ const MATRIX = [
     tags: ["schemaV2:true merges relationship/open_threads/emotional_state with design caps", "schemaV2:true applies v1 caps", "schemaV2:true skips a self entry"] },
   { id: 64, behavior: "schemaV2 is default-off (v1 behavior preserved)",
     tags: ["schemaV2:false uses v1 prompt and v1 caps", "schemaV2:false with relationship/open_threads in LLM output keeps v1 shape"] },
+  { id: 65, behavior: "decide prompt receives compact person memory (wrapped, bounded) before the speak/silent decision",
+    tags: ["decide receives compact memoryContext for an ingested person", "decide receives null memoryContext for unknown sender", "decide memoryContext includes an explicitly mentioned third person", "renders memoryContext before the transcript between delimiters"] },
+  { id: 66, behavior: "recall renders schemaV2 relationship/threads/emotional texture (fresh-gated)",
+    tags: ["renders relationship/open_threads/emotional_state when schemaV2", "recall v2 drops emotional_state when older than 48h", "recallCompact applies harder caps"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

@@ -796,8 +796,100 @@ describe("social-memory", { concurrency: false }, () => {
     });
   });
 
-  describe("schema v2 (plan 020): extract+merge", () => {
-    it("schemaV2:true merges relationship/open_threads/emotional_state with design caps", async () => {
+  describe("recall v2 (plan 021): schemaV2 texture rendering", () => {
+    it("renders relationship/open_threads/emotional_state when schemaV2:true", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ schemaV2: true }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::recall-v2";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Kevin: {
+          facts: ["climbs"], preferences: ["bouldering"], situation: "cautious",
+          relationship: "climbing partner",
+          open_threads: [
+            { topic: "route plan", whoOwesWhat: "Kevin" },
+            { topic: "gear", whoOwesWhat: "Nico" },
+          ],
+          emotional_state: "excited", emotionalStateUpdatedAt: Date.now(),
+          lastSeenTs: 100, mentionCount: 5,
+        },
+      };
+      const result = sm.recall(scope, ["Kevin"]);
+      assert.ok(result.includes("relationship: climbing partner"), "relationship rendered");
+      assert.ok(result.includes("open: route plan (Kevin)"), "open thread rendered with whoOwesWhat");
+      assert.ok(result.includes("open: gear (Nico)"), "second open thread rendered");
+      assert.ok(result.includes("mood: excited"), "emotional_state rendered when fresh");
+      assert.ok(result.includes("Kevin: climbs"), "facts rendered");
+    });
+
+    it("recall v2 drops emotional_state when older than 48h", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ schemaV2: true }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::recall-v2-stale";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Kevin: {
+          facts: ["climbs"], preferences: [], situation: "",
+          relationship: "climbing partner",
+          emotional_state: "excited",
+          emotionalStateUpdatedAt: Date.now() - 49 * 3600 * 1000,
+          lastSeenTs: 100, mentionCount: 5,
+        },
+      };
+      const result = sm.recall(scope, ["Kevin"]);
+      assert.ok(!result.includes("mood:"), "stale emotional_state gated out");
+      assert.ok(result.includes("relationship: climbing partner"), "relationship still rendered");
+    });
+
+    it("recall v1 stays byte-identical when schemaV2:false (default)", () => {
+      sm = createSocialMemory({ cfg: makeCfg(), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::recall-v1";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Kevin: {
+          facts: ["climbs", "cautious", "loves bouldering"],
+          preferences: ["bouldering"],
+          situation: "has been climbing for years",
+          relationship: "climbing partner",
+          open_threads: [{ topic: "route" }],
+          emotional_state: "excited", emotionalStateUpdatedAt: Date.now(),
+          lastSeenTs: 100, mentionCount: 5,
+        },
+      };
+      const result = sm.recall(scope, ["Kevin"]);
+      assert.ok(result.includes("Kevin: climbs, cautious, loves bouldering"), "v1 facts (≤3) rendered");
+      assert.ok(result.includes("prefers bouldering"), "v1 prefs (≤2) rendered");
+      assert.ok(!result.includes("relationship:"), "v1 ignores relationship");
+      assert.ok(!result.includes("open:"), "v1 ignores open threads");
+      assert.ok(!result.includes("mood:"), "v1 ignores emotional_state");
+    });
+
+    it("recallCompact applies harder caps (facts ≤1, one thread) and char limit", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ schemaV2: true }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::compact";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Kevin: {
+          facts: ["climbs", "cautious", "loves bouldering"],
+          preferences: ["bouldering"],
+          situation: "long detailed situation string that keeps going",
+          relationship: "climbing partner",
+          open_threads: [
+            { topic: "route plan", whoOwesWhat: "Kevin" },
+            { topic: "gear", whoOwesWhat: "Nico" },
+          ],
+          emotional_state: "excited", emotionalStateUpdatedAt: Date.now(),
+          lastSeenTs: 100, mentionCount: 5,
+        },
+      };
+      const result = sm.recallCompact(scope, ["Kevin"], 400);
+      assert.ok(result.includes("Kevin: climbs"), "compact facts capped at 1");
+      assert.ok(!result.includes("cautious"), "second fact excluded in compact");
+      assert.ok(result.includes("open: route plan (Kevin)"), "one open thread kept");
+      assert.ok(!result.includes("open: gear"), "second thread excluded in compact");
+      assert.ok(result.length <= 400, "compact respects char limit");
+    });
+  });
+
+  describe("schema v2 (plan 020): extract+merge", () => {    it("schemaV2:true merges relationship/open_threads/emotional_state with design caps", async () => {
       const llm = {
         complete: mock.fn(async () => ({
           text: JSON.stringify({

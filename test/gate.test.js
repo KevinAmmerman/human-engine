@@ -49,6 +49,12 @@ function makeSocialMemoryStub() {
       }
       return "";
     },
+    recallCompact: (scope, names, limit) => {
+      if (scope.includes("speak-turn") || scope.includes("dm-speak") || scope.includes("trigger-speak")) {
+        return "Alice: likes climbing";
+      }
+      return "";
+    },
     _people: people,
   };
 }
@@ -1147,6 +1153,60 @@ describe("gate", () => {
 
       await memGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
       assert.equal(state.memoryBySession.has(CHAT_SK), false);
+    });
+
+    it("decide receives compact memoryContext for an ingested person (recallCompact involved)", async () => {
+      let captured;
+      const memGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      await memGate.onBeforeAgentReply(
+        makeReplyEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:whatsapp:group:speak-turn@g.us" }),
+      );
+      assert.ok(captured.memoryContext, "memoryContext present for known sender");
+      assert.ok(captured.memoryContext.includes("Alice"), "recallCompact result reflected in memoryContext");
+    });
+
+    it("decide receives null memoryContext for unknown sender", async () => {
+      let captured;
+      const memGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      await memGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(captured.memoryContext, null);
+    });
+
+    it("decide memoryContext includes an explicitly mentioned third person", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-mention-contacts-"));
+      const cFile = path.join(tmpDir, "contacts.md");
+      fs.writeFileSync(
+        cFile,
+        "| @lid | Telefonnummer | Name | Notizen |\n|---|---|---|---|\n| 81000000000001 | +4915000000001 | Tobi | |\n",
+      );
+      const recorded = [];
+      const memGate = makeGate({
+        cfg: { ...cfg, contactsPath: cFile },
+        socialMemory: {
+          ingest: () => {},
+          recall: (scope, names) => "",
+          recallCompact: (scope, names, limit) => {
+            recorded.push([scope, names]);
+            return "Bob: is a beginner";
+          },
+        },
+        engine: { async decide(opts) { return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      await memGate.onBeforeAgentReply(
+        makeReplyEvent({ cleanedBody: "was macht Tobi?" }),
+        makeDefaultCtx(),
+      );
+      const involved = recorded[0][1];
+      assert.ok(involved.includes("Tobi"), "mentioned third person in involved set: " + JSON.stringify(involved));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
     it("errors fail open (returns undefined) for DM sessions", async () => {
