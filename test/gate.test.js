@@ -1455,6 +1455,39 @@ describe("gate", () => {
       assert.ok(!claim.includes("reason="), "no reason field when absent");
       assert.ok(!claim.includes("addressed="), "no addressed field when absent");
     });
+
+    it("plan 030: group decide receives moodEnergy from mood.snapshotFor when groupsEnabled", async () => {
+      let captured;
+      const moodGate = makeGate({
+        mood: { snapshotFor() { return { valence: 2, energy: 2 }; } },
+        cfg: { ...cfg, mood: { enabled: true, groupsEnabled: true } },
+        engine: { async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      await moodGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(captured.moodEnergy, 2, "group decide receives the group energy snapshot");
+    });
+
+    it("plan 030: group decide receives moodEnergy null when no mood dep", async () => {
+      let captured;
+      const moodGate = makeGate({
+        engine: { async decide(opts) { captured = opts; return { decision: "stay_silent", epoch: 1 }; } },
+      });
+      await moodGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(captured.moodEnergy, null, "no mood dep → moodEnergy null");
+    });
+
+    it("plan 030: DM decide never receives moodEnergy (groups-only)", async () => {
+      let captured;
+      const moodGate = makeGate({
+        mood: { snapshotFor() { return { valence: 2, energy: 2 }; } },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      await moodGate.onBeforeAgentReply(
+        makeReplyEvent(),
+        makeDefaultCtx({ sessionKey: "agent:test-agent:telegram:direct:123" }),
+      );
+      assert.equal(captured.moodEnergy, null, "DM stays byte-identical (no moodEnergy)");
+    });
   });
 
   describe("onBeforeAgentRun", () => {

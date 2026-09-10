@@ -169,6 +169,8 @@
         "additionalProperties": false,
         "properties": {
           "enabled": { "type": "boolean", "default": false },
+          "groupsEnabled": { "type": "boolean", "default": false },
+          "groupsRefreshEvery": { "type": "number", "default": 10 },
           "refreshEvery": { "type": "number", "default": 5 },
           "refreshMinutes": { "type": "number", "default": 0 },
           "decayHours": { "type": "number", "default": 6 },

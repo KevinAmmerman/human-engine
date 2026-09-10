@@ -663,6 +663,65 @@ describe("local-engine", () => {
     });
   });
 
+  describe("plan 030: moodEnergy wiring", () => {
+    it("respond passes triggerInfo.moodEnergy into the timing ctx (production timing caller)", async () => {
+      let capturedCtx;
+      const spyTiming = {
+        scheduleForBubbles(bubbles, ctx, timingCfg) {
+          capturedCtx = ctx;
+          return bubbles.map((b, i) => ({ content: b.content, position: i, delayMs: (i + 1) * 10 }));
+        },
+      };
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: '{"messages": ["One"]}' }) },
+        timing: spyTiming,
+      });
+      await engine.respond({
+        sessionKey: "s-mood", draft: "Hi", epoch: 1, isGroup: true,
+        triggerInfo: { wasAddressed: false, replyTarget: null, moodEnergy: -2 },
+      });
+      assert.equal(capturedCtx.moodEnergy, -2, "moodEnergy forwarded into the timing ctx");
+    });
+
+    it("plan 030: respond passes triggerInfo.moodEnergy into buildSplitPrompt (brevity guidance)", async () => {
+      let captured;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async (opts) => { captured = opts; return { text: '{"messages": ["One"]}' }; } },
+        timing: makeTiming(),
+      });
+      await engine.respond({
+        sessionKey: "s-mood-split", draft: "Hi", epoch: 1, isGroup: true,
+        triggerInfo: { wasAddressed: false, replyTarget: null, moodEnergy: 2 },
+      });
+      assert.ok(captured.messages[0].content.includes("A bit more room for energy is fine"), "high-energy split guidance line present");
+    });
+
+    it("plan 030: decide passes moodEnergy into buildDecidePrompt (room-energy line)", async () => {
+      let captured;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async (opts) => { captured = opts; return { text: "STAY_SILENT" }; } },
+        timing: makeTiming(),
+      });
+      await engine.decide({ sessionKey: "agent:agent-a:whatsapp:group:g@g.us", prompt: "hi", moodEnergy: 2 });
+      assert.ok(captured.messages[0].content.includes("Room energy right now:"), "room-energy line rendered");
+      assert.ok(captured.messages[0].content.includes("aufgedreht/hoch"), "de energy label rendered");
+    });
+
+    it("plan 030: decide renders NO room-energy line when moodEnergy is null", async () => {
+      let captured;
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async (opts) => { captured = opts; return { text: "STAY_SILENT" }; } },
+        timing: makeTiming(),
+      });
+      await engine.decide({ sessionKey: "agent:agent-a:whatsapp:group:g@g.us", prompt: "hi" });
+      assert.ok(!captured.messages[0].content.includes("Room energy right now:"), "no room-energy line without moodEnergy");
+    });
+  });
+
   describe("regenerateReply (plan 347)", () => {
     it("returns { text } when llm produces a reply", async () => {
       let captured;

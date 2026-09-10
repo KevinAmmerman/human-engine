@@ -218,6 +218,37 @@ describe("local-prompts", () => {
       });
       assert.ok(!noName.systemPrompt.includes("Reply target:"));
     });
+
+    it("plan 030: high moodEnergy adds the 'more room for energy' guidance line", () => {
+      const p = buildSplitPrompt({ draft: "hi", moodEnergy: 2 });
+      assert.ok(p.systemPrompt.includes("A bit more room for energy is fine — still short."));
+    });
+
+    it("plan 030: low moodEnergy adds the 'keep it brief' guidance line", () => {
+      const p = buildSplitPrompt({ draft: "hi", moodEnergy: -2 });
+      assert.ok(p.systemPrompt.includes("Keep it brief — 1–2 short bubbles."));
+    });
+
+    it("plan 030: neutral/absent moodEnergy adds neither split guidance line", () => {
+      const none = buildSplitPrompt({ draft: "hi" });
+      assert.ok(!none.systemPrompt.includes("Keep it brief"));
+      assert.ok(!none.systemPrompt.includes("room for energy"));
+      const neutral = buildSplitPrompt({ draft: "hi", moodEnergy: 0 });
+      assert.ok(!neutral.systemPrompt.includes("Keep it brief"));
+      assert.ok(!neutral.systemPrompt.includes("room for energy"));
+    });
+
+    it("plan 030: buildDecidePrompt renders the room-energy line with the energy label when moodEnergy is given", () => {
+      const p = buildDecidePrompt({ agentName: "Bot", moodEnergy: 2 });
+      assert.ok(p.systemPrompt.includes("Room energy right now:"));
+      assert.ok(p.systemPrompt.includes("aufgedreht/hoch"), "de energy label rendered");
+      assert.ok(p.systemPrompt.includes("never mention it"));
+    });
+
+    it("plan 030: buildDecidePrompt omits the room-energy line when moodEnergy is null", () => {
+      const p = buildDecidePrompt({ agentName: "Bot" });
+      assert.ok(!p.systemPrompt.includes("Room energy right now:"));
+    });
   });
 
   describe("buildRegeneratePrompt", () => {

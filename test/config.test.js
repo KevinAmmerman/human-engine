@@ -25,6 +25,7 @@ describe("config", () => {
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { disableDM: false, speakEpochTtlMs: 300000 });
     assert.deepEqual(cfg.dmProactive, { agents: [], enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, dayFitActivityPath: "", inferredCapPerDay: 2 });
+    assert.deepEqual(cfg.mood, { enabled: false, groupsEnabled: false, groupsRefreshEvery: 10, refreshEvery: 5, refreshMinutes: 0, decayHours: 6, maxShiftPerUpdate: 1 });
     assert.deepEqual(cfg.threads, { enabled: false, absenceThresholdHours: 24, topicExpiryDays: 14 });
   });
 

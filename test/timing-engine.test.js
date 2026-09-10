@@ -111,12 +111,25 @@ describe("timing-engine", () => {
       resetRng();
     });
 
-    it("clamp bounds hold for extreme inputs", () => {
+    it("plan 030: moodEnergy ±2 shifts the first-bubble delay by ≤12% (high energy faster, low energy slower)", () => {
       setRng(() => 0.5);
-      const huge = readingDelayMs({ isGroup: true, contentReadMs: 100000, isQuestionReply: false });
-      assert.ok(huge <= 30000, `expected clamp to 30000, got ${huge}`);
-      const tiny = readingDelayMs({ isGroup: false, isQuestionReply: true });
-      assert.ok(tiny >= 2000, `expected clamp to 2000, got ${tiny}`);
+      const base = readingDelayMs({ isGroup: true, wasAddressed: false });
+      const high = readingDelayMs({ isGroup: true, wasAddressed: false, moodEnergy: 2 });
+      const low = readingDelayMs({ isGroup: true, wasAddressed: false, moodEnergy: -2 });
+      assert.ok(high < base, `high energy ${high} should be < base ${base}`);
+      assert.ok(low > base, `low energy ${low} should be > base ${base}`);
+      const highRatio = high / base;
+      const lowRatio = low / base;
+      assert.ok(highRatio >= 0.87 && highRatio <= 1, `high ratio ${highRatio} within 0.87..1`);
+      assert.ok(lowRatio >= 1 && lowRatio <= 1.13, `low ratio ${lowRatio} within 1..1.13`);
+      resetRng();
+    });
+
+    it("plan 030: moodEnergy null leaves the delay unchanged (byte-identical DM/off)", () => {
+      setRng(() => 0.5);
+      const base = readingDelayMs({ isGroup: true, wasAddressed: false });
+      const withNull = readingDelayMs({ isGroup: true, wasAddressed: false, moodEnergy: null });
+      assert.equal(withNull, base, "null moodEnergy does not alter the delay");
       resetRng();
     });
   });

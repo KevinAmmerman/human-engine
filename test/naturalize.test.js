@@ -1163,6 +1163,55 @@ describe("naturalize", () => {
     });
   });
 
+  describe("plan 030: group moodEnergy wired into triggerInfo", () => {
+    it("group flush passes moodEnergy from mood.snapshotFor into triggerInfo", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const nat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        mood: { snapshotFor() { return { valence: 1, energy: -2 }; } },
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(nat, dispatcher);
+      nat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(captured.triggerInfo.moodEnergy, -2, "group flush passes moodEnergy into triggerInfo");
+    });
+
+    it("DM flush keeps triggerInfo.moodEnergy null (groups-only)", async () => {
+      let captured;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          captured = opts;
+          return { scheduled: [{ content: "x", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const nat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        mood: { snapshotFor() { return { valence: 1, energy: 2 }; } },
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      state.speakEpochBySession.set(DM_SK, { epoch: 42, ts: Date.now() });
+      nat.onReplyDispatch(
+        { sendPolicy: "allow", sessionKey: DM_SK },
+        makeDefaultCtx({ sessionKey: DM_SK, dispatcher: makeDispatcher(), abortSignal: undefined }),
+      );
+      nat.onReplyPayloadSending({ sessionKey: DM_SK, kind: "final", payload: { text: "DM reply" } }, makeDefaultCtx({ sessionKey: DM_SK }));
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(captured.triggerInfo.moodEnergy, null, "DM flush has no moodEnergy");
+    });
+  });
+
   describe("tell sanitize backstop (plan 027)", () => {
     it("sanitizes a bubble with an em-dash before delivery; warn log fired", async () => {
       const logs = [];
