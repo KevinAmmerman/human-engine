@@ -126,12 +126,12 @@ export default definePluginEntry({
       }
     }
 
-    const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, log });
-    const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads });
+    const mood = createMood({ cfg, llm, stateDir, log, readTranscript: readSessionTranscript });
+
+    const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, mood, log });
+    const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads, mood });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
-
-    const mood = createMood({ cfg, llm, stateDir, log, readTranscript: readSessionTranscript });
 
     function wrap(handler) {
       return async (...args) => {
