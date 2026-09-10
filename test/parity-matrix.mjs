@@ -138,6 +138,8 @@ const MATRIX = [
     tags: ["renders relationship/open_threads/emotional_state when schemaV2", "recall v2 drops emotional_state when older than 48h", "recallCompact applies harder caps"] },
   { id: 67, behavior: "production timing sets hourOfDay + wasAddressed (night mode and direct-address fast-path active); style stats exclude the agent's own lines",
     tags: ["plan 026: respond ctx carries hourOfDay and wasAddressed (production timing caller)", "plan 026: wasAddressed shortens the first-bubble delay via the real timing engine", "plan 026: hourOfDay night fast-path is active (hourOfDay=3 vs 14)", "plan 026: triggerInfo.wasAddressed is true for speak-path hard", "plan 026: triggerInfo.wasAddressed is false for speak-path llm (no replyTarget)", "stashes the speak path into speakPathBySession (hard)", "stashes the speak path into speakPathBySession on the burst-reuse path (llm)", "plan 026: excludes the agent's own lines from style stats"] },
+  { id: 68, behavior: "mechanical tells (em-dash/markdown/lists/headers) are sanitized at flush + per-bubble with fail-open semantics; semantic tells are logged only",
+    tags: ["replaces em-dashes with commas", "strips bold markdown", "converts bullet/numbered lists to plain lines", "strips headers", "detects but does NOT replace semantic tells (banned word)", "sanitizes the finalDraft before engine.respond sees it", "sanitizes a bubble with an em-dash before delivery; warn log fired", "drops an all-empty-after-sanitize scheduled set and delivers the raw draft", "drops only empty-after-sanitize bubbles; non-empty ones still deliver"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

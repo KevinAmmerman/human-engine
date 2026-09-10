@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ANTI_TELL_BLOCK, detectTells, stripMetaCommentary } from "../lib/anti-tell.js";
+import { ANTI_TELL_BLOCK, detectTells, sanitizeTells, stripMetaCommentary } from "../lib/anti-tell.js";
 
 describe("anti-tell", () => {
   describe("ANTI_TELL_BLOCK", () => {
@@ -97,6 +97,62 @@ describe("anti-tell", () => {
       assert.ok(tells.includes("banned-word:delve"));
       assert.ok(tells.includes("banned-word:leverage"));
       assert.ok(tells.includes("summary-closing"));
+    });
+  });
+
+  describe("sanitizeTells (plan 027)", () => {
+    it("replaces em-dashes with commas", () => {
+      const r = sanitizeTells("This is\u2014as I said\u2014important.");
+      assert.ok(r.tells.includes("em-dash"));
+      assert.equal(r.text, "This is, as I said, important.");
+    });
+
+    it("strips bold markdown", () => {
+      const r = sanitizeTells("This is **bold** text");
+      assert.ok(r.tells.includes("bold-markdown"));
+      assert.equal(r.text, "This is bold text");
+    });
+
+    it("converts bullet/numbered lists to plain lines", () => {
+      const r = sanitizeTells("- item one\n- item two");
+      assert.ok(r.tells.includes("list"));
+      assert.equal(r.text, "item one\nitem two");
+    });
+
+    it("strips headers", () => {
+      const r = sanitizeTells("## Section title");
+      assert.ok(r.tells.includes("header"));
+      assert.equal(r.text, "Section title");
+    });
+
+    it("strips a lone 'Certainly!' to empty", () => {
+      const r = sanitizeTells("Certainly!");
+      assert.ok(r.tells.includes("certainly-exclamation"));
+      assert.equal(r.text, "");
+    });
+
+    it("removes the customer-service phrase", () => {
+      const r = sanitizeTells("Sure! How can I help you?");
+      assert.ok(r.tells.includes("customer-service"));
+      assert.equal(r.text, "Sure!");
+    });
+
+    it("detects but does NOT replace semantic tells (banned word)", () => {
+      const r = sanitizeTells("We should leverage our capabilities.");
+      assert.ok(r.tells.includes("banned-word:leverage"));
+      assert.equal(r.text, "We should leverage our capabilities.");
+    });
+
+    it("passes clean text through unchanged with empty tells", () => {
+      const r = sanitizeTells("ja genau das hab ich auch gedacht lol");
+      assert.deepEqual(r.tells, []);
+      assert.equal(r.text, "ja genau das hab ich auch gedacht lol");
+    });
+
+    it("fails open for empty/non-string input", () => {
+      assert.deepEqual(sanitizeTells(""), { text: "", tells: [] });
+      assert.deepEqual(sanitizeTells(null), { text: null, tells: [] });
+      assert.deepEqual(sanitizeTells(undefined), { text: undefined, tells: [] });
     });
   });
 

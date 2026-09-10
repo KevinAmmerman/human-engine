@@ -1163,6 +1163,108 @@ describe("naturalize", () => {
     });
   });
 
+  describe("tell sanitize backstop (plan 027)", () => {
+    it("sanitizes a bubble with an em-dash before delivery; warn log fired", async () => {
+      const logs = [];
+      const emEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return { scheduled: [{ content: "Guck mal\u2014das ist gut", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const emNat = createNaturalize({
+        cfg, state, engine: emEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(emNat, dispatcher);
+      emNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(logs.some((l) => l.includes("tells-sanitized")), "warn log fired for sanitized tell");
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0].text);
+      assert.ok(sent.length >= 1, "bubble delivered");
+      assert.ok(sent.every((t) => !t.includes("\u2014")), "no em-dash in delivered payload");
+    });
+
+    it("sanitizes the finalDraft before engine.respond sees it", async () => {
+      let capturedDraft;
+      const capEngine = {
+        currentEpoch() { return 0; },
+        async respond(opts) {
+          capturedDraft = opts.draft;
+          return { scheduled: [{ content: "ok", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const capNat = createNaturalize({
+        cfg, state, engine: capEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      armSpeakTurn(capNat, makeDispatcher());
+      capNat.onReplyPayloadSending(
+        { sessionKey: CHAT_SK, kind: "final", payload: { text: "Guck mal\u2014das ist gut" } },
+        makeDefaultCtx(),
+      );
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.equal(capturedDraft, "Guck mal, das ist gut");
+    });
+
+    it("drops an all-empty-after-sanitize scheduled set and delivers the raw draft", async () => {
+      const logs = [];
+      const certainlyEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return { scheduled: [{ content: "Certainly!", position: 0, delayMs: 5 }], superseded: false };
+        },
+      };
+      const cNat = createNaturalize({
+        cfg, state, engine: certainlyEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn(m) { logs.push(m); }, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(cNat, dispatcher);
+      cNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "the raw fallback" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      assert.ok(logs.some((l) => l.includes("tells-sanitized")), "warn logged for dropped certainly bubble");
+      assert.equal(dispatcher.sendBlockReply.mock.callCount(), 1);
+      assert.equal(dispatcher.sendBlockReply.mock.calls[0].arguments[0].text, "the raw fallback");
+    });
+
+    it("drops only empty-after-sanitize bubbles; non-empty ones still deliver", async () => {
+      const mixedEngine = {
+        currentEpoch() { return 0; },
+        async respond() {
+          return {
+            scheduled: [
+              { content: "Certainly!", position: 0, delayMs: 5 },
+              { content: "Ja genau, gut so.", position: 1, delayMs: 10 },
+            ],
+            superseded: false,
+          };
+        },
+      };
+      const mixedNat = createNaturalize({
+        cfg, state, engine: mixedEngine, persona: makePersona(),
+        socialMemory: makeSocialMemoryStub(),
+        log: { info() {}, warn() {}, debug() {} },
+      });
+      const dispatcher = makeDispatcher();
+      armSpeakTurn(mixedNat, dispatcher);
+      mixedNat.onReplyPayloadSending({ sessionKey: CHAT_SK, kind: "final", payload: { text: "reply" } }, makeDefaultCtx());
+
+      await new Promise((r) => setTimeout(r, 1500));
+      const sent = dispatcher.sendBlockReply.mock.calls.map((c) => c.arguments[0].text);
+      assert.ok(sent.includes("Ja genau, gut so."), "non-empty bubble delivered");
+      assert.ok(sent.every((t) => !t.includes("Certainly!")), "empty-after-sanitize bubble dropped");
+      assert.equal(dispatcher.markComplete.mock.callCount(), 1);
+    });
+  });
+
   describe("meta-commentary strip (plan 345)", () => {
     const INCIDENT = [
       'Nico claims I\'m "his assistant." Light banter after my roast. He\'s',
