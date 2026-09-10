@@ -1,7 +1,7 @@
 {
   "id": "human-engine",
   "name": "Human Engine",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Local human-like conversation engine for OpenClaw: turn-taking, naturalization, voice, persona, social memory \u2014 fully self-hosted.",
   "activation": {
     "onStartup": true
@@ -35,7 +35,8 @@
             "humanize": { "type": "object" },
             "decide": { "type": "object" },
             "threads": { "type": "object" },
-            "reactions": { "type": "object" }
+            "reactions": { "type": "object" },
+            "initiative": { "type": "object" }
           }
         },
         "default": {}
@@ -205,6 +206,58 @@
         "additionalProperties": false,
         "properties": {
           "hintEnabled": { "type": "boolean", "default": false }
+        },
+        "default": {}
+      },
+      "initiative": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": false },
+          "shadow": { "type": "boolean", "default": true },
+          "agents": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "scopes": { "type": "array", "items": { "type": "string" }, "default": ["group"] },
+          "everyMinutes": { "type": "number", "default": 60 },
+          "activeHours": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "start": { "type": "string", "default": "08:00" },
+              "end": { "type": "string", "default": "22:00" },
+              "timezone": { "type": "string", "default": "Europe/Berlin" }
+            },
+            "default": {}
+          },
+          "quietStart": { "type": "string", "default": "22:00" },
+          "quietEnd": { "type": "string", "default": "07:00" },
+          "maxActsPerDay": { "type": "number", "default": 2 },
+          "minGapMinutes": { "type": "number", "default": 240 },
+          "minGapAfterAgentSpeakMinutes": { "type": "number", "default": 30 },
+          "hotWindowMinutes": { "type": "number", "default": 15 },
+          "capture": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "keywords": { "type": "boolean", "default": true },
+              "everyMessages": { "type": "number", "default": 20 },
+              "everyMinutes": { "type": "number", "default": 0 }
+            },
+            "default": {}
+          },
+          "firstNudgeMinutes": { "type": "number", "default": 120 },
+          "taskExpiryDays": { "type": "number", "default": 30 },
+          "probability": { "type": "number", "default": 0.8 },
+          "cooldownBaseMinutes": { "type": "number", "default": 240 },
+          "directives": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true },
+              "maxPerScope": { "type": "number", "default": 10 }
+            },
+            "default": {}
+          },
+          "maxContextChars": { "type": "number", "default": 600 }
         },
         "default": {}
       }

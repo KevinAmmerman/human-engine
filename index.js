@@ -17,6 +17,7 @@ import { createProactive } from "./lib/proactive.js";
 import { createDmProactive } from "./lib/dm-proactive.js";
 import { createMood } from "./lib/mood.js";
 import { createThreads } from "./lib/threads.js";
+import { createInitiative } from "./lib/initiative.js";
 import * as timing from "./lib/timing-engine.js";
 import { agentIdFromSessionKey } from "./lib/scope.js";
 
@@ -135,6 +136,8 @@ export default definePluginEntry({
     const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, mood, selfVoice, log });
     const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads, mood });
 
+    const initiative = createInitiative({ cfg, stateDir, log });
+
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
 
     function wrap(handler) {
@@ -150,9 +153,11 @@ export default definePluginEntry({
     api.on("message_received", wrap(gate.onMessageReceived));
     api.on("message_received", wrap(dmProactive.onMessageReceived));
     api.on("message_received", wrap(mood.onMessageReceived));
+    api.on("message_received", wrap(initiative.onMessageReceived));
     api.on("before_agent_reply", wrap(gate.onBeforeAgentReply));
     api.on("before_agent_run", wrap(gate.onBeforeAgentRun));
     api.on("before_prompt_build", wrap(gate.onBeforePromptBuild));
+    api.on("before_prompt_build", wrap(initiative.onBeforePromptBuild));
     api.on("message_sending", wrap(gate.onMessageSending));
     api.on("message_sending", wrap(dmProactive.onMessageSending));
     api.on("before_prompt_build", wrap(voiceCard.onBeforePromptBuild));
@@ -173,13 +178,20 @@ export default definePluginEntry({
     }, 30 * 60 * 1000);
     if (typeof proactiveTick.unref === "function") proactiveTick.unref();
 
+    const initiativeTick = setInterval(() => {
+      initiative.tick().catch((err) => log.warn(`human-engine: initiative tick error: ${err?.message || err}`));
+    }, 5 * 60 * 1000);
+    if (typeof initiativeTick.unref === "function") initiativeTick.unref();
+
     api.on("gateway_stop", wrap(() => {
       clearInterval(proactiveTick);
+      clearInterval(initiativeTick);
       proactive.stop();
       dmProactive.stop();
       clearAllBubbleTimers();
       socialMemory.stop();
       threads.stop();
+      initiative.stop();
       log.info("human-engine: proactive tick stopped, naturalize timers cleared (gateway_stop)");
     }));
 

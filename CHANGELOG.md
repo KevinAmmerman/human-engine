@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 — Initiative engine, phase 0: skeleton + config + durable store (plan 613)
+
+- **Initiative**: a new per-agent×scope proactive task & memory engine, built
+  shadow-first and default-OFF (`initiative.enabled:false` → zero files, zero
+  context injection, zero behavior change).
+- **Phase 0 only**: config schema (`initiative` block in `defaultConfig()` +
+  `NESTED_KEYS` + strict JSON Schema in `openclaw.plugin.json`, agentProfiles
+  overlay), durable per-agent×scope state store `lib/initiative-store.js`
+  (version-1 state shape, tmp+rename 0600 writes, 0700 dirs, 64 KB soft cap,
+  in-memory cache + debounced flush, shadow log with 14-day retention and
+  4 MB cap), and a minimal no-op shell `lib/initiative.js` wired into
+  `index.js` (message_received / before_prompt_build hooks + master tick +
+  gateway_stop). No capture, no extraction, no LLM, no dispatch yet — those
+  arrive in later phases behind the same flag.
+
 ## 0.4.2 — group bubble TTS (plan 548b)
 
 - **Bubble TTS for group bubbles**: the human-engine plugin's own text bubbles
