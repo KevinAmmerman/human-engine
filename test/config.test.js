@@ -19,7 +19,7 @@ describe("config", () => {
     assert.deepEqual(cfg.socialMemory, { enabled: true, extractEvery: 25, extractMinutes: 0, maxPeople: 50, recallLimit: 800, personStore: false, schemaV2: false });
     assert.equal(cfg.autoconfig, false);
     assert.equal(cfg.socialLearning.perSessionCard, true);
-    assert.deepEqual(cfg.decide, { temperature: 0.2 });
+    assert.deepEqual(cfg.decide, { temperature: 0.2, v2Contract: false });
     assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.9 });
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { disableDM: false, speakEpochTtlMs: 300000 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, mock, afterEach } from "node:test";
-import { createLocalEngine, getState, hasHardTrigger } from "../lib/local-engine.js";
+import { createLocalEngine, getState, hasHardTrigger, parseDecideVerdictV2, parseDecideVerdict } from "../lib/local-engine.js";
 import { findAgentContactIds } from "../lib/contacts.js";
 import { setRng, resetRng } from "../lib/timing-engine.js";
 import { scheduleForBubbles as realScheduleForBubbles } from "../lib/timing-engine.js";
@@ -402,6 +402,90 @@ describe("local-engine", () => {
     it("first occurrence wins (STAY_SILENT precedes SPEAK)", async () => {
       const res = await decideWith("STAY_SILENT because SPEAK was wrong");
       assert.equal(res.decision, "stay_silent");
+    });
+  });
+
+  describe("decide — v2 contract (parseDecideVerdictV2 + reason/addressed_to)", () => {
+    async function decideV2(text, cfg = {}) {
+      const engine = createLocalEngine({
+        cfg: { decide: { v2Contract: true, ...cfg } },
+        llm: { complete: async () => ({ text }) },
+        timing: makeTiming(),
+      });
+      return engine.decide({ sessionKey: "v2x", prompt: "unrelated" });
+    }
+
+    it("parses clean JSON SPEAK with reason and addressed_to", async () => {
+      const res = await decideV2('{"decision":"SPEAK","reason":"direct question","addressed_to":"OpenClaw"}');
+      assert.equal(res.decision, "speak");
+      assert.equal(res.reason, "direct question");
+      assert.equal(res.addressedTo, "OpenClaw");
+    });
+
+    it("parses JSON wrapped in fences", async () => {
+      const res = await decideV2('```\n{"decision":"STAY_SILENT","reason":"side chatter"}\n```');
+      assert.equal(res.decision, "stay_silent");
+      assert.equal(res.reason, "side chatter");
+    });
+
+    it("falls back to the v1 token when model answers a bare token", async () => {
+      const res = await decideV2("SPEAK");
+      assert.equal(res.decision, "speak");
+      assert.equal(res.reason, "(token-fallback)");
+    });
+
+    it("garbage → null → stay_silent with empty reason", async () => {
+      const res = await decideV2("totally unrelated prose");
+      assert.equal(res.decision, "stay_silent");
+      assert.equal(res.reason, "");
+      assert.equal(res.addressedTo, "");
+    });
+
+    it("caps reason at 60 chars", async () => {
+      const long = "x".repeat(100);
+      const res = await decideV2(`{"decision":"SPEAK","reason":"${long}"}`);
+      assert.equal(res.reason.length, 60);
+    });
+
+    it("caps addressed_to at 40 chars", async () => {
+      const res = await decideV2(`{"decision":"SPEAK","reason":"r","addressed_to":"${"n".repeat(80)}"}`);
+      assert.equal(res.addressedTo.length, 40);
+    });
+
+    it("v2 SPEAK advances the epoch, STAY_SILENT does not", async () => {
+      const engine = createLocalEngine({
+        cfg: { decide: { v2Contract: true } },
+        llm: { complete: async () => ({ text: '{"decision":"SPEAK","reason":"q"}' }) },
+        timing: makeTiming(),
+      });
+      const a = await engine.decide({ sessionKey: "s-epoch-v2", prompt: "x" });
+      assert.equal(a.decision, "speak");
+      assert.ok(a.epoch > 0);
+      const silent = createLocalEngine({
+        cfg: { decide: { v2Contract: true } },
+        llm: { complete: async () => ({ text: '{"decision":"STAY_SILENT","reason":"r"}' }) },
+        timing: makeTiming(),
+      });
+      const b = await silent.decide({ sessionKey: "s-epoch-v2b", prompt: "x" });
+      assert.equal(b.decision, "stay_silent");
+      assert.equal(b.epoch, 0);
+    });
+
+    it("v1 mode returns no reason/addressedTo fields", async () => {
+      const engine = createLocalEngine({
+        cfg: {},
+        llm: { complete: async () => ({ text: "SPEAK" }) },
+        timing: makeTiming(),
+      });
+      const res = await engine.decide({ sessionKey: "v1x", prompt: "x" });
+      assert.equal(res.decision, "speak");
+      assert.equal(res.reason, undefined);
+      assert.equal(res.addressedTo, undefined);
+    });
+
+    it("parseDecideVerdictV2 maps SKIP and parseDecideVerdict handles SKIP", () => {
+      assert.equal(parseDecideVerdictV2('{"decision":"SKIP"}').decision, "SKIP");
+      assert.equal(parseDecideVerdict("SKIP"), "SKIP");
     });
   });
 

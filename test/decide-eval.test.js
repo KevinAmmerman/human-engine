@@ -113,6 +113,21 @@ describe("decide-eval", () => {
       assert.ok(prompt.userMessage.includes("bekomm ich die her"),
         "userMessage should include the follow-up question");
     });
+
+    it("v1 decide prompt keeps the one-token contract line", () => {
+      const prompt = buildDecidePrompt({ transcript: [], persona: null, voiceCard: null, agentName: "Hori" });
+      assert.ok(prompt.systemPrompt.includes("Answer with EXACTLY one token: SPEAK or STAY_SILENT."),
+        "v1 contract line retained when v2Contract is off");
+      assert.ok(!prompt.systemPrompt.includes("STRICT JSON"), "no STRICT JSON line under v1");
+    });
+
+    it("v2 decide prompt carries the STRICT JSON contract line", () => {
+      const prompt = buildDecidePrompt({ transcript: [], persona: null, voiceCard: null, agentName: "Hori", v2Contract: true });
+      assert.ok(prompt.systemPrompt.includes("Answer with STRICT JSON only: {\"decision\":\"SPEAK\"|\"STAY_SILENT\""),
+        "v2 STRICT JSON line present when v2Contract is on");
+      assert.ok(!prompt.systemPrompt.includes("Answer with EXACTLY one token"),
+        "v1 token line replaced under v2Contract");
+    });
   });
 
   describe("scenario contract", () => {

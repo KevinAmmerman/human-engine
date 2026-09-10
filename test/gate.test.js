@@ -1390,6 +1390,32 @@ describe("gate", () => {
       assert.equal(named, undefined, "name-mention message speaks independently of the burst");
       assert.equal(decideCount, 2, "hard trigger runs its own decide without reusing the chatter verdict");
     });
+
+    it("claims reason/addressed_to from the v2 decide result into the log", async () => {
+      const lines = [];
+      const v2Gate = makeGate({
+        engine: { async decide() { return { decision: "stay_silent", epoch: 1, path: "llm", reason: "side chatter", addressedTo: "Alice" }; } },
+        log: { info: (msg) => lines.push(msg), warn() {}, debug() {} },
+      });
+      await v2Gate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "yeah me too" }), makeDefaultCtx());
+      const claim = lines.find((l) => l.includes("human-engine: claim"));
+      assert.ok(claim, "claim log line emitted");
+      assert.ok(claim.includes("reason=side chatter"), "claim log carries the v2 reason");
+      assert.ok(claim.includes("addressed=Alice"), "claim log carries the addressed_to");
+    });
+
+    it("claim log omits reason/addressed when the v2 fields are absent", async () => {
+      const lines = [];
+      const v1Gate = makeGate({
+        engine: { async decide() { return { decision: "stay_silent", epoch: 1, path: "llm" }; } },
+        log: { info: (msg) => lines.push(msg), warn() {}, debug() {} },
+      });
+      await v1Gate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "yeah me too" }), makeDefaultCtx());
+      const claim = lines.find((l) => l.includes("human-engine: claim"));
+      assert.ok(claim, "claim log line emitted");
+      assert.ok(!claim.includes("reason="), "no reason field when absent");
+      assert.ok(!claim.includes("addressed="), "no addressed field when absent");
+    });
   });
 
   describe("onBeforeAgentRun", () => {
