@@ -120,6 +120,8 @@
           "shadow": { "type": "boolean", "default": true },
           "budgetPerDay": { "type": "number", "default": 2 },
           "recognitionBudgetPerDay": { "type": "number", "default": 1 },
+          "returnGreetingBudgetPerDay": { "type": "number", "default": 1 },
+          "threadCallbackMinAgeHours": { "type": "number", "default": 20 },
           "minGapMinutes": { "type": "number", "default": 180 },
           "quietStart": { "type": "string", "default": "23:00" },
           "quietEnd": { "type": "string", "default": "07:00" },
@@ -134,7 +136,9 @@
               "contextMatch": { "type": "boolean", "default": true },
               "followUpCommitment": { "type": "boolean", "default": true },
               "outcomeCelebration": { "type": "boolean", "default": true },
-              "checkInOnPromise": { "type": "boolean", "default": true }
+              "checkInOnPromise": { "type": "boolean", "default": true },
+              "returnGreeting": { "type": "boolean", "default": false },
+              "threadCallback": { "type": "boolean", "default": false }
             },
             "default": {}
           }
