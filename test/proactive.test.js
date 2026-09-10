@@ -54,6 +54,18 @@ function makeLog() {
   };
 }
 
+function makeLogWithWarns() {
+  const infos = [];
+  const warns = [];
+  return {
+    info(msg) { infos.push(msg); },
+    warn(msg) { warns.push(msg); },
+    debug() {},
+    _infos: infos,
+    _warns: warns,
+  };
+}
+
 function makeRuntime({ llmText = "SPEAK" } = {}) {
   return {
     subagent: { run: mock.fn(async () => ({ runId: "run-1" })) },
@@ -315,6 +327,36 @@ describe("proactive", { concurrency: false }, () => {
       clock.t += 27 * 60 * 60 * 1000;
       await proactive.tick();
       assert.equal(runtime.subagent.run.mock.callCount(), 0);
+    });
+
+    it("non-de language runs reduced trigger mode: '?'-question only, promise/celebration off, one warn per scope (plan 029)", async () => {
+      setRng(() => 0);
+      const log = makeLogWithWarns();
+      const cfg = makeCfg({ triggers: { contextMatch: false, stalledExchange: false } });
+      cfg.language = "xx";
+      const { proactive, clock, runtime } = track(makeProactive({
+        cfg,
+        log,
+      }));
+      // '?'-only question fires in reduced mode (no word list needed)
+      await proactive.onInbound(SK, { senderName: "Nico", text: "when do we leave?", isGroup: true });
+      clock.t += 10 * 60 * 1000;
+      await proactive.tick();
+      assert.equal(runtime.subagent.run.mock.callCount(), 1, "trailing-? question fires in reduced mode");
+      // promise/celebration triggers are off in reduced mode
+      state.pushTranscriptPeek(SK, "[Hori] ok ich schau nach");
+      state.pushTranscriptPeek(SK, "[Nico] danke");
+      await proactive.onInbound(SK, { senderName: "Nico", text: "danke", isGroup: true });
+      clock.t += 121 * 60 * 1000;
+      await proactive.tick();
+      const sentAfterPromise = runtime.subagent.run.mock.callCount();
+      assert.equal(sentAfterPromise, 1, "follow_up_commitment must not fire in reduced mode");
+      // exactly ONE warn per scope+lang
+      const warns = log._warns.filter((m) => m.includes("has no proactive word lists"));
+      assert.equal(warns.length, 1, "reduced-mode warn emitted once");
+      // second inbound in the same scope does not warn again
+      await proactive.onInbound(SK, { senderName: "Nico", text: "really?", isGroup: true });
+      assert.equal(log._warns.filter((m) => m.includes("has no proactive word lists")).length, 1, "warn stays once per scope");
     });
 
     it("recognition budget blocks a 2nd recognition same day but allows informational", async () => {
