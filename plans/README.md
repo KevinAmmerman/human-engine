@@ -66,7 +66,7 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | [026](026-timing-ctx-fields-style-selffilter.md) | Timing-CTX (hourOfDay/wasAddressed) + Style-Selbstfilter | P1 | S–M | — | DONE (executed+approved, 986/0, Parity 67/67) |
-| [027](027-detect-tells-runtime-backstop.md) | detectTells-Runtime-Backstop (sanitize + log) | P2 | S–M | — | TODO |
+| [027](027-detect-tells-runtime-backstop.md) | detectTells-Runtime-Backstop (sanitize + log) | P2 | S–M | — | DONE (executed+approved, 999/0, Parity 68/68) |
 | [028](028-voice-card-in-decide.md) | Voice-Card in den Decide (Register-aware Gate) | P2 | S–M | 024 ideal, 026 | TODO |
 | [029](029-language-parameterization.md) | Sprach-Parameterisierung (language packs, de byte-identisch) | P2 | M | 024 ideal | TODO |
 | [030](030-mood-expansion-groups.md) | Mood: Decay persistieren + Gruppen-Mood (flagged, shadow-first) | P2 | M | 026 ideal | TODO |
