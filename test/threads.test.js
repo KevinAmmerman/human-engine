@@ -233,6 +233,49 @@ describe("threads", { concurrency: false }, () => {
     });
   });
 
+  describe("snapshotFor", () => {
+    it("returns raw state (no rendering) with absent-since and open topics", () => {
+      const now = Date.now();
+      const owedToAgent = { topic: "Tour morgen", lastExchange: "Startzeit unklar", whoOwesWhat: "Yuki muss Bescheid geben" };
+      const memberOwes = { topic: "Leihgabe", lastExchange: "Basti leiht die Ausrüstung", whoOwesWhat: "Basti bringt sie mit" };
+      const profile = {
+        people: {
+          Nico: { open_threads: [owedToAgent], lastSeenTs: now - 1000 },
+          Basti: { open_threads: [memberOwes], lastSeenTs: now - 1000 },
+        },
+      };
+      observed.appendObserved(SK, { speaker: "Nico", text: "frage", ts: now - 3 * 86400e3 });
+      observed.appendObserved(SK, { speaker: "Yuki", text: "meine antwort", ts: now - 2 * 86400e3 });
+      const threads = createThreads({
+        cfg: makeCfg(),
+        stateDir: tmpDir,
+        socialMemory: makeSocialMemory(profile),
+        observedStore: observed,
+        log,
+      });
+      const snap = threads.snapshotFor(SK, "test-agent");
+      assert.ok(snap, "snapshot returned for enabled threads");
+      assert.ok(snap.agentAbsentSince > 24 * 3600e3, "absent since computed from last own speak");
+      assert.ok(typeof snap.lastGroupActivityTs === "number");
+      assert.ok(typeof snap.lastAgentSpeakTs === "number");
+      assert.ok(Array.isArray(snap.openTopics));
+      const awaitingAgent = snap.openTopics.find((t) => t.awaiting === "agent");
+      assert.ok(awaitingAgent, "awaiting-agent topic present raw");
+      assert.equal(awaitingAgent.topic, "Tour morgen");
+    });
+
+    it("returns null when threads are disabled", () => {
+      const threads = createThreads({
+        cfg: { ...makeCfg(), threads: { enabled: false, absenceThresholdHours: 24, topicExpiryDays: 14 } },
+        stateDir: tmpDir,
+        socialMemory: makeSocialMemory(),
+        observedStore: observed,
+        log,
+      });
+      assert.equal(threads.snapshotFor(SK, "test-agent"), null);
+    });
+  });
+
   describe("awaiting classification", () => {
     it("classifies a thread awaiting the agent from whoOwesWhat mentioning the agent name/alias", () => {
       const now = Date.now();
