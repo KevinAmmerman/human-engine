@@ -795,4 +795,109 @@ describe("social-memory", { concurrency: false }, () => {
       assert.ok(!fs.existsSync(path.join(tmpDir, "social-memory", "agentZ.json")), "no agent file under default false");
     });
   });
+
+  describe("schema v2 (plan 020): extract+merge", () => {
+    it("schemaV2:true merges relationship/open_threads/emotional_state with design caps", async () => {
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({
+            people: {
+              Kevin: {
+                facts: ["climbs"], preferences: ["bouldering"], situation: "cautious",
+                relationship: "long-standing climbing partner who plans routes together",
+                open_threads: [
+                  { topic: "a", lastExchange: "x", whoOwesWhat: "Kevin" },
+                  { topic: "b", lastExchange: "y", whoOwesWhat: "Kevin" },
+                  { topic: "c", lastExchange: "z", whoOwesWhat: "Kevin" },
+                  { topic: "d", lastExchange: "w", whoOwesWhat: "Kevin" },
+                ],
+                emotional_state: "excited about the upcoming trip",
+              },
+            },
+          }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2, schemaV2: true }), llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agentV2::s1";
+      sm.ingest(scope, { speaker: "Kevin", text: "let's go", ts: 100 });
+      sm.ingest(scope, { speaker: "Kevin", text: "when?", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      const profile = sm.getOrLoadProfile(scope);
+      const p = profile.people.Kevin;
+      assert.equal(p.relationship, "long-standing climbing partner who plans routes together");
+      assert.equal(p.open_threads.length, 3, "open_threads capped at 3");
+      assert.equal(p.emotional_state, "excited about the upcoming trip");
+      assert.ok(p.emotionalStateUpdatedAt > 0, "emotionalStateUpdatedAt set");
+    });
+
+    it("schemaV2:true applies v1 caps (facts 12) for v1 fields", async () => {
+      const facts = Array.from({ length: 20 }, (_, i) => "fact " + i);
+      const prefs = Array.from({ length: 10 }, (_, i) => "pref " + i);
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Kevin: { facts, preferences: prefs } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2, schemaV2: true }), llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agentV2::caps";
+      sm.ingest(scope, { speaker: "Kevin", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Kevin", text: "there", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      const p = sm.getOrLoadProfile(scope).people.Kevin;
+      assert.equal(p.facts.length, 12, "facts capped at 12 under schemaV2");
+      assert.equal(p.preferences.length, 6, "preferences capped at 6 under schemaV2");
+    });
+
+    it("schemaV2:true skips a self entry present in LLM output", async () => {
+      const cfg = makeCfg({ extractEvery: 2, schemaV2: true });
+      cfg.agentName = "Yuki";
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Yuki: { facts: ["self"], relationship: "me" }, Kevin: { facts: ["real"] } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg, llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agentV2::self";
+      sm.ingest(scope, { speaker: "Kevin", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Kevin", text: "there", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(!profile.people.Yuki, "self entry skipped in merge");
+      assert.ok(profile.people.Kevin, "real person kept");
+    });
+
+    it("schemaV2:false uses v1 prompt and v1 caps (default preserved)", async () => {
+      const facts = Array.from({ length: 20 }, (_, i) => "fact " + i);
+      const prefs = Array.from({ length: 10 }, (_, i) => "pref " + i);
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Kevin: { facts, preferences: prefs } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2 }), llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agentV2::v1";
+      sm.ingest(scope, { speaker: "Kevin", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Kevin", text: "there", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      const p = sm.getOrLoadProfile(scope).people.Kevin;
+      assert.equal(p.facts.length, 20, "facts capped at 20 under default v1");
+      assert.equal(p.preferences.length, 10, "preferences capped at 20 under default v1");
+    });
+
+    it("schemaV2:false with relationship/open_threads in LLM output keeps v1 shape", async () => {
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Kevin: { facts: ["climbs"], relationship: "x", open_threads: [{ topic: "t" }], emotional_state: "y" } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2 }), llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agentV2::v1shape";
+      sm.ingest(scope, { speaker: "Kevin", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Kevin", text: "there", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      const p = sm.getOrLoadProfile(scope).people.Kevin;
+      assert.equal(p.relationship, undefined, "v1 path does not carry relationship");
+      assert.equal(p.open_threads, undefined, "v1 path does not carry open_threads");
+    });
+  });
 });
