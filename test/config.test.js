@@ -25,6 +25,7 @@ describe("config", () => {
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { disableDM: false, speakEpochTtlMs: 300000 });
     assert.deepEqual(cfg.dmProactive, { agents: [], enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, dayFitActivityPath: "", inferredCapPerDay: 2 });
+    assert.deepEqual(cfg.threads, { enabled: false, absenceThresholdHours: 24, topicExpiryDays: 14 });
   });
 
   it("resolveConfig merges with defaults", () => {
@@ -103,6 +104,14 @@ describe("config", () => {
     const cfg = resolveConfig({ pluginConfig: { naturalize: { disableDM: true } } });
     assert.equal(cfg.naturalize.disableDM, true);
     assert.equal(cfg.naturalize.speakEpochTtlMs, 300000, "sibling naturalize default survives");
+  });
+
+  it("resolveConfig deep-merges threads and keeps sibling defaults", () => {
+    const cfg = resolveConfig({ pluginConfig: { threads: { enabled: true } } });
+    assert.equal(cfg.threads.enabled, true);
+    assert.equal(cfg.threads.absenceThresholdHours, 24, "sibling threads default survives");
+    assert.equal(cfg.threads.topicExpiryDays, 14, "sibling threads default survives");
+    assert.equal(cfg.threads.enabled, true);
   });
 
   it("isEnabled returns true when enabled is true", () => {

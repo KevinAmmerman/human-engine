@@ -887,6 +887,28 @@ describe("social-memory", { concurrency: false }, () => {
       assert.ok(!result.includes("open: gear"), "second thread excluded in compact");
       assert.ok(result.length <= 400, "compact respects char limit");
     });
+
+    it("recallCompact omitOpenThreads:true drops open_threads when a thread context line is active", () => {
+      sm = createSocialMemory({ cfg: makeCfg({ schemaV2: true }), stateDir: tmpDir, log: makeLog() });
+      const scope = "agent1::compact-omit";
+      const profile = sm.getOrLoadProfile(scope);
+      profile.people = {
+        Kevin: {
+          facts: ["climbs", "cautious", "loves bouldering"],
+          preferences: ["bouldering"],
+          situation: "situation",
+          relationship: "climbing partner",
+          open_threads: [{ topic: "route plan", whoOwesWhat: "Kevin" }],
+          emotional_state: "excited", emotionalStateUpdatedAt: Date.now(),
+          lastSeenTs: 100, mentionCount: 5,
+        },
+      };
+      const normal = sm.recallCompact(scope, ["Kevin"], 400);
+      assert.ok(normal.includes("open: route plan"), "threads present by default");
+      const omitted = sm.recallCompact(scope, ["Kevin"], 400, { omitOpenThreads: true });
+      assert.ok(!omitted.includes("open:"), "open_threads omitted from compact when flag set");
+      assert.ok(omitted.includes("Kevin: climbs"), "other compact content still present");
+    });
   });
 
   describe("schema v2 (plan 020): extract+merge", () => {    it("schemaV2:true merges relationship/open_threads/emotional_state with design caps", async () => {

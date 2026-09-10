@@ -146,6 +146,10 @@ const MATRIX = [
     tags: ["decide persona carries the voice card and style constraint", "decide persona without card/peek-stats degrades to soul + anti-tell", "decide gets a lean persona"] },
   { id: 71, behavior: "prompts/labels/trigger-wordlists resolve via language packs; de is byte-identical default; non-de groups run documented reduced proactive mode",
     tags: ["de is the byte-identical default for unknown codes", "formatAge renders en skeleton labels", "split prompt carries the en reply-language hint", "regenerate prompt switches regenstyle per pack", "dm render prompt switches style/language fields per pack", "decide prompt renders en age labels in transcript and rule", "mood labels + feel-words resolve via language pack", "language defaults to de and is agent-overlayable", "non-de language runs reduced trigger mode"] },
+  { id: 72, behavior: "thread state persists per scope with version + rebuild from observed store (off by default)",
+    tags: ["version-1 0600 file with correct values", "gap computed from last own speak", "file created lazily after flush", "rebuilds lastgroupactivityts and agentabsentsince from the observed store when the file is missing", "no absence line for a fresh scope"] },
+  { id: 73, behavior: "decide gets ONE bounded absence/thread context line when absent >24h or a thread awaits the agent (off by default)",
+    tags: ["exactly ONE bounded instruction", "thread awaiting the agent renders the line even without a gap", "threadcontext passed to decide when active", "thread context line content carried", "threadcontext null when no condition", "thread context wrapped in untrusted log markers", "thread context wrapped in closing marker", "threadcontext null when disabled", "no state directory created when disabled", "renders exactly one line only when absent", "open threads omitted from compact when flag set"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

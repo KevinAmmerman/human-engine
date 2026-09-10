@@ -15,6 +15,7 @@ import { createObservedStore } from "./lib/observed-store.js";
 import { createProactive } from "./lib/proactive.js";
 import { createDmProactive } from "./lib/dm-proactive.js";
 import { createMood } from "./lib/mood.js";
+import { createThreads } from "./lib/threads.js";
 import * as timing from "./lib/timing-engine.js";
 import { agentIdFromSessionKey } from "./lib/scope.js";
 
@@ -124,7 +125,8 @@ export default definePluginEntry({
     }
 
     const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, log });
-    const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence });
+    const threads = createThreads({ cfg, stateDir, socialMemory, observedStore, log });
+    const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
 
@@ -172,6 +174,7 @@ export default definePluginEntry({
       dmProactive.stop();
       clearAllBubbleTimers();
       socialMemory.stop();
+      threads.stop();
       log.info("human-engine: proactive tick stopped, naturalize timers cleared (gateway_stop)");
     }));
 
