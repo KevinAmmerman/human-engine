@@ -127,13 +127,17 @@ built-in LLM with no cloud dependencies.
   the flush path runs outside the agent turn's async context, so the host
   CANNOT infer the caller; without the param it falls back to a default
   agent and routes model/credentials wrongly.
-- **Every `llm.complete` call MUST also carry `allowAgentIdOverride: true`**
-  (hotfix 2026-09-10): the host throws `LLM_COMPLETION_NOT_AUTHORIZED`
-  („Plugin LLM completion cannot override the target agent") for plugin
-  calls with `agentId` but without that flag when no authority binding
-  exists — symptom was a fully mute agent (decide → fail-closed). Any NEW
-  llm.complete call site must carry BOTH `agentId` AND
-  `allowAgentIdOverride: true`.
+- **Plugin LLM authorization (hotfix 2026-09-10)**: the host throws
+  `LLM_COMPLETION_NOT_AUTHORIZED` („Plugin LLM completion cannot override
+  the target agent") for plugin llm.complete calls with `agentId` unless the
+  PLUGIN ENTRY declares the permission. The permission lives at the
+  openclaw.json ENTRY level — `"llm": {"allowAgentIdOverride": true}` as a
+  SIBLING of `config` inside `plugins.entries["human-engine"]` — NOT in the
+  plugin manifest and NOT in call params (both are ineffective; the call
+  sites still pass `allowAgentIdOverride: true` for documentation/forward-
+  compat). Symptom when missing: fully mute agent (decide → fail-closed).
+  Any NEW llm.complete call site must carry `agentId`; the entry-level
+  permission must never be removed.
 - **System fallback payloads are never captured** (Plans 540/007): the
   core can inject `NO_VISIBLE_REPLY_FALLBACK_TEXT`,
   `QUEUE_CAP_REJECTION_TEXT` or `⚠️ Agent run failed (model: …)` during
