@@ -580,6 +580,36 @@ describe("gate", () => {
       assert.equal(appends[0].text, body, "observed store keeps the original body, unlabeled");
     });
 
+    it("quoted-audio labeling: a labelled peek and the raw observed copy collapse to one line (plan 621 rev)", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-quoted-dup-"));
+      try {
+        const store = createObservedStore({ stateDir: tmpDir, log: { info() {}, warn() {}, debug() {} } });
+        let captured;
+        const qGate = makeGate({
+          observedStore: store,
+          engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+          readTranscript: async () => [],
+        });
+        const body = "[Audio]\nUser text:\nA\nTranscript:\nB";
+        await qGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: body }), makeDefaultCtx());
+        const observedRows = store.readObserved(CHAT_SK, 20);
+        assert.equal(observedRows.length, 1, "turn 1 persisted one observed row");
+        assert.equal(observedRows[0].text, body, "observed store keeps the raw body");
+
+        // turn 2: observed (raw) + peek (labelled) + hydrated must collapse to one line
+        await qGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "zweite frage" }), makeDefaultCtx());
+        const transcript = captured.transcript || [];
+        const quoted = transcript.filter((t) => String(t.text || "").includes("quoted earlier message"));
+        assert.equal(quoted.length, 1, "quoted member message appears exactly once across layers");
+        assert.ok(quoted[0].text.includes("A") && quoted[0].text.includes("B"), "the canonical labelled line survives dedup");
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
     it("speak-persisted inbound does not duplicate in the next decide transcript", async () => {
       const fs = await import("node:fs");
       const os = await import("node:os");

@@ -219,7 +219,7 @@ const MATRIX = [
   { id: 107, behavior: "the observed store is two-sided: a speak decision persists the inbound speaker/text exactly once, with no duplicate decide line",
     tags: ["speak persists the inbound message to the observed store", "speak-persisted inbound does not duplicate"] },
   { id: 108, behavior: "context hygiene: content that contains the untrusted log delimiters is escaped so it cannot break out of the block; host quoted-voice bodies are labelled as quoted context (raw body still persisted); the split prompt routes its transcript through the untrusted wrapper",
-    tags: ["escapes untrusted delimiter", "quoted-audio labeling", "split prompt wraps the transcript"] },
+    tags: ["escapes untrusted delimiter", "quoted-audio labeling", "split prompt wraps the transcript", "labelled peek and the raw observed"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);
