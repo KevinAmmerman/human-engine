@@ -526,6 +526,47 @@ describe("gate", () => {
       assert.ok(typeof appends[0].ts === "number");
     });
 
+    it("speak persists the inbound message to the observed store (two-sided)", async () => {
+      const appends = [];
+      const speakGate = makeGate({
+        observedStore: {
+          readObserved: () => [],
+          appendObserved: (sk, row) => appends.push({ sk, ...row }),
+        },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+
+      const result = await speakGate.onBeforeAgentReply(makeReplyEvent(), makeDefaultCtx());
+      assert.equal(result, undefined, "speak returns undefined");
+      assert.equal(appends.length, 1, "one observed-store row written on speak");
+      assert.equal(appends[0].sk, CHAT_SK);
+      assert.equal(appends[0].speaker, "Nico");
+      assert.equal(appends[0].text, "Hello bot");
+      assert.ok(typeof appends[0].ts === "number");
+    });
+
+    it("speak-persisted inbound does not duplicate in the next decide transcript", async () => {
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-speak-dup-"));
+      try {
+        const store = createObservedStore({ stateDir: tmpDir, log: { info() {}, warn() {}, debug() {} } });
+        let captured;
+        const speakGate = makeGate({
+          observedStore: store,
+          engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+        });
+        await speakGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "erste frage" }), makeDefaultCtx());
+        await speakGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: "zweite frage" }), makeDefaultCtx());
+        const texts = (captured.transcript || []).map((t) => t.text);
+        assert.equal(texts.filter((t) => t === "erste frage").length, 1, "persisted inbound appears exactly once");
+        assert.equal(texts[texts.length - 1], "zweite frage", "current message stays last");
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
     it("capture gap: silent media-only message persists with the marker to the observed store", async () => {
       const appends = [];
       const mediaGate = makeGate({

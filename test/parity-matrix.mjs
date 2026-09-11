@@ -212,6 +212,12 @@ const MATRIX = [
     tags: ["shared-outbox", "shared outbox"] },
   { id: 104, behavior: "dm-proactive durable ledger: a malformed [[fu: envelope fails closed in shadow and live (never delivers an ungated draft)",
     tags: ["fail closed", "malformed-fail-closed"] },
+  { id: 105, behavior: "schemaV2 extraction is observable: a warn fires once when every extracted person lacks relationship/open_threads/emotional_state; self-exclusion resolves the scope agentId",
+    tags: ["warns once when all extracted people lack v2 fields", "self-exclusion uses the scope agentId"] },
+  { id: 106, behavior: "open thread owner enum (agent/member/none) with awaiting mirror, resolved-status skip, and lastUpdateTs → lastTs → lastSeenTs expiry precedence",
+    tags: ["classifies empty whooweswhat as owner/awaiting none", "excludes a thread whose memory status is resolved", "lastupdatets takes precedence"] },
+  { id: 107, behavior: "the observed store is two-sided: a speak decision persists the inbound speaker/text exactly once, with no duplicate decide line",
+    tags: ["speak persists the inbound message to the observed store", "speak-persisted inbound does not duplicate"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

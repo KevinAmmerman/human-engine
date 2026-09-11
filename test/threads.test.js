@@ -315,6 +315,53 @@ describe("threads", { concurrency: false }, () => {
     });
   });
 
+  describe("owner enum + status + lastUpdateTs (plan 620)", () => {
+    function snapshotWith(openThreads, lastSeenTs) {
+      const profile = { people: { Nico: { open_threads: openThreads, lastSeenTs: lastSeenTs ?? Date.now() - 1000 } } };
+      const threads = createThreads({
+        cfg: makeCfg(),
+        stateDir: tmpDir,
+        socialMemory: makeSocialMemory(profile),
+        observedStore: observed,
+        log,
+      });
+      return threads.snapshotFor(SK, "test-agent");
+    }
+
+    it("classifies empty whoOwesWhat as owner/awaiting none", () => {
+      const snap = snapshotWith([{ topic: "Offene Frage", lastExchange: "wer weiss?", whoOwesWhat: "" }]);
+      const t = snap.openTopics.find((x) => x.topic === "Offene Frage");
+      assert.ok(t, "no-owner thread kept");
+      assert.equal(t.owner, "none", "owner enum is none");
+      assert.equal(t.awaiting, "none", "awaiting mirrors owner");
+    });
+
+    it("classifies a non-agent whoOwesWhat as owner member", () => {
+      const snap = snapshotWith([{ topic: "Leihgabe", lastExchange: "Basti bringt sie mit", whoOwesWhat: "Basti" }]);
+      const t = snap.openTopics.find((x) => x.topic === "Leihgabe");
+      assert.equal(t.owner, "member");
+      assert.equal(t.awaiting, "member");
+    });
+
+    it("excludes a thread whose memory status is resolved", () => {
+      const snap = snapshotWith([
+        { topic: "Erledigt", lastExchange: "done", whoOwesWhat: "Yuki", status: "resolved" },
+        { topic: "Noch offen", lastExchange: "todo", whoOwesWhat: "Yuki" },
+      ]);
+      assert.ok(!snap.openTopics.some((x) => x.topic === "Erledigt"), "resolved thread excluded");
+      assert.ok(snap.openTopics.some((x) => x.topic === "Noch offen"), "open thread kept");
+    });
+
+    it("lastUpdateTs takes precedence over lastTs and person lastSeenTs for expiry", () => {
+      const now = Date.now();
+      const freshByUpdate = { topic: "Frisch per lastUpdateTs", lastExchange: "x", whoOwesWhat: "Yuki", lastUpdateTs: now - 1000 };
+      const staleByUpdate = { topic: "Alt per lastUpdateTs", lastExchange: "y", whoOwesWhat: "Yuki", lastUpdateTs: now - 20 * 86400e3, lastTs: now - 1000 };
+      const snap = snapshotWith([freshByUpdate, staleByUpdate], now - 20 * 86400e3);
+      assert.ok(snap.openTopics.some((x) => x.topic === "Frisch per lastUpdateTs"), "fresh lastUpdateTs beats stale lastSeenTs");
+      assert.ok(!snap.openTopics.some((x) => x.topic === "Alt per lastUpdateTs"), "stale lastUpdateTs beats fresh lastTs");
+    });
+  });
+
   describe("off-by-default", () => {
     it("threads.enabled:false → contextFor always null, zero files, zero injection", () => {
       const disabled = createThreads({

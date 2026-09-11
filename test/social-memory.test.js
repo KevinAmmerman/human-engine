@@ -1014,5 +1014,59 @@ describe("social-memory", { concurrency: false }, () => {
       assert.equal(p.relationship, undefined, "v1 path does not carry relationship");
       assert.equal(p.open_threads, undefined, "v1 path does not carry open_threads");
     });
+
+    it("schemaV2:true warns once when all extracted people lack v2 fields", async () => {
+      const warns = [];
+      const log = { info() {}, warn(m) { warns.push(m); }, debug() {} };
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Kevin: { facts: ["climbs"] }, Berta: { facts: ["x"] } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2, schemaV2: true }), llm, stateDir: tmpDir, log });
+      const scope = "agentV2::empty-fields";
+      sm.ingest(scope, { speaker: "Kevin", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Kevin", text: "there", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      const emptyWarns = warns.filter((w) => w.includes("memory-v2 fields empty"));
+      assert.equal(emptyWarns.length, 1, "one warn line emitted");
+      assert.ok(emptyWarns[0].includes("agent=agentV2"), "warn names the scope agentId");
+      assert.ok(emptyWarns[0].includes("people=2"), "warn counts the extracted people");
+    });
+
+    it("schemaV2:true does not warn when a v2 field is present", async () => {
+      const warns = [];
+      const log = { info() {}, warn(m) { warns.push(m); }, debug() {} };
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Kevin: { facts: ["climbs"], relationship: "friend" } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg: makeCfg({ extractEvery: 2, schemaV2: true }), llm, stateDir: tmpDir, log });
+      const scope = "agentV2::has-fields";
+      sm.ingest(scope, { speaker: "Kevin", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Kevin", text: "there", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      assert.equal(warns.filter((w) => w.includes("memory-v2 fields empty")).length, 0, "no warn when fields present");
+    });
+
+    it("schemaV2:true self-exclusion uses the scope agentId, not the LLM payload", async () => {
+      const cfg = makeCfg({ extractEvery: 2, schemaV2: true });
+      cfg.agentName = "GlobalAgent";
+      cfg.agentProfiles = { "agent-a": { agentName: "Alice" } };
+      const llm = {
+        complete: mock.fn(async () => ({
+          text: JSON.stringify({ people: { Alice: { facts: ["claims to be a person"] }, Bob: { facts: ["real"], relationship: "friend" } } }),
+        })),
+      };
+      sm = createSocialMemory({ cfg, llm, stateDir: tmpDir, log: makeLog() });
+      const scope = "agent-a::self-scope";
+      sm.ingest(scope, { speaker: "Bob", text: "hi", ts: 100 });
+      sm.ingest(scope, { speaker: "Bob", text: "there", ts: 101 });
+      await new Promise(r => setTimeout(r, 50));
+      const profile = sm.getOrLoadProfile(scope);
+      assert.ok(!profile.people.Alice, "scope-agent self entry filtered");
+      assert.ok(profile.people.Bob, "real person kept");
+    });
   });
 });
