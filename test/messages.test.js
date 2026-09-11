@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { toServiceMessages, isCommand } from "../lib/messages.js";
+import { toServiceMessages, isCommand, splitQuotedAudioBody } from "../lib/messages.js";
 
 describe("messages", () => {
   describe("toServiceMessages", () => {
@@ -163,6 +163,36 @@ describe("messages", () => {
     });
     it("returns false for empty string", () => {
       assert.equal(isCommand(""), false);
+    });
+  });
+
+  describe("splitQuotedAudioBody (plan 621)", () => {
+    it("splits the host User text/Transcript body into userText and quotedTranscript", () => {
+      const out = splitQuotedAudioBody("[Audio]\nUser text:\nhow icy is the north ridge?\nTranscript:\nnordgrat ist vereist");
+      assert.equal(out.userText, "how icy is the north ridge?");
+      assert.equal(out.quotedTranscript, "nordgrat ist vereist");
+    });
+
+    it("falls back to the whole text as userText when the labelled pattern is absent", () => {
+      const out = splitQuotedAudioBody("just a plain message");
+      assert.equal(out.userText, "just a plain message");
+      assert.equal(out.quotedTranscript, "");
+    });
+
+    it("falls back when only one of the two labels is present", () => {
+      assert.deepEqual(splitQuotedAudioBody("User text:\nonly this"), { userText: "User text:\nonly this", quotedTranscript: "" });
+      assert.deepEqual(splitQuotedAudioBody("Transcript:\nonly that"), { userText: "Transcript:\nonly that", quotedTranscript: "" });
+    });
+
+    it("caps both sections at 2000 chars", () => {
+      const out = splitQuotedAudioBody("User text:\n" + "u".repeat(3000) + "\nTranscript:\n" + "t".repeat(3000));
+      assert.equal(out.userText.length, 2000);
+      assert.equal(out.quotedTranscript.length, 2000);
+    });
+
+    it("handles null/undefined input safely", () => {
+      assert.deepEqual(splitQuotedAudioBody(null), { userText: "", quotedTranscript: "" });
+      assert.deepEqual(splitQuotedAudioBody(undefined), { userText: "", quotedTranscript: "" });
     });
   });
 });

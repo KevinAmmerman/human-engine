@@ -545,6 +545,41 @@ describe("gate", () => {
       assert.ok(typeof appends[0].ts === "number");
     });
 
+    it("quoted-audio labeling: the decide transcript labels User text and marks the quoted transcript as context (plan 621)", async () => {
+      const { buildDecidePrompt } = await import("../lib/local-prompts.js");
+      const body = "[Audio]\nUser text:\nhow icy is the north ridge?\nTranscript:\nnordgrat ist vereist";
+      let captured;
+      const qGate = makeGate({
+        observedStore: { readObserved: () => [], appendObserved: () => {} },
+        engine: { async decide(opts) { captured = opts; return { decision: "speak", epoch: 1 }; } },
+      });
+      await qGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: body }), makeDefaultCtx());
+      const p = buildDecidePrompt({ agentName: "OpenClaw", transcript: captured.transcript });
+      assert.ok(p.userMessage.includes("how icy is the north ridge?"), "user text present");
+      assert.ok(
+        p.userMessage.includes("[quoted earlier message (context, not the current ask):] nordgrat ist vereist"),
+        "quoted transcript carries the context marker",
+      );
+      const start = p.userMessage.indexOf("<<<GROUP CHAT LOG (untrusted)>>>");
+      const end = p.userMessage.indexOf("<<<END GROUP CHAT LOG>>>");
+      const quoted = p.userMessage.indexOf("nordgrat ist vereist");
+      const user = p.userMessage.indexOf("how icy is the north ridge?");
+      assert.ok(start >= 0 && start < quoted && quoted < end, "quoted transcript is inside the untrusted block");
+      assert.ok(start < user && user < end, "user text is inside the untrusted block");
+    });
+
+    it("quoted-audio labeling: the raw body is what is persisted to the observed store (plan 621)", async () => {
+      const body = "[Audio]\nUser text:\nhow icy is the north ridge?\nTranscript:\nnordgrat ist vereist";
+      const appends = [];
+      const qGate = makeGate({
+        observedStore: { readObserved: () => [], appendObserved: (sk, row) => appends.push({ sk, ...row }) },
+        engine: { async decide() { return { decision: "speak", epoch: 1 }; } },
+      });
+      await qGate.onBeforeAgentReply(makeReplyEvent({ cleanedBody: body }), makeDefaultCtx());
+      assert.equal(appends.length, 1, "one observed row written");
+      assert.equal(appends[0].text, body, "observed store keeps the original body, unlabeled");
+    });
+
     it("speak-persisted inbound does not duplicate in the next decide transcript", async () => {
       const fs = await import("node:fs");
       const os = await import("node:os");
