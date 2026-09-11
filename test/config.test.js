@@ -24,7 +24,7 @@ describe("config", () => {
     assert.deepEqual(cfg.humanize, { maxBubbles: 5, temperature: 0.3, requireFaithfulSplit: true });
     assert.deepEqual(cfg.timing, { typingWpm: 40, maxTypingMs: 60000, maxBubbleGapMs: 3000, nightMode: true });
     assert.deepEqual(cfg.naturalize, { disableDM: false, speakEpochTtlMs: 300000 });
-    assert.deepEqual(cfg.dmProactive, { agents: [], enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, dayFitActivityPath: "", inferredCapPerDay: 2 });
+    assert.deepEqual(cfg.dmProactive, { agents: [], enabled: false, shadow: true, budgetPerDay: 2, minGapMinutes: 180, quietStart: "23:00", quietEnd: "07:00", careBudgetPerDay: 1, dayFitReduceHours: 4, dayFitPauseHours: 12, dayFitActivityPath: "", inferredCapPerDay: 2, topicMaxAttempts: 3, topicCooldownMinutes: 240, openAttemptCooldownMinutes: 240 });
     assert.deepEqual(cfg.mood, { enabled: false, groupsEnabled: false, groupsRefreshEvery: 10, refreshEvery: 5, refreshMinutes: 0, decayHours: 6, maxShiftPerUpdate: 1 });
     assert.deepEqual(cfg.threads, { enabled: false, absenceThresholdHours: 24, topicExpiryDays: 14 });
     assert.deepEqual(cfg.selfVoice, { enabled: false, refreshMinutes: 60, minVolume: 30 });
@@ -264,6 +264,28 @@ describe("config", () => {
     const agentCfg = resolveAgentConfig(cfg, "agent-a");
     assert.equal(agentCfg.dmProactive.dayFitActivityPath, "/agent/path");
     assert.equal(resolveAgentConfig(cfg, "other").dmProactive.dayFitActivityPath, "/global/path");
+  });
+
+  it("dmProactive topic-ledger defaults resolve and deep-merge (plan 619)", () => {
+    const d = defaultConfig().dmProactive;
+    assert.equal(d.topicMaxAttempts, 3);
+    assert.equal(d.topicCooldownMinutes, 240);
+    assert.equal(d.openAttemptCooldownMinutes, 240);
+
+    const cfg = resolveConfig({ pluginConfig: { dmProactive: { topicMaxAttempts: 1, topicCooldownMinutes: 30 } } });
+    assert.equal(cfg.dmProactive.topicMaxAttempts, 1, "override wins");
+    assert.equal(cfg.dmProactive.topicCooldownMinutes, 30, "override wins");
+    assert.equal(cfg.dmProactive.openAttemptCooldownMinutes, 240, "sibling default survives");
+    assert.equal(cfg.dmProactive.shadow, true, "unrelated dmProactive default survives");
+  });
+
+  it("dmProactive topic-ledger defaults are agent-overlayable (plan 619)", () => {
+    const cfg = resolveConfig({ pluginConfig: { dmProactive: { topicMaxAttempts: 3 }, agentProfiles: { "agent-a": { dmProactive: { topicMaxAttempts: 5, openAttemptCooldownMinutes: 60 } } } } });
+    const a = resolveAgentConfig(cfg, "agent-a");
+    assert.equal(a.dmProactive.topicMaxAttempts, 5, "profile override wins");
+    assert.equal(a.dmProactive.openAttemptCooldownMinutes, 60, "profile override wins");
+    assert.equal(a.dmProactive.topicCooldownMinutes, 240, "sibling global default survives");
+    assert.equal(resolveAgentConfig(cfg, "other").dmProactive.topicMaxAttempts, 3, "other agents keep the global default");
   });
 
   it("language defaults to de and is agent-overlayable (plan 029)", () => {

@@ -6,6 +6,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createDmProactive } from "../lib/dm-proactive.js";
 import { parseFollowupEnvelope, evaluateDmGate, candidateFromEnvelope } from "../lib/dm-gate-core.js";
+import { createInitiativeStore } from "../lib/initiative-store.js";
+import { createProactivityOutbox } from "../lib/proactivity-outbox.js";
 import { localDayKey } from "../lib/proactive.js";
 import { setRng, resetRng } from "../lib/proactive.js";
 import * as state from "../lib/state.js";
@@ -121,8 +123,10 @@ function makeDm(overrides = {}) {
     log,
     now: () => clock.t,
     activityFilePath: overrides.activityFilePath,
+    ledger: overrides.ledger,
+    outbox: overrides.outbox,
   });
-  return { dm, cfg, clock, runtime, socialMemory, log, stateDir };
+  return { dm, cfg, clock, runtime, socialMemory, log, stateDir, ledger: overrides.ledger, outbox: overrides.outbox };
 }
 
 function writeState(stateDir, data) {
@@ -204,17 +208,17 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(readLog(stateDir).length, 0);
     });
 
-    it("malformed envelope with [[fu: prefix in SHADOW → envelope stripped, draft delivered, malformed-envelope logged (Plan 546 AMENDMENT 3)", async () => {
+    it("malformed envelope with [[fu: prefix in SHADOW → cancel (fail closed), malformed-envelope logged, never delivered ungated (Plan 619)", async () => {
       const { dm, stateDir, log } = track(makeDm());
       const broken = "[[fu:{\"id\":broken…}]]\nDraft text";
       const result = await dm.onMessageSending({ content: broken }, { sessionKey: SK });
-      assert.deepEqual(result, { content: "Draft text" }, "shadow must strip the envelope and deliver only the draft (never raw metadata)");
+      assert.deepEqual(result, { cancel: true }, "shadow must fail closed — never deliver an ungated draft");
       const entries = readLog(stateDir);
       assert.equal(entries.length, 1, "the malformed attempt must be logged");
       assert.equal(entries[0].gatePassed, false, "malformed envelope never passes the gate");
       assert.ok(entries[0].gate.reasons.includes("malformed-envelope"), entries[0].gate.reasons.join(","));
       assert.deepEqual(entries[0].gateVerdicts, {}, "no gate verdicts are computed for an unparseable envelope");
-      assert.equal(entries[0].suggestedText, "Draft text", "the draft is preserved for the user experience");
+      assert.equal(entries[0].suggestedText, "Draft text", "the draft is preserved in the log for review only");
     });
 
     it("malformed envelope with [[fu: prefix in LIVE → cancel + malformed-envelope logged, never delivered (Plan 546 AMENDMENT 3)", async () => {
@@ -696,6 +700,19 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(parsed.ok, true);
     });
 
+    it("Plan 619: optional topicKey/owner tolerated when valid, rejected when malformed; absent = valid", () => {
+      const ok = parseFollowupEnvelope(envelopeText(makeEnvelope({ topicKey: "tk-abcdef0123456789", owner: "agent" })));
+      assert.equal(ok.ok, true);
+      assert.equal(ok.envelope.topicKey, "tk-abcdef0123456789");
+      assert.equal(ok.envelope.owner, "agent");
+      assert.equal(parseFollowupEnvelope(envelopeText()).ok, true, "absent topicKey/owner stays valid (backward compatible)");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ owner: "user" }))).ok, true);
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ topicKey: "tk-x" }))).error, "bad-topic-key");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ topicKey: 42 }))).error, "bad-topic-key");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ owner: "robot" }))).error, "bad-owner");
+      assert.equal(parseFollowupEnvelope(envelopeText(makeEnvelope({ owner: 5 }))).error, "bad-owner");
+    });
+
     it("content without an envelope line returns null (normal agent text)", () => {
       assert.equal(parseFollowupEnvelope("Ganz normale Antwort ohne Envelope."), null);
       assert.equal(parseFollowupEnvelope(""), null);
@@ -753,6 +770,17 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.equal(candidate.sessionKey, SK);
       assert.equal(candidate.agentId, "hori-wa");
       assert.deepEqual(candidate.dueWindow, parsed.envelope.dueWindow);
+    });
+
+    it("Plan 619: candidateFromEnvelope copies topicKey/owner (absent stays undefined)", () => {
+      const withTopic = parseFollowupEnvelope(envelopeText(makeEnvelope({ topicKey: "tk-abcdef0123456789", owner: "user" })));
+      const c1 = candidateFromEnvelope(withTopic.envelope, withTopic.draftText, SK, "hori-wa");
+      assert.equal(c1.topicKey, "tk-abcdef0123456789");
+      assert.equal(c1.owner, "user");
+      const plain = parseFollowupEnvelope(envelopeText());
+      const c2 = candidateFromEnvelope(plain.envelope, plain.draftText, SK, "hori-wa");
+      assert.equal(c2.topicKey, undefined);
+      assert.equal(c2.owner, undefined);
     });
   });
 
@@ -1016,7 +1044,7 @@ describe("dm-proactive", { concurrency: false }, () => {
       });
       const multiCfg = { ...makeCfg(), agents: ["hori-wa", "kletter"] };
       const { dm, stateDir } = track(makeDm({ cfg: multiCfg }));
-      const event = { to: "telegram:" + UID, content: envelopeText(makeEnvelope({ id: "fu-017-derive" })), metadata: { channel: "telegram" } };
+      const event = { to: "telegram:" + UID, content: envelopeText(makeEnvelope({ id: "fu-20260911-derive" })), metadata: { channel: "telegram" } };
       const result = await dm.onMessageSending(event, { channelId: "telegram" });
       assert.deepEqual(result, { content: "Kommt ihr heute noch am Projekt voran?" }, "unambiguous owner across two buckets must resolve");
       const entries = readLog(stateDir);
@@ -1175,6 +1203,181 @@ describe("dm-proactive", { concurrency: false }, () => {
       const res = evaluateDmGate(candidateFromEnvelope(makeEnvelope(), "draft", SK, "hori-wa"), { dcfg: BASE_DM, now: T0 });
       assert.equal(res.pass, true, res.reasons.join(","));
       assert.equal(res.verdicts["min-gap"], true);
+    });
+
+    function topicCand(overrides = {}) {
+      return candidateFromEnvelope(
+        makeEnvelope({ id: "fu-20260911-topic-1", topicKey: "tk-abcdef0123456789", ...overrides }),
+        "draft",
+        SK,
+        "hori-wa",
+      );
+    }
+
+    it("Plan 619: topic-cooldown verdict blocks while the ledger cooldown is in the future", () => {
+      const blocked = evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0, topicState: { attempts: 0, cooldownUntil: T0 + 1000, openAttemptAt: 0 } });
+      assert.equal(blocked.verdicts["topic-cooldown"], false);
+      assert.ok(blocked.reasons.includes("topic-cooldown"), blocked.reasons.join(","));
+      const clear = evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0, topicState: { attempts: 0, cooldownUntil: T0 - 1, openAttemptAt: 0 } });
+      assert.equal(clear.verdicts["topic-cooldown"], true);
+    });
+
+    it("Plan 619: topic-attempts verdict blocks at topicMaxAttempts (default 3, per-agent override)", () => {
+      const blocked = evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0, topicState: { attempts: 3, cooldownUntil: 0, openAttemptAt: 0 } });
+      assert.equal(blocked.verdicts["topic-attempts"], false);
+      assert.ok(blocked.reasons.includes("topic-attempts"), blocked.reasons.join(","));
+      const below = evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0, topicState: { attempts: 2, cooldownUntil: 0, openAttemptAt: 0 } });
+      assert.equal(below.verdicts["topic-attempts"], true);
+      const custom = evaluateDmGate(topicCand(), { dcfg: { ...BASE_DM, topicMaxAttempts: 1 }, now: T0, topicState: { attempts: 1, cooldownUntil: 0, openAttemptAt: 0 } });
+      assert.equal(custom.verdicts["topic-attempts"], false);
+    });
+
+    it("Plan 619: topic-open verdict blocks a recent open attempt within openAttemptCooldownMinutes", () => {
+      const blocked = evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0, topicState: { attempts: 1, cooldownUntil: 0, openAttemptAt: T0 - 60 * 1000 } });
+      assert.equal(blocked.verdicts["topic-open"], false);
+      assert.ok(blocked.reasons.includes("topic-open"), blocked.reasons.join(","));
+      const clear = evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0, topicState: { attempts: 1, cooldownUntil: 0, openAttemptAt: T0 - 300 * 60 * 1000 } });
+      assert.equal(clear.verdicts["topic-open"], true);
+    });
+
+    it("Plan 619: agent-owed verdict blocks owner=agent but allows user/absent", () => {
+      const owned = evaluateDmGate(topicCand({ owner: "agent" }), { dcfg: BASE_DM, now: T0 });
+      assert.equal(owned.verdicts["agent-owed"], false);
+      assert.ok(owned.reasons.includes("agent-owed"), owned.reasons.join(","));
+      assert.equal(evaluateDmGate(topicCand({ owner: "user" }), { dcfg: BASE_DM, now: T0 }).verdicts["agent-owed"], true);
+      assert.equal(evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0 }).verdicts["agent-owed"], true, "absent owner fails open");
+    });
+
+    it("Plan 619: topic gates are skipped entirely for candidates without a topicKey (fail-open)", () => {
+      const res = evaluateDmGate(candidateFromEnvelope(makeEnvelope(), "draft", SK, "hori-wa"), {
+        dcfg: BASE_DM, now: T0, topicState: { attempts: 9, cooldownUntil: T0 + 999999, openAttemptAt: T0 },
+      });
+      assert.equal(res.verdicts["topic-cooldown"], undefined);
+      assert.equal(res.verdicts["topic-attempts"], undefined);
+      assert.equal(res.verdicts["topic-open"], undefined);
+      assert.equal(res.verdicts["agent-owed"], undefined);
+      assert.equal(res.pass, true, res.reasons.join(","));
+    });
+
+    it("Plan 619: topicKey set with null topicState fails open (backward compatible)", () => {
+      const res = evaluateDmGate(topicCand(), { dcfg: BASE_DM, now: T0 });
+      assert.equal(res.verdicts["topic-cooldown"], true);
+      assert.equal(res.verdicts["topic-attempts"], true);
+      assert.equal(res.verdicts["topic-open"], true);
+      assert.equal(res.pass, true, res.reasons.join(","));
+    });
+  });
+
+  describe("durable topic ledger integration (Plan 619)", () => {
+    const TOPIC = "tk-ledger0123456789";
+    const TOPIC_TEXT = "Projekt Meilenstein besprechen";
+
+    function makeLedgerDm(overrides = {}) {
+      const stateDir = overrides.stateDir ?? tmpDir;
+      const ledger = overrides.ledger ?? createInitiativeStore({ stateDir });
+      const outbox = overrides.outbox ?? createProactivityOutbox({ stateDir });
+      return makeDm({
+        ...overrides,
+        stateDir,
+        ledger,
+        outbox,
+        cfg: makeCfg({ minGapMinutes: 0, topicMaxAttempts: 99, topicCooldownMinutes: 0, openAttemptCooldownMinutes: 0, ...(overrides.cfg || {}) }),
+      });
+    }
+
+    function topicEnvelope(id, overrides = {}) {
+      return envelopeText(makeEnvelope({ id, topicKey: TOPIC, ...overrides }), TOPIC_TEXT);
+    }
+
+    it("Plan 619: same topic on different days is blocked by topic-attempts after the cap", async () => {
+      const { dm, clock, ledger, stateDir } = track(makeLedgerDm({ cfg: { topicMaxAttempts: 1, topicCooldownMinutes: 0, openAttemptCooldownMinutes: 0 } }));
+      const first = await dm.onMessageSending({ content: topicEnvelope("fu-20260911-ledger-a") }, { sessionKey: SK });
+      assert.deepEqual(first, { content: TOPIC_TEXT }, "first gate-pass shadow delivery strips the envelope");
+      clock.t += 24 * 60 * 60 * 1000; // next day: cooldown/open cleared, cap already reached
+      const second = await dm.onMessageSending({ content: topicEnvelope("fu-20260911-ledger-b") }, { sessionKey: SK });
+      assert.deepEqual(second, { cancel: true }, "second delivery of the same topic must be blocked");
+      const entries = readLog(stateDir);
+      assert.ok(entries[1].gate.reasons.includes("topic-attempts"), entries[1].gate.reasons.join(","));
+      assert.equal(ledger.findByTopicKey(SCOPE, TOPIC).attempts, 1, "blocked delivery must not bump the attempt counter");
+    });
+
+    it("Plan 619: an active topic-cooldown blocks a same-topic retry", async () => {
+      const { dm, clock, stateDir } = track(makeLedgerDm({ cfg: { topicMaxAttempts: 99, topicCooldownMinutes: 240, openAttemptCooldownMinutes: 0 } }));
+      await dm.onMessageSending({ content: topicEnvelope("fu-20260911-cd-a") }, { sessionKey: SK });
+      clock.t += 60 * 60 * 1000; // 1 h later, still inside the 240-min cooldown
+      const second = await dm.onMessageSending({ content: topicEnvelope("fu-20260911-cd-b") }, { sessionKey: SK });
+      assert.deepEqual(second, { cancel: true });
+      const entries = readLog(stateDir);
+      assert.ok(entries[1].gate.reasons.includes("topic-cooldown"), entries[1].gate.reasons.join(","));
+      assert.equal(entries[1].gate.verdicts["topic-cooldown"], false);
+    });
+
+    it("Plan 619: a recent unanswered open attempt blocks retry via topic-open", async () => {
+      const { dm, clock, stateDir } = track(makeLedgerDm({ cfg: { topicMaxAttempts: 99, topicCooldownMinutes: 0, openAttemptCooldownMinutes: 240 } }));
+      await dm.onMessageSending({ content: topicEnvelope("fu-20260911-open-a") }, { sessionKey: SK });
+      clock.t += 60 * 60 * 1000;
+      const second = await dm.onMessageSending({ content: topicEnvelope("fu-20260911-open-b") }, { sessionKey: SK });
+      assert.deepEqual(second, { cancel: true });
+      const entries = readLog(stateDir);
+      assert.ok(entries[1].gate.reasons.includes("topic-open"), entries[1].gate.reasons.join(","));
+      assert.equal(entries[1].gate.verdicts["topic-open"], false);
+    });
+
+    it("Plan 619: agent-owed candidate is skipped; a user-owned one passes", async () => {
+      const { dm, stateDir } = track(makeLedgerDm());
+      const owned = await dm.onMessageSending({ content: topicEnvelope("fu-20260911-owed-a", { owner: "agent" }) }, { sessionKey: SK });
+      assert.deepEqual(owned, { cancel: true });
+      let entries = readLog(stateDir);
+      assert.ok(entries[0].gate.reasons.includes("agent-owed"), entries[0].gate.reasons.join(","));
+      const userOwned = await dm.onMessageSending({ content: topicEnvelope("fu-20260911-owed-b", { owner: "user" }) }, { sessionKey: SK });
+      assert.deepEqual(userOwned, { content: TOPIC_TEXT });
+      entries = readLog(stateDir);
+      assert.equal(entries[1].gate.pass, true, entries[1].gate.reasons.join(","));
+    });
+
+    it("Plan 619: repeated gate-pass deliveries upsert ONE ledger task and increment attempts", async () => {
+      const { dm, clock, ledger } = track(makeLedgerDm());
+      await dm.onMessageSending({ content: topicEnvelope("fu-20260911-up-1") }, { sessionKey: SK });
+      clock.t += 60 * 1000;
+      await dm.onMessageSending({ content: topicEnvelope("fu-20260911-up-2") }, { sessionKey: SK });
+      const st = ledger.load(SCOPE);
+      const topics = (st.tasks || []).filter((t) => t.topicKey === TOPIC);
+      assert.equal(topics.length, 1, "topic upserted, not duplicated");
+      assert.equal(topics[0].attempts, 2, "both gate-pass attempts counted");
+      assert.equal(topics[0].status, "open");
+      assert.ok(topics[0].lastActAt > 0, "lastActAt stamped");
+    });
+
+    it("Plan 619: a matching inbound reply resolves the topic and clears topic-open/cooldown", async () => {
+      const { dm, clock, ledger } = track(makeLedgerDm({ cfg: { topicCooldownMinutes: 240, openAttemptCooldownMinutes: 240, topicMaxAttempts: 99 } }));
+      await dm.onMessageSending({ content: topicEnvelope("fu-20260911-res-1") }, { sessionKey: SK });
+      assert.equal(ledger.findByTopicKey(SCOPE, TOPIC).status, "open");
+      clock.t += 60 * 60 * 1000;
+      // Reply shares >= 2 content tokens with the topic text (Projekt, Meilenstein).
+      await dm.onMessageReceived({ content: "Ja, den Projekt Meilenstein besprechen wir morgen." }, { sessionKey: SK });
+      const t = ledger.findByTopicKey(SCOPE, TOPIC);
+      assert.equal(t.status, "resolved", "matching reply resolves the open topic");
+      assert.equal(typeof t.resolvedAt, "number");
+      const res = dm.evaluateGate(candidateFromEnvelope(makeEnvelope({ id: "fu-20260911-res-2", topicKey: TOPIC }), TOPIC_TEXT, SK, "hori-wa"));
+      assert.ok(!res.reasons.includes("topic-open"), res.reasons.join(","));
+      assert.ok(!res.reasons.includes("topic-cooldown"), res.reasons.join(","));
+    });
+
+    it("Plan 619: an unrelated inbound does NOT resolve the topic (token-overlap threshold)", async () => {
+      const { dm, clock, ledger } = track(makeLedgerDm());
+      await dm.onMessageSending({ content: topicEnvelope("fu-20260911-unrel") }, { sessionKey: SK });
+      clock.t += 60 * 1000;
+      await dm.onMessageReceived({ content: "Kurze Frage zum Wetter morgen." }, { sessionKey: SK });
+      assert.equal(ledger.findByTopicKey(SCOPE, TOPIC).status, "open", "unrelated reply must not resolve the topic");
+    });
+
+    it("Plan 619: gate-pass records the shared outbox; gate-fail never does", async () => {
+      const { dm, outbox } = track(makeLedgerDm());
+      await dm.onMessageSending({ content: topicEnvelope("fu-20260911-ob-1") }, { sessionKey: SK });
+      assert.equal(outbox.lastOutbound(SCOPE), T0, "outbox recorded for the scope with the send ts");
+      const { dm: dm2, outbox: ob2 } = track(makeLedgerDm({ stateDir: path.join(tmpDir, "ob-gatefail"), cfg: { topicMaxAttempts: 0 } }));
+      await dm2.onMessageSending({ content: topicEnvelope("fu-20260911-ob-2") }, { sessionKey: SK });
+      assert.equal(ob2.lastOutbound(SCOPE), 0, "a gate-fail must never record a delivered outbox entry");
     });
   });
 
@@ -1360,11 +1563,11 @@ describe("dm-proactive", { concurrency: false }, () => {
     it("check blocks on topic-cooldown from the initiative ledger", async () => {
       const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-ledger-"));
       writeInitiativeState(ledgerDir, "hori-wa", SK, [
-        { id: "t-cd", topicKey: "tk-cd", kind: "task", text: "cooldown topic", status: "open", attempts: 0, lastActAt: 0, createdAt: 1, dueAt: null },
+        { id: "t-cd", topicKey: "tk-cd12345678", kind: "task", text: "cooldown topic", status: "open", attempts: 0, lastActAt: 0, createdAt: 1, dueAt: null },
       ], { "t-cd": { until: T0 + 3600000 } });
       const { code, stdout } = await runGate(
         ["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--session", SK, "--now", String(T0)],
-        envelopeText(makeEnvelope({ topicKey: "tk-cd" })),
+        envelopeText(makeEnvelope({ topicKey: "tk-cd12345678" })),
         { HUMAN_ENGINE_STATE_DIR: ledgerDir },
       );
       assert.equal(code, 1);
@@ -1376,11 +1579,11 @@ describe("dm-proactive", { concurrency: false }, () => {
     it("check blocks on topic-attempts from the initiative ledger", async () => {
       const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-ledger-"));
       writeInitiativeState(ledgerDir, "hori-wa", SK, [
-        { id: "t-at", topicKey: "tk-at", kind: "task", text: "attempt cap topic", status: "open", attempts: 3, lastActAt: 0, createdAt: 1, dueAt: null },
+        { id: "t-at", topicKey: "tk-at12345678", kind: "task", text: "attempt cap topic", status: "open", attempts: 3, lastActAt: 0, createdAt: 1, dueAt: null },
       ]);
       const { code, stdout } = await runGate(
         ["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--session", SK, "--now", String(T0)],
-        envelopeText(makeEnvelope({ topicKey: "tk-at" })),
+        envelopeText(makeEnvelope({ topicKey: "tk-at12345678" })),
         { HUMAN_ENGINE_STATE_DIR: ledgerDir },
       );
       assert.equal(code, 1);

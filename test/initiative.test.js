@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInitiative, evaluateInitiative } from "../lib/initiative.js";
+import { createInitiativeStore } from "../lib/initiative-store.js";
 import { localDayKey as localDayKeyFor } from "../lib/proactive.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "initiative-test-"));
@@ -800,6 +801,31 @@ describe("initiative", { concurrency: false }, () => {
     assert.equal(second.tasks.length, 1, "same topic not duplicated");
     assert.equal(second.tasks[0].topicKey, tk, "topicKey stable across extraction dates");
     assert.equal(second.tasks[0].lastUpdateTs, later, "existing topic merged (lastUpdateTs refreshed)");
+  });
+
+  // Plan 619: index.js shares ONE initiative store between the initiative
+  // engine and dm-proactive. The injected-store path must behave exactly like
+  // the internal-store path (same persisted state), and the instance must be
+  // the one handed in so both writers share the in-memory cache.
+  it("injected store path persists identically to the omitted-store path (plan 619)", async () => {
+    const tasks = [{ text: "shared store task", kind: "task" }];
+
+    const dirInternal = mkdtemp(tmpDir, "injected-ctrl-");
+    const iInternal = createInitiative({ cfg: makeCfg(), stateDir: dirInternal, llm: makeLlm({ tasks, directives: [], done: [], drop: [] }) });
+    await iInternal.onMessageReceived({ text: "merk dir: shared store task" }, groupCtx());
+    const internalState = loadStateIn(dirInternal);
+
+    const dirInjected = mkdtemp(tmpDir, "injected-store-");
+    const shared = createInitiativeStore({ stateDir: dirInjected });
+    const iInjected = createInitiative({ cfg: makeCfg(), stateDir: dirInjected, llm: makeLlm({ tasks, directives: [], done: [], drop: [] }), store: shared });
+    assert.equal(iInjected.__store, shared, "the injected instance is the one used");
+    await iInjected.onMessageReceived({ text: "merk dir: shared store task" }, groupCtx());
+    const injectedState = loadStateIn(dirInjected);
+
+    assert.equal(injectedState.tasks.length, internalState.tasks.length, "same task count");
+    assert.equal(injectedState.tasks[0].text, internalState.tasks[0].text, "same persisted text");
+    assert.equal(injectedState.tasks[0].topicKey, internalState.tasks[0].topicKey, "same stable topicKey");
+    assert.equal(shared.getOrInit(SCOPE, "test-agent").tasks.length, 1, "injected cache sees the capture");
   });
 });
 

@@ -200,6 +200,18 @@ const MATRIX = [
     tags: ["topic-cooldown from the initiative ledger"] },
   { id: 98, behavior: "followup-gate CLI topic-attempts verdict: blocks when the ledger task has reached the attempt cap",
     tags: ["topic-attempts from the initiative ledger"] },
+  { id: 99, behavior: "dm-proactive durable ledger: topic-cooldown blocks a same-topic retry while the per-task cooldown is in the future (hook + shared gate-core)",
+    tags: ["topic-cooldown"] },
+  { id: 100, behavior: "dm-proactive durable ledger: topic-attempts blocks after topicMaxAttempts; a blocked delivery never bumps the attempt counter",
+    tags: ["topic-attempts"] },
+  { id: 101, behavior: "dm-proactive durable ledger: topic-open blocks a recent unanswered open attempt within openAttemptCooldownMinutes",
+    tags: ["topic-open", "recent unanswered open attempt"] },
+  { id: 102, behavior: "dm-proactive durable ledger: agent-owed candidates (owner=agent) are skipped; user/absent pass",
+    tags: ["agent-owed"] },
+  { id: 103, behavior: "dm-proactive durable ledger: a gate-pass delivery records the shared outbox; a gate-fail never does",
+    tags: ["shared-outbox", "shared outbox"] },
+  { id: 104, behavior: "dm-proactive durable ledger: a malformed [[fu: envelope fails closed in shadow and live (never delivers an ungated draft)",
+    tags: ["fail closed", "malformed-fail-closed"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

@@ -18,6 +18,7 @@ import { createDmProactive } from "./lib/dm-proactive.js";
 import { createMood } from "./lib/mood.js";
 import { createThreads } from "./lib/threads.js";
 import { createInitiative } from "./lib/initiative.js";
+import { createInitiativeStore } from "./lib/initiative-store.js";
 import { createProactivityOutbox } from "./lib/proactivity-outbox.js";
 import * as timing from "./lib/timing-engine.js";
 import { agentIdFromSessionKey, parseAgentScope } from "./lib/scope.js";
@@ -89,9 +90,14 @@ export default definePluginEntry({
 
     const outbox = createProactivityOutbox({ stateDir, log });
 
+    // Plan 619: ONE durable initiative-ledger store shared by the initiative
+    // engine (capture) and dm-proactive (topic cooldown/attempts/open-owed).
+    // The single instance keeps the in-memory cache coherent across writers.
+    const initiativeStore = createInitiativeStore({ stateDir, log });
+
     const proactive = createProactive({ cfg, state, engine, socialMemory, observedStore, runtime: api.runtime, stateDir, log, threads, outbox });
 
-    const dmProactive = createDmProactive({ cfg, llm, socialMemory, runtime: api.runtime, stateDir, log, activityFilePath: cfg.dmProactive?.dayFitActivityPath || null });
+    const dmProactive = createDmProactive({ cfg, llm, socialMemory, runtime: api.runtime, stateDir, log, activityFilePath: cfg.dmProactive?.dayFitActivityPath || null, ledger: initiativeStore, outbox });
 
     const transcriptApiPromise = import("openclaw/plugin-sdk/session-transcript-runtime")
       .then((m) => m)
@@ -139,7 +145,7 @@ export default definePluginEntry({
     const naturalize = createNaturalize({ cfg, engine, persona, socialMemory, observedStore, mood, selfVoice, log });
     const gate = createGate({ cfg, engine, persona, socialMemory, observedStore, readTranscript: readSessionTranscript, log, proactive, onSilence: naturalize.onSilence, threads, mood });
 
-    const initiative = createInitiative({ cfg, stateDir, log, llm, runtime: api.runtime, state, threads, outbox });
+    const initiative = createInitiative({ cfg, stateDir, log, llm, runtime: api.runtime, state, threads, outbox, store: initiativeStore });
 
     const voiceCard = createVoiceCard({ cfg, engine, stateDir, log });
 
