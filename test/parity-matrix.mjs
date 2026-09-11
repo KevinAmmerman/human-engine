@@ -180,6 +180,16 @@ const MATRIX = [
     tags: ["per-agent isolation"] },
   { id: 88, behavior: "humanize is faithful: LLM split is guarded — paraphrased/pronoun-flipped bubbles fall back to the content-preserving mechanical split",
     tags: ["isFaithfulSplit"] },
+  { id: 89, behavior: "Initiative live ACT writes a per-task cooldown; the gate reports cooldown again within cooldownBaseMinutes",
+    tags: ["writes a per-task cooldown", "gate reports cooldown"] },
+  { id: 90, behavior: "Initiative task expiry: open tasks older than taskExpiryDays are marked expired and excluded from candidates",
+    tags: ["task older than taskexpirydays is marked expired"] },
+  { id: 91, behavior: "Initiative shadow accounting: shadow acts increment actsToday/lastActAt so budget/min-gap gate the next tick",
+    tags: ["shadow acts increment actstoday"] },
+  { id: 92, behavior: "Initiative stable topicKey: normalized task text maps to a date-independent key used for dedupe",
+    tags: ["stable topickey dedupes"] },
+  { id: 93, behavior: "Initiative store accessors: findByTopicKey round-trip + listOpenTasksForAgent across per-agent scopes",
+    tags: ["findbytopickey round-trips", "listopentasksforagent returns only open"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

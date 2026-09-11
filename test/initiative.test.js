@@ -677,6 +677,130 @@ describe("initiative", { concurrency: false }, () => {
     assert.equal(state.acts.length, 2, "second live act appended");
     assert.equal(state.tasks[0].ignoreStreak, 1, "unanswered prev act → ignoreStreak incremented");
   });
+
+  // ---- Plan 617: durable open-loop ledger ----
+
+  it("live ACT writes a per-task cooldown and the gate reports cooldown within cooldownBaseMinutes", async () => {
+    const dir = mkdtemp(tmpDir, "cooldown-");
+    const cfg = makeCfg({ shadow: false, everyMinutes: 10, firstNudgeMinutes: 0, minGapMinutes: 1, cooldownBaseMinutes: 600 });
+    const clock = makeClock();
+    let sent = 0;
+    const runtime = { subagent: { run: async () => { sent++; } } };
+    const llm = {
+      complete: async ({ purpose }) => {
+        if (purpose === "human-engine-initiative-extract") return { text: JSON.stringify({ tasks: [{ text: "cooldown task", kind: "task" }], directives: [], done: [], drop: [] }) };
+        if (purpose === "human-engine-initiative-decide") return { text: '{"decision":"ACT","reason":"due"}' };
+        return { text: "live cooldown" };
+      },
+    };
+    const i = createInitiative({ cfg, stateDir: dir, llm, runtime, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i.onMessageReceived({ text: "merk dir: cooldown task" }, groupCtx());
+    await waitForTaskInState(dir);
+
+    clock.t += 20 * 60 * 1000;
+    await i.tick();
+    assert.equal(sent, 1, "first live act sent");
+    const st = loadStateIn(dir);
+    const taskId = st.tasks[0].id;
+    assert.ok(st.cooldowns && st.cooldowns[taskId], "cooldown written for the acted task");
+    assert.equal(st.cooldowns[taskId].until, clock.t + 600 * 60000, "cooldown = now + cooldownBaseMinutes");
+
+    // Fresh instance (empty sentIds) at a point where the 1-min min-gap has
+    // cleared but the cooldown is still active: the cooldown gate blocks.
+    const i2 = createInitiative({ cfg, stateDir: dir, llm, runtime, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    clock.t += 15 * 60 * 1000;
+    await i2.tick();
+    assert.equal(sent, 1, "no second send while the cooldown is active");
+    assert.equal(readLogIn(dir).filter((e) => e.mode === "live").length, 1, "no second live log entry");
+
+    const gate = evaluateInitiative({ status: "open" }, {
+      enabled: true,
+      scopeAllowed: true,
+      now: clock.t,
+      ini: cfg.initiative,
+      actsToday: st.actsToday,
+      lastActAt: st.lastActAt,
+      lastHumanAt: 0,
+      cooldownUntil: st.cooldowns[taskId].until,
+      agentLastSpeakTs: 0,
+      ignoreStreak: 0,
+      rng: () => 0,
+    });
+    assert.ok(gate.reasons.includes("cooldown"), `expected cooldown reason, got ${gate.reasons}`);
+  });
+
+  it("task older than taskExpiryDays is marked expired and not returned", async () => {
+    const dir = mkdtemp(tmpDir, "expiry-");
+    const cfg = makeCfg({ shadow: true, everyMinutes: 10, firstNudgeMinutes: 0, taskExpiryDays: 1 });
+    const clock = makeClock();
+    const i = createInitiative({ cfg, stateDir: dir, llm: makeLlm({}), runtime: { subagent: { run: async () => {} } }, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    const st = i.__store.getOrInit(SCOPE, "test-agent");
+    st.tasks = [{
+      id: "t-old", topicKey: "tk-old", kind: "task", text: "stale task", people: [],
+      createdAt: clock.t - 2 * 86400e3, dueAt: null, status: "open",
+      attempts: 0, lastActAt: 0, lastActKind: null, ignoreStreak: 0, doneAt: 0,
+    }];
+    i.__store.save(SCOPE, st);
+
+    await i.tick();
+    const after = loadStateIn(dir);
+    assert.equal(after.tasks[0].status, "expired", "stale open task marked expired");
+    assert.equal(after.tasks[0].expiredAt, clock.t, "expiredAt stamped");
+    assert.equal(readLogIn(dir).length, 0, "expired task never becomes a candidate");
+  });
+
+  it("shadow acts increment actsToday and a second same-day tick is blocked by budget", async () => {
+    const dir = mkdtemp(tmpDir, "shadow-budget-");
+    const cfg = makeCfg({ shadow: true, everyMinutes: 60, firstNudgeMinutes: 0, maxActsPerDay: 1 });
+    const clock = makeClock();
+    const llm = {
+      complete: async ({ purpose }) => {
+        if (purpose === "human-engine-initiative-extract") return { text: JSON.stringify({ tasks: [{ text: "shadow budget task", kind: "task" }], directives: [], done: [], drop: [] }) };
+        if (purpose === "human-engine-initiative-decide") return { text: '{"decision":"ACT","reason":"due"}' };
+        return { text: "shadow budget render" };
+      },
+    };
+    const runtime = { subagent: { run: async () => { throw new Error("no subagent in shadow"); } } };
+    const i = createInitiative({ cfg, stateDir: dir, llm, runtime, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i.onMessageReceived({ text: "merk dir: shadow budget task" }, groupCtx());
+    await waitForTaskInState(dir);
+
+    clock.t += 60 * 60 * 1000;
+    await i.tick();
+    let st = loadStateIn(dir);
+    assert.equal(st.actsToday, 1, "shadow act counted against the daily budget");
+    assert.equal(st.lastActAt, clock.t, "shadow act stamps lastActAt");
+    assert.equal(st.acts.length, 1, "shadow act recorded in acts");
+    assert.equal(st.acts[0].shadow, true, "shadow act flagged");
+    assert.equal(readLogIn(dir).filter((e) => e.mode === "shadow").length, 1, "one shadow log entry");
+
+    // Fresh instance sees the persisted budget. With maxActsPerDay 1 and the
+    // min-gap cleared (5h), the blocking reason is budget.
+    clock.t += 5 * 60 * 60 * 1000;
+    const i2 = createInitiative({ cfg, stateDir: dir, llm, runtime, threads: null, state: {}, now: () => clock.t, rng: () => 0 });
+    await i2.tick();
+    st = loadStateIn(dir);
+    assert.equal(st.actsToday, 1, "blocked tick does not increment the budget");
+    assert.equal(readLogIn(dir).filter((e) => e.mode === "shadow").length, 1, "second shadow tick blocked, no new log");
+  });
+
+  it("stable topicKey dedupes re-extraction of the same task text", async () => {
+    const cfg = makeCfg();
+    const i = createInitiative({ cfg, stateDir: tmpDir, llm: makeLlm({ tasks: [{ text: "call am Dienstag", kind: "reminder" }], directives: [], done: [], drop: [] }) });
+    await i.onMessageReceived({ text: "merk dir: call am Dienstag" }, groupCtx());
+    const first = loadState();
+    assert.equal(first.tasks.length, 1);
+    const tk = first.tasks[0].topicKey;
+    assert.match(tk, /^tk-[0-9a-f]{16}$/, "topicKey shape");
+
+    const later = T0 + 5 * 86400e3;
+    const i2 = createInitiative({ cfg, stateDir: tmpDir, llm: makeLlm({ tasks: [{ text: "call am Dienstag", kind: "reminder" }], directives: [], done: [], drop: [] }), now: () => later });
+    await i2.onMessageReceived({ text: "merk dir: call am Dienstag" }, groupCtx());
+    const second = loadState();
+    assert.equal(second.tasks.length, 1, "same topic not duplicated");
+    assert.equal(second.tasks[0].topicKey, tk, "topicKey stable across extraction dates");
+    assert.equal(second.tasks[0].lastUpdateTs, later, "existing topic merged (lastUpdateTs refreshed)");
+  });
 });
 
 function readLog() {
