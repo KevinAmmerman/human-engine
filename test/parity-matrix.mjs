@@ -190,6 +190,16 @@ const MATRIX = [
     tags: ["stable topickey dedupes"] },
   { id: 93, behavior: "Initiative store accessors: findByTopicKey round-trip + listOpenTasksForAgent across per-agent scopes",
     tags: ["findbytopickey round-trips", "listopentasksforagent returns only open"] },
+  { id: 94, behavior: "followup-gate CLI v4 sentIds lookup: blocks a duplicate from state.agents.<agentId>.sentIds (legacy flat fallback preserved)",
+    tags: ["v4 plugin state"] },
+  { id: 95, behavior: "initiative-ledger CLI list: one JSON line per open task with cooldownUntil; unknown agent exits 0 with [] and creates no file",
+    tags: ["initiative-ledger cli list"] },
+  { id: 96, behavior: "initiative-ledger CLI get: matching task by topicKey with scope/cooldownUntil, or {found:false}",
+    tags: ["initiative-ledger cli get"] },
+  { id: 97, behavior: "followup-gate CLI topic-cooldown verdict: blocks when the ledger's per-task cooldown is in the future",
+    tags: ["topic-cooldown from the initiative ledger"] },
+  { id: 98, behavior: "followup-gate CLI topic-attempts verdict: blocks when the ledger task has reached the attempt cap",
+    tags: ["topic-attempts from the initiative ledger"] },
 ];
 
 const TESTS_DIR = resolve(__dirname);

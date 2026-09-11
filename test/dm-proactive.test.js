@@ -130,6 +130,23 @@ function writeState(stateDir, data) {
   fs.writeFileSync(path.join(stateDir, "dm-proactive-state.json"), JSON.stringify(data), "utf8");
 }
 
+// Plan 618: seed a durable initiative ledger file at the path the store reads
+// (`<stateDir>/initiative/<pathSafe(agentId)>/<pathSafe(sessionKey)>.json`).
+// Fake ids only (public repo).
+function writeInitiativeState(stateDir, agentId, sessionKey, tasks, cooldowns = {}) {
+  const safe = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, "_");
+  const dir = path.join(stateDir, "initiative", safe(agentId));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, safe(sessionKey) + ".json"), JSON.stringify({
+    version: 1,
+    scope: agentId + "::" + sessionKey,
+    agentId,
+    tasks,
+    directives: [],
+    cooldowns,
+  }), "utf8");
+}
+
 const instances = [];
 
 function track(inst) {
@@ -1226,11 +1243,14 @@ describe("dm-proactive", { concurrency: false }, () => {
     const cfgFixture = path.join(tmpDir, "fixture-config.json");
     const stateFixture = path.join(tmpDir, "fixture-state.json");
 
-    function runGate(args, input) {
+    function runGate(args, input, env) {
       // spawn + stdin.end(): execFile's `input` option deadlocks with a
       // stdin-reading child in this Node version — verified minimal repro.
       return new Promise((resolve, reject) => {
-        const child = spawn(process.execPath, [BIN_GATE, "check", ...args], { stdio: ["pipe", "pipe", "pipe"] });
+        const child = spawn(process.execPath, [BIN_GATE, "check", ...args], {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: env ? { ...process.env, ...env } : process.env,
+        });
         let stdout = "";
         let stderr = "";
         child.stdout.on("data", (d) => { stdout += d; });
@@ -1282,6 +1302,16 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.ok(out.reasons.includes("duplicate"), out.reasons.join(","));
     });
 
+    it("check blocks a duplicate sentId from the v4 plugin state (agents.<agentId>.sentIds)", async () => {
+      fs.writeFileSync(stateFixture, JSON.stringify({ version: 4, agents: { "hori-wa": { sentIds: ["fu-20260824-test-001"] } } }), "utf8");
+      const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--now", String(T0)], envelopeText());
+      assert.equal(code, 1);
+      const out = parseOut(stdout);
+      assert.equal(out.pass, false);
+      assert.ok(out.reasons.includes("duplicate"), out.reasons.join(","));
+      assert.equal(out.verdicts.duplicate, false);
+    });
+
     it("check blocks on budget via the scope counter from state", async () => {
       fs.writeFileSync(stateFixture, JSON.stringify({ scopes: { [SCOPE]: { day: localDayKey(T0), count: 2, careCount: 0, lastSentAt: T0, lastCareSentAt: 0, lastReplyAtMs: 0 } }, sentIds: [] }), "utf8");
       const { code, stdout } = await runGate(["--config", cfgFixture, "--state", stateFixture, "--session", SK, "--agent", "hori-wa", "--now", String(T0)], envelopeText());
@@ -1325,6 +1355,125 @@ describe("dm-proactive", { concurrency: false }, () => {
       assert.ok(outBlocked.reasons.includes("duplicate"), "agent's own bucket must block its duplicate");
       const passed = await runGate(["--config", cfgFixture, "--state", stateFixture, "--agent", "other-agent", "--now", String(T0)], envelopeText());
       assert.equal(passed.code, 0, "scoped agent with a clean bucket must pass: " + parseOut(passed.stdout).reasons.join(","));
+    });
+
+    it("check blocks on topic-cooldown from the initiative ledger", async () => {
+      const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-ledger-"));
+      writeInitiativeState(ledgerDir, "hori-wa", SK, [
+        { id: "t-cd", topicKey: "tk-cd", kind: "task", text: "cooldown topic", status: "open", attempts: 0, lastActAt: 0, createdAt: 1, dueAt: null },
+      ], { "t-cd": { until: T0 + 3600000 } });
+      const { code, stdout } = await runGate(
+        ["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--session", SK, "--now", String(T0)],
+        envelopeText(makeEnvelope({ topicKey: "tk-cd" })),
+        { HUMAN_ENGINE_STATE_DIR: ledgerDir },
+      );
+      assert.equal(code, 1);
+      const out = parseOut(stdout);
+      assert.ok(out.reasons.includes("topic-cooldown"), out.reasons.join(","));
+      assert.equal(out.verdicts["topic-cooldown"], false);
+    });
+
+    it("check blocks on topic-attempts from the initiative ledger", async () => {
+      const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-ledger-"));
+      writeInitiativeState(ledgerDir, "hori-wa", SK, [
+        { id: "t-at", topicKey: "tk-at", kind: "task", text: "attempt cap topic", status: "open", attempts: 3, lastActAt: 0, createdAt: 1, dueAt: null },
+      ]);
+      const { code, stdout } = await runGate(
+        ["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--session", SK, "--now", String(T0)],
+        envelopeText(makeEnvelope({ topicKey: "tk-at" })),
+        { HUMAN_ENGINE_STATE_DIR: ledgerDir },
+      );
+      assert.equal(code, 1);
+      const out = parseOut(stdout);
+      assert.ok(out.reasons.includes("topic-attempts"), out.reasons.join(","));
+      assert.equal(out.verdicts["topic-attempts"], false);
+    });
+
+    it("check without a topicKey skips the ledger checks (fail-open, backward compatible)", async () => {
+      const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-ledger-"));
+      writeInitiativeState(ledgerDir, "hori-wa", SK, [
+        { id: "t-open", topicKey: "tk-open", kind: "task", text: "would block by topic", status: "open", attempts: 9, lastActAt: T0, createdAt: 1, dueAt: null },
+      ], { "t-open": { until: T0 + 3600000 } });
+      const { code, stdout } = await runGate(
+        ["--config", cfgFixture, "--state", stateFixture, "--agent", "hori-wa", "--session", SK, "--now", String(T0)],
+        envelopeText(),
+        { HUMAN_ENGINE_STATE_DIR: ledgerDir },
+      );
+      const out = parseOut(stdout);
+      assert.equal(code, 0, out.reasons.join(","));
+      assert.equal(out.pass, true);
+      assert.equal(out.verdicts["topic-cooldown"], undefined);
+      assert.equal(out.verdicts["topic-attempts"], undefined);
+    });
+  });
+
+  describe("initiative-ledger CLI (Plan 618, bin/initiative-ledger.mjs)", () => {
+    const BIN_LEDGER = path.join(PLUGIN_ROOT, "bin", "initiative-ledger.mjs");
+
+    function runLedger(args, input) {
+      return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [BIN_LEDGER, ...args], { stdio: ["pipe", "pipe", "pipe"] });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (d) => { stdout += d; });
+        child.stderr.on("data", (d) => { stderr += d; });
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code, stdout, stderr }));
+        if (input !== undefined) child.stdin.end(input);
+        else child.stdin.end();
+      });
+    }
+
+    it("initiative-ledger CLI list returns open tasks as JSON lines with cooldownUntil and creates no file", async () => {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ledger-cli-"));
+      writeInitiativeState(stateDir, "hori-wa", SK, [
+        { id: "t-1", topicKey: "tk-1", kind: "task", text: "open one", status: "open", attempts: 1, lastActAt: 5, createdAt: 7, dueAt: null },
+        { id: "t-2", topicKey: "tk-2", kind: "task", text: "done one", status: "done", attempts: 0, lastActAt: 0, createdAt: 8, dueAt: null },
+      ], { "t-1": { until: T0 + 60000 } });
+
+      const before = fs.readdirSync(stateDir).sort();
+      const { code, stdout } = await runLedger(["list", "--agent", "hori-wa", "--state-dir", stateDir]);
+      assert.equal(code, 0);
+      const rows = stdout.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      assert.equal(rows.length, 1, "only the open task listed");
+      const row = rows[0];
+      assert.equal(row.scope, SCOPE);
+      assert.equal(row.agentId, "hori-wa");
+      assert.equal(row.topicKey, "tk-1");
+      assert.equal(row.status, "open");
+      assert.equal(row.attempts, 1);
+      assert.equal(row.lastActAt, 5);
+      assert.equal(row.cooldownUntil, T0 + 60000);
+      assert.equal(row.createdAt, 7);
+      assert.deepEqual(fs.readdirSync(stateDir).sort(), before, "list must not create any file");
+    });
+
+    it("initiative-ledger CLI list on an unknown agent exits 0 with no tasks and creates no file", async () => {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ledger-cli-"));
+      const before = fs.readdirSync(stateDir).sort();
+      const { code, stdout } = await runLedger(["list", "--agent", "nobody", "--state-dir", stateDir]);
+      assert.equal(code, 0);
+      assert.equal(stdout.trim(), "[]");
+      assert.deepEqual(fs.readdirSync(stateDir).sort(), before, "no file created for an unknown agent");
+    });
+
+    it("initiative-ledger CLI get returns the matching task by topicKey or {found:false}", async () => {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "ledger-cli-"));
+      writeInitiativeState(stateDir, "hori-wa", SK, [
+        { id: "t-get", topicKey: "tk-get", kind: "task", text: "get me", status: "open", attempts: 2, lastActAt: 0, createdAt: 9, dueAt: null },
+      ], { "t-get": { until: T0 + 120000 } });
+
+      const hit = await runLedger(["get", "--topic-key", "tk-get", "--agent", "hori-wa", "--state-dir", stateDir]);
+      assert.equal(hit.code, 0);
+      const found = JSON.parse(hit.stdout.trim());
+      assert.equal(found.found, true);
+      assert.equal(found.topicKey, "tk-get");
+      assert.equal(found.scope, SCOPE);
+      assert.equal(found.cooldownUntil, T0 + 120000);
+
+      const miss = await runLedger(["get", "--topic-key", "tk-nope", "--agent", "hori-wa", "--state-dir", stateDir]);
+      assert.equal(miss.code, 0);
+      assert.deepEqual(JSON.parse(miss.stdout.trim()), { found: false, topicKey: "tk-nope" });
     });
   });
 

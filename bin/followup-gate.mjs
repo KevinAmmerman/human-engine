@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { parseFollowupEnvelope, evaluateDmGate, candidateFromEnvelope } from "../lib/dm-gate-core.js";
 import { resolveConfig, isScopedDmAgent, resolveAgentConfig } from "../lib/config.js";
 import { parseAgentScope } from "../lib/scope.js";
+import { createInitiativeStore } from "../lib/initiative-store.js";
 
 const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -64,6 +65,52 @@ function pluginConfigFrom(parsed) {
 function emit(obj, exitCode) {
   process.stdout.write(JSON.stringify(obj) + "\n");
   process.exit(exitCode);
+}
+
+// Plan 618: read-only ledger lookup. Returns the matching task plus its owning
+// state object (needed for `stateObj.cooldowns[task.id].until`), or null. The
+// scope's own file is checked first, then every scope file for the agent.
+function findLedgerRecord(store, { agentId, scope, topicKey }) {
+  if (!topicKey) return null;
+  const states = [];
+  if (scope) {
+    const st = store.load(scope);
+    if (st) states.push(st);
+  }
+  if (agentId) {
+    for (const st of store.listScopesForAgent(agentId)) states.push(st);
+  }
+  for (const st of states) {
+    const task = (Array.isArray(st?.tasks) ? st.tasks : []).find((t) => t.topicKey === topicKey);
+    if (task) return { task, stateObj: st };
+  }
+  return null;
+}
+
+// Plan 618: topic-level gate verdicts from the durable initiative ledger. All
+// three fail-open (verdict true) when no ledger entry exists; the whole block
+// is skipped when the envelope carries no `topicKey` (inert until plan 635).
+function evaluateTopicGates(record, { now, dcfg }) {
+  const verdicts = {};
+  const reasons = [];
+  const check = (name, pass) => {
+    verdicts[name] = pass === true;
+    if (verdicts[name] === false) reasons.push(name);
+  };
+  if (!record) {
+    check("topic-cooldown", true);
+    check("topic-attempts", true);
+    check("topic-open", true);
+    return { verdicts, reasons };
+  }
+  const { task, stateObj } = record;
+  const cooldownUntil = stateObj?.cooldowns?.[task.id]?.until || 0;
+  check("topic-cooldown", !(cooldownUntil > now));
+  check("topic-attempts", !((task.attempts || 0) >= (dcfg.topicMaxAttempts ?? 3)));
+  const openCdMs = (dcfg.openAttemptCooldownMinutes ?? 180) * 60000;
+  const pendingOpen = task.status === "open" && task.lastActAt > 0 && now - task.lastActAt < openCdMs;
+  check("topic-open", !pendingOpen);
+  return { verdicts, reasons };
 }
 
 async function main(argv) {
@@ -141,14 +188,20 @@ async function main(argv) {
   }
   // Plan 005: read the sentIds pool per agent — the agent's own bucket first,
   // then the migrated `__legacy__` bucket (transition dedup stays effective).
-  // Mirror of the dm-proactive bucket logic (Plan 005 mirror — see lib/dm-proactive.js).
+  // Plan 618: the plugin writes v4 `state.agents.<agentId>.sentIds[]` (see
+  // lib/dm-proactive.js); read that first, then keep the pre-v3 flat fallback.
   const SENT_IDS_MAX = 512;
   const LEGACY_BUCKET = "__legacy__";
   function bucketList(bucketObj, name) {
     const b = bucketObj?.[name];
     return Array.isArray(b) ? b.slice(0, SENT_IDS_MAX) : [];
   }
-  const agentSent = bucketList(state?.sentIds, agentId || LEGACY_BUCKET);
+  function bucketListV4(state, agentId) {
+    const v4 = state?.agents?.[agentId] && state?.agents?.[agentId].sentIds;
+    if (Array.isArray(v4)) return v4.slice(0, SENT_IDS_MAX);
+    return bucketList(state?.sentIds, agentId); // legacy flat fallback
+  }
+  const agentSent = bucketListV4(state, agentId || LEGACY_BUCKET);
   const legacySent = bucketList(state?.sentIds, LEGACY_BUCKET);
   const duplicate = agentSent.includes(parsed.envelope.id) || legacySent.includes(parsed.envelope.id);
 
@@ -161,6 +214,19 @@ async function main(argv) {
     newestSpeaker: null, // no transcript context in the CLI — hook-only check
     duplicate,
   });
+
+  // Plan 618: optional ledger pre-check. Only runs when the envelope carries a
+  // `topicKey` (plan 635 producer); otherwise these verdicts stay absent and
+  // behavior is unchanged. Read-only — the store is never saved here.
+  const topicKey = typeof parsed.envelope.topicKey === "string" && parsed.envelope.topicKey ? parsed.envelope.topicKey : null;
+  if (topicKey) {
+    const store = createInitiativeStore({ stateDir });
+    const record = findLedgerRecord(store, { agentId, scope, topicKey });
+    const topic = evaluateTopicGates(record, { now, dcfg: cfg?.dmProactive || {} });
+    Object.assign(gate.verdicts, topic.verdicts);
+    gate.reasons.push(...topic.reasons);
+    if (topic.reasons.length > 0) gate.pass = false;
+  }
 
   emit({
     valid: true,
