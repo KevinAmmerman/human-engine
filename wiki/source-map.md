@@ -10,9 +10,10 @@ human-engine/
   CHANGELOG.md              — Release history (0.4.0–0.1.0)
   LICENSE                   — MIT
   .gitignore                — Ignored: node_modules/, state/, logs/, *.log
-  plans/                    — improve-skill plan index (wave 001–008 multi-tenancy + wave 009–032 deep-audit + spike reports), see wiki/plans.md
+  plans/                    — improve-skill plan index (waves 001–008, 009–035, 036 + 613–621 + spike reports), see wiki/plans.md
   bin/
     followup-gate.mjs       — CLI layer-1 pre-send check for the followup-cron (exit 0/1/2/3); agent-aware scoping (Plan 005)
+    initiative-ledger.mjs   — Read-only operator CLI: open loops/tasks per agent×scope (Plan 618)
   docs/
     design-dm-proactive-v2.md — DM-proactive v2 binding design (Plan 526, Option A)
     media-findings.md       — Media handling findings
@@ -76,8 +77,10 @@ human-engine/
     e2e-local.test.js       — End-to-end local integration test
     harness.test.js         — Test harness tests
     initiative.test.js      — Initiative tests (capture, recall, gate, tick/shadow, live, attribution, caps, isolation)
+    initiative-store.test.js — Initiative durable store tests (ledger cooldown/expiry/topicKey; Plans 613/617)
+    initiative-command.test.js — `/initiative` command tests (list/add/done/forget/directive; Plan 614)
     proactivity-outbox.test.js — Proactivity outbox tests (round-trip, cap eviction, fail-open, file perms)
-    parity-matrix.mjs       — behavioral parity contract (87 rows; optional `kind` field tags static rows, Plan 018)
+    parity-matrix.mjs       — behavioral parity contract (108 rows; optional `kind` field tags static rows, Plan 018)
     fixtures/
       decide-scenarios.json — 20+ labeled decide test scenarios
     helpers/
@@ -92,7 +95,7 @@ human-engine/
 
 ## Git evidence
 
-- Last commit: `b5fa7ec`
+- Last commit: `388a37f`
 - Active branch: `main`
 - Recent churn: Wave-91 hardening (21 plans 496-516: burst dedup,
   dispatcher displacement, meta-commentary/pure-commentary, gateway_stop
@@ -104,4 +107,7 @@ human-engine/
   suppression), Plan 543 (named-first transcript dedup + senderName mapping
   + topical follow-up rule), Plan 544 (second-person addressee rule),
   Plan 545 (FIFO dispatcher binding — fixes silent reply loss on
-  displacement+silence)
+  displacement+silence), Plan 615 (faithful-split humanizer), Plan 616
+  (outbound reply anchor), Initiative engine + `/initiative` (Plans
+  613/614), durable open-loop ledger (Plans 617–620), context hygiene
+  (Plan 621)

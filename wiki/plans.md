@@ -38,29 +38,41 @@ Spike reports: `../plans/025-media-caption-spike-report.md`,
   message-action-runner als Plugin-SDK-Export freigibt (Report 032 §1.6,
   Option 1).
 
-## Wave 3: Initiative Engine (Plan 613, phased 0–4, DONE)
+## Wave 3: Live-Betrieb (2026-09-10)
 
-**Plan 613 — Initiative** (P1, effort L, risk MED): a modular, multi-tenant
-proactive task & memory engine. Built shadow-first and default-OFF
-(`initiative.enabled:false`). Phased delivery:
+Plans 036 + 613–616: vertical inline-list rendering, the Initiative engine
+(phased 0–4, minus `/initiative` command), the humanizer-fidelity fix
+(faithful split instead of rewrite), and the outbound reply anchor. **Plan 613
+shipped default-OFF** (`initiative.enabled:false`, `shadow:true`) — flipping
+an agent live is an operator step (runbook in
+[operations/environment.md](./operations/environment.md)). The README rows
+still carry the original branch/worktree wording; the commits are on `main`.
 
-- **Phase 0** — skeleton, config schema (`initiative` block in
-  `defaultConfig()` + `NESTED_KEYS` + strict manifest schema + agentProfiles),
-  version bump 0.5.0, durable per-agent×scope store
-  `lib/initiative-store.js` + shadow log, no-op `lib/initiative.js` shell,
-  hooks + master tick wiring.
-- **Phase 1** — capture (keyword/cadence-triggered LLM task/directive
-  extraction, `buildTaskExtractPrompt`) + recall (`before_prompt_build`
-  context injection, `maxContextChars`-bounded, untrusted-wrapped).
-- **Phase 2** — tick/gate/decide/render: deterministic `evaluateInitiative`
-  gate (active/quiet hours, budget, min-gap, hot-room, after-speak, cooldown,
-  paused, probability + ignoreStreak multiplier), LLM decide + render +
-  sanitize/expand, shadow log (never `subagent.run` in shadow).
-- **Phase 3** — engagement attribution (`outcome.repliedWithin48h` backfill),
-  ignore-streak, shared outbound budget with `proactive` via
-  `lib/proactivity-outbox.js`, operator runbook.
-- **Phase 4** — parity rows 83–87 + wiki/docs sync.
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| [036](../plans/036-vertical-list-formatting.md) | Inline-Pipe-Listen vertikal rendern (Schedules/Tallies) | P1 | S–M | — | DONE (`c47a33c`, 1155/0, Parity 82/82) |
+| 037 | Gruppen-Agents proaktiv nachfassen lassen (Cron-Follow-up, OpenClaw-Config) | P1 | S | — | SUPERSEDED → `~/plans/612-group-agent-proactive-followup.md` (nicht im public Repo) |
+| [613](../plans/613-initiative-task-engine.md) | Initiative: modulare Multi-Tenant-Task-/Memory-/Proaktivitäts-Engine | P1 | L | 036 | DONE (`d4774b1`…`d5e8490` P0–P4, 1186/0, Parity 87/87; default OFF) |
+| [614](../plans/614-initiative-command.md) | `/initiative`-Command (list/add/done/forget/directive) | P2 | S | 613 | DONE (`90bdc6a`, 1194/0) |
+| [615](../plans/615-humanizer-fidelity.md) | Humanizer-Treue: Split statt Rewrite (Proxy-Flip-Fix) | P1 | S–M | — | DONE (`3efa38a`, 1204/0, Parity 88/88; `humanize.temperature` 0.9→0.3) |
+| [616](../plans/616-reply-target-anchor.md) | Reply-Anker auf Mitglieds-Nachricht statt eigene | P1 | S | — | DONE (`cfd66dc`, 1205/0) |
 
-Deployed state: parity 87/87, `npm test` 1186 pass / 0 fail. Feature remains
-default-OFF pending a shadow-window review per the runbook in
-`wiki/operations/environment.md`.
+## Wave 4: DM-Proaktivität — durable Open-Loop-Ledger (2026-09-11)
+
+One generic, per-agent×scope durable open-loop ledger (built on
+`initiative-store`), shared by the followup-cron, heartbeat and `dm-proactive`;
+declarative activation via `agentProfiles`/`scopes`, shadow-first, live
+initially only for the DM agent. The config/workspace side (cron prompt,
+`erledigt_check.py`, heartbeat, KPIs) lives outside this repo
+(`~/plans/635–639`).
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| [617](../plans/617-initiative-durable-open-loop-state.md) | Initiative-Store als durable Open-Loop-Ledger (Cooldown, Expiry, Shadow-Budget, stabiler topicKey) | P1 | M | — | DONE (`301764e`, 1211/0, Parity 93/93) |
+| [618](../plans/618-ledger-read-surface-and-gate-cli-fix.md) | `followup-gate.mjs` v4-sentIds-Fix + read-only `initiative-ledger.mjs` CLI | P1 | S–M | 617 | DONE (`cf5d5a3`, 1218/0, Parity 98/98) |
+| [619](../plans/619-dm-proactive-topic-ledger-integration.md) | dm-proactive konsumiert den Ledger (Topic-Cooldown/Attempt-Cap/agent-owed), malformed fail-closed, geteilter Outbox | P1 | L | 617, 618 | DONE (`06046a9`, 1237/0, Parity 104/104) |
+| [620](../plans/620-memory-thread-open-loop-repair.md) | Memory/Thread-State reparieren (schemaV2-Befüllung, Thread-Status, zweiseitiger Observed-Store) | P1 | M | — | DONE (`9092008`, 1246/0, Parity 107/107; leere v2-Ablage = Modell-/Ingest-Regression, jetzt per Warn sichtbar) |
+| [621](../plans/621-context-hygiene-quoted-audio.md) | Kontext-Hygiene: Untrusted-Delimiter escapen + quotierte Voice-Transkripte labeln | P2 | S–M | — | DONE (`388a37f`, 1256/0, Parity 108/108) |
+
+Full per-plan wording with branches/worktrees stays in
+[`../plans/README.md`](../plans/README.md).

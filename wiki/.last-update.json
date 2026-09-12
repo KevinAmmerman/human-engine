@@ -1,11 +1,11 @@
 {
-  "commit": "4a206cf",
-  "timestamp": "2026-09-10T12:40:14.950Z",
+  "commit": "388a37f",
+  "timestamp": "2026-09-12T08:19:16.000Z",
   "filesChanged": [
     "wiki/quickstart.md",
     "wiki/plans.md",
     "wiki/operations/environment.md",
-    "AGENTS.md"
+    "wiki/source-map.md"
   ],
   "generator": "opencode-wiki-update",
   "version": "1.0.0"

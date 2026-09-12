@@ -37,9 +37,10 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `threads.enabled` | bool | `false` | Thread state: persisted openTopics/agentAbsentSince + absence/thread context line in decide — Plan 022 |
 | `threads.absenceThresholdHours` | number | `24` | Absence threshold for the decide context line |
 | `threads.topicExpiryDays` | number | `14` | Open-topic expiry |
-| `selfVoice.enabled` | bool | `false` | Self-voice prototype (extract own-line voice card per agent; NOT wired into persona yet — command wiring is follow-up plan 033) — Plan 031 |
+| `selfVoice.enabled` | bool | `false` | Self-voice prototype (extract own-line voice card per agent; wired into the persona after owner accept via `/soul voice` — Plans 031/033) |
 | `humanize.maxBubbles` | number | `5` | Max reply bubbles |
-| `humanize.temperature` | number | `0.9` | Naturalization temperature |
+| `humanize.temperature` | number | `0.3` | Naturalization temperature (lowered 0.9→0.3 with Plan 615 to stop proxy rewrites) |
+| `humanize.requireFaithfulSplit` | bool | `true` | Humanizer output must be a faithful split of the drafted reply (no proxy rewrite); non-faithful output is rejected/falls back — Plan 615 |
 | `naturalize.speakEpochTtlMs` | number | `300000` | Speak-epoch expiry before a captured reply is dropped |
 | `naturalize.disableDM` | bool | `false` | Skip bubble arming for direct chats — DM replies deliver as ONE raw message, no split/timing (Plan 587); groups unaffected |
 | `timing.typingWpm` | number | `40` | Typing speed for delay calc |
@@ -69,6 +70,9 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `dmProactive.dayFitPauseHours` | number | `12` | Pause sends when DayFit band is this many hours stale |
 | `dmProactive.dayFitActivityPath` | string | `""` | Per-agent DayFit activity file override (falls back to the global kevin-activity.json default) |
 | `dmProactive.inferredCapPerDay` | number | `2` | Cap for inferred (non-envelope) candidates |
+| `dmProactive.topicMaxAttempts` | number | `3` | Max delivery attempts per open loop/topic before it is suppressed (durable ledger, Plan 619) |
+| `dmProactive.topicCooldownMinutes` | number | `240` | Per-topic cooldown after an attempt (Plan 619) |
+| `dmProactive.openAttemptCooldownMinutes` | number | `240` | Cooldown after any open-loop attempt (Plan 619) |
 | `mood.enabled` | bool | `false` | Mood layer master switch — stateful valence/energy per DM session (Plan 570) |
 | `mood.refreshEvery` / `mood.refreshMinutes` | number | `5` / `0` | Appraisal cadence (message-count and/or minutes; count-based wins while minutes=0) |
 | `mood.decayHours` | number | `6` | Hours without update before valence/energy decay toward neutral (decay now persists across appraisals — Plan 030) |
@@ -77,6 +81,7 @@ config. See `openclaw.plugin.json` for the full schema with defaults
 | `mood.groupsRefreshEvery` | number | `10` | Group appraisal cadence (messages) |
 | `initiative.enabled` | bool | `false` | Initiative (proactive task & memory engine) master switch — default OFF (shadow-first; when off: zero files, zero injection) |
 | `initiative.shadow` | bool | `true` | Log would-be initiative sends without delivering |
+| `initiative.agents` | string[] | `[]` | Initiative agent allowlist override (empty = all scoped agents) |
 | `initiative.scopes` | string[] | `["group"]` | Which session kinds participate (`group` / `dm`) |
 | `initiative.everyMinutes` | number | `60` | Ambient per-scope tick cadence; `0` disables the tick |
 | `initiative.activeHours` | {start,end,timezone} | `08:00`/`22:00`/`Europe/Berlin` | Active-hours window; equal start/end = always inactive |
@@ -147,6 +152,9 @@ runtime, never committed. Files are written 0600, dirs 0700, via tmp+rename.
 | `state/dm-proactive-state.json` | DM-proactive v4 (Plan 017): `{version:4, agents:{<agentId>:{sentIds,byKind,budget}}}` — budget now per-agent (was flat cross-agent); v3 flat `scopes` migrate on load, CLI reads per-agent bucket first with flat fallback |
 | `state/dm-proactive.jsonl` | DM-proactive shadow/live log v2 (14-day retention, outcome backfill) |
 | `state/mood/<agentId>/<sessionKey>.json` | Mood layer: per-session valence/energy state (DM sessions always; group sessions when `mood.groupsEnabled:true`) (Plan 570/030) |
+| `state/initiative/<agentId>/<scope>.json` | Initiative tasks/directives + durable open-loop ledger state per agent×scope (Plans 613/617) |
+| `state/initiative.jsonl` | Initiative shadow/live act log (14-day retention, outcome backfill) |
+| `state/proactivity-outbox.json` | Shared per-scope "last proactive outbound" (min-gap budget shared by `proactive` + `initiative`) — Plan 613 |
 
 One file is read (never written) from OUTSIDE the plugin dir:
 | Path | Purpose |

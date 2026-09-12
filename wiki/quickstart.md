@@ -64,7 +64,10 @@ built-in LLM with no cloud dependencies.
     through a deterministic anti-annoyance gate + LLM decide + render, sharing
     the outbound budget with `proactive`. Shadow-first — `initiative.enabled`
     defaults false; when off it creates no files, injects no context, and never
-    sends. See [environment.md](./operations/environment.md).
+    sends. Since Plans 617–619 the initiative store is also the durable
+    open-loop ledger (topic cooldown/expiry/attempt caps, stable topicKey)
+    that `dm-proactive` consumes, with `bin/initiative-ledger.mjs` as a
+    read-only operator CLI. See [environment.md](./operations/environment.md).
   - Renders due DM follow-ups from `[[fu:…]]` envelopes through a shared
    gate-core (shadow delivers gate-passed candidates envelope-stripped;
    gate-fail/duplicate cancel; `[[fu:`-prefixed content is never delivered
@@ -97,6 +100,7 @@ built-in LLM with no cloud dependencies.
 | `lib/dayfit.js` | DayFit bands; activity path per-agent overridable via `dmProactive.dayFitActivityPath` (Plan 005) |
 | `lib/mood.js` | Mood layer: stateful valence/energy per DM session, appraisal + decay, dm-only (Plan 570) |
 | `bin/followup-gate.mjs` | CLI layer-1 pre-send check for the followup-cron; agent-aware (`isScopedDmAgent`, per-agent sentIds) |
+| `bin/initiative-ledger.mjs` | Read-only ledger CLI: open loops/tasks per agent×scope for operator inspection (Plan 618) |
 | `lib/config.js` | Config resolution + `agentProfiles` per-agent overlay (`resolveAgentConfig`, Plan 002) + `dmProactiveAgents`/`isScopedDmAgent` (Plan 005) |
 | `lib/voice-card.js` | Communication-style profile learning; per-agent cache buckets, disk format v2 with migration (Plan 004) |
 | `lib/social-memory.js` | Person-centric fact extraction and recall; per-agent × session profiles, optional per-human person store (Plan 019) + schemaV2 texture (Plan 020) + recallCompact (Plan 021) |
@@ -111,7 +115,7 @@ built-in LLM with no cloud dependencies.
 | `lib/observed-store.js` | Silenced + own-reply persistence (`state/observed/*.jsonl`) |
 | `lib/soul.js` | Soul/persona enhancement via local LLM |
 | `openclaw.plugin.json` | Plugin manifest (id, name, config schema incl. `agentProfiles`) |
-| `plans/` | improve-skill plan index (multi-tenancy wave 001–008) — see [plans.md](./plans.md) |
+| `plans/` | improve-skill plan index (waves 001–008, 009–035, 036 + 613–621) — see [plans.md](./plans.md) |
 
 ## Documentation map
 
@@ -203,6 +207,19 @@ built-in LLM with no cloud dependencies.
   the previous dispatcher eagerly, and silence (`onSilence`) cleans up only
   unconsumed entries. Regressing to latest-binding loses replies when a
   later message is silenced (live-verified silent loss, incident 12:01).
+- **Outbound quote-replies anchor to the member's message** (Plan 616):
+  `ctx.messageId` (the inbound being answered) takes priority over
+  `quotedId` (the member's quote target) — without this the agent's answer
+  quotes her OWN message (live-verified).
+- **Engine failure looks like silence — group turns fail closed**
+  (live-verified 2026-09-10 incident): when a local-engine call errors, a
+  group decide logs `decision=undefined path=engine-null` and silences via
+  `reason=group-fail-closed` — there is NO LLM verdict. Deterministic
+  `path=hard` / `path=reply` triggers keep delivering (they skip the
+  verdict), so an outage can silence an entire conversation invisibly.
+  Diagnose via `local-engine: … LLM error` lines; a burst of engine-null
+  decides ⇒ check the plugin-entry `llm.allowAgentIdOverride` permission
+  first (2026-09-10 root cause). Alert on engine-null counts.
 - **System fallback payloads are never captured** (Plan 540): the core can
   inject `NO_VISIBLE_REPLY_FALLBACK_TEXT` / `QUEUE_CAP_REJECTION_TEXT`
   during tool-call-turn races; `isSystemFallbackText` cancels them at
@@ -220,7 +237,7 @@ built-in LLM with no cloud dependencies.
 - Tests use inline fakes plus `test/helpers/sdk-hook-ctx.js` for SDK-shaped
   hook contexts (no shared fake-api helper).
 - Parity matrix at `test/parity-matrix.mjs` is the behavioral contract — must
-  stay fully covered (87/87; two rows are tagged `kind:"static"` — review
+  stay fully covered (108/108; two rows are tagged `kind:"static"` — review
   recommended, not a contract) before any release.
 
 ## Source map
