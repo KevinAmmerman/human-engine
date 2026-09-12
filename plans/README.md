@@ -76,6 +76,36 @@ einer bereinigten Fehler-/Sicherheits-/Perf-Basis.
 | [034](034-media-context.md) | Media-Kontext: Caption-in-Transcript + Capture-Gap-Fix + kind-gewichtete Lesezeit | P1 | S–M | 025-Report | DONE (executed+approved, 1115/0, Parity 79/79) |
 | [035](035-quote-reply-reactions.md) | Quote-Reply-Zustellung via replyToId + opt-in Reaktions-Hinweis | P2 | M | 032-Report | DONE (executed+approved, 1129/0, Parity 80/80; ctx.replyToId bevorzugt, ctx.messageId fallback) |
 
+### Wave 3 — Live-Betrieb (2026-09-10)
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| [036](036-vertical-list-formatting.md) | Inline-Pipe-Listen vertikal rendern (Schedules/Tallies) | P1 | S–M | — | DONE (executed+advisor-reviewed, worktree `/tmp/opencode/he-exec-036`, branch `advisor/036-vertical-list-formatting`, commit `c47a33c`, 1155/0, Parity 82/82; NICHT gemerged — Merge ist Operator-Entscheidung) |
+| 037 | Gruppen-Agents proaktiv nachfassen lassen (Cron-Follow-up; OpenClaw-Config) | P1 | S | — | SUPERSEDED — siehe `~/plans/612-group-agent-proactive-followup.md` (OpenClaw-/Config-Plan, nicht im public Repo) |
+| [613](613-initiative-task-engine.md) | Initiative: modulare Multi-Tenant-Task-/Memory-/Proaktivitäts-Engine | P1 | L | 036 (im Branch gemergt) | DONE (executed+advisor-reviewed, branch `advisor/613-initiative-engine`, worktree `/tmp/opencode/he-exec-613`: `d4774b1` P0, `8216180` P1+Rev, `0160d94` 036-Merge, `5129c32` P2, `a679b3c` P2-Rev, `c4eee48` P3, `d5e8490` P4; 1186/0, Parity 87/87). Feature default OFF (`initiative.enabled:false`, `shadow:true`); Live-Flip = Operator-Runbook in `wiki/operations/environment.md`. NICHT gemergt |
+| [614](614-initiative-command.md) | `/initiative`-Command (list/add/done/forget/directive) | P2 | S | 613 | DONE (executed+advisor-reviewed, `90bdc6a`, 1194/0; Command-Snapshots in `register`/`harness` aktualisiert) |
+| [615](615-humanizer-fidelity.md) | Humanizer-Treue: Split statt Rewrite (Proxy-Flip-Fix) | P1 | S–M | — | DONE (executed+advisor-reviewed, `3efa38a`, 1204/0, Parity 88/88; `isFaithfulSplit`-Guard + `requireFaithfulSplit`, `humanize.temperature` 0.9→0.3; e2e-Fixtures treu) |
+| [616](616-reply-target-anchor.md) | Reply-Anker auf Mitglieds-Nachricht statt eigene | P1 | S | — | DONE (executed+advisor-reviewed, `cfd66dc`, 1205/0; `lib/gate.js:232` Priorität `ctx.messageId` vor `quotedId`) |
+
+### Wave 4 — DM-Proaktivität: durable Open-Loop-Ledger (2026-09-11)
+
+Improve-deep-Audit des Telegram-DM-Commitment-/Proaktivitätspfads (Muster:
+Wiederholungen, Follow-up 30–45 min nach eigener Ansage, kein verlässlicher
+Open-Loop-State). Ziel: **EIN** generischer, per Agent×Scope dauerhafter
+Open-Loop-Ledger (auf `initiative-store`), den Followup-Cron, Heartbeat und
+`dm-proactive` teilen — Aktivierung deklarativ über `agentProfiles`/`scopes`,
+shadow-first, live zunächst nur hori-wa-DM. Die Config-/Workspace-Seite
+(Cron-Prompt, `erledigt_check.py`, Heartbeat, KPIs) liegt als Track 2 in
+`~/plans/635–639`.
+
+| Plan | Title | Priority | Effort | Depends on | Status |
+|------|-------|----------|--------|------------|--------|
+| [617](617-initiative-durable-open-loop-state.md) | Initiative-Store als durable Open-Loop-Ledger (Cooldown, Expiry, Shadow-Budget, stabiler topicKey) | P1 | M | — | DONE (executor+advisor-reviewed, branch `advisor/617-initiative-open-loop-ledger` @ `301764e`, 1211/0, Parity 93/93; NICHT gemergt — Merge = Operator) |
+| [618](618-ledger-read-surface-and-gate-cli-fix.md) | `followup-gate.mjs` v4-sentIds-Fix + read-only `initiative-ledger.mjs` CLI | P1 | S–M | 617 | DONE (executor+advisor-reviewed, branch `advisor/618-ledger-cli` @ `cf5d5a3`, gestapelt auf 617; 1218/0, Parity 98/98; NICHT gemergt) |
+| [619](619-dm-proactive-topic-ledger-integration.md) | dm-proactive konsumiert den Ledger (Topic-Cooldown/Attempt-Cap/agent-owed), malformed fail-closed, geteilter Outbox | P1 | L | 617, 618 | DONE (executor+advisor-reviewed, branch `advisor/619-dm-proactive-ledger` @ `06046a9`, gestapelt; 1237/0, Parity 104/104; NICHT gemergt) |
+| [620](620-memory-thread-open-loop-repair.md) | Memory/Thread-State reparieren (schemaV2-Befüllung, Thread-Status, zweiseitiger Observed-Store) | P1 | M | — | DONE (executor+advisor-reviewed, branch `advisor/620-memory-thread-open-loop-repair` @ `9092008`, gestapelt; 1246/0, Parity 107/107; NICHT gemergt. Befund: v2-Prompt fordert die Felder bereits → leere Live-Ablage = Modell-/Ingest-Regression, jetzt per Warn sichtbar) |
+| [621](621-context-hygiene-quoted-audio.md) | Kontext-Hygiene: Untrusted-Delimiter escapen + quotierte Voice-Transkripte labeln | P2 | S–M | — | DONE (executor+advisor-reviewed, branch `advisor/621-context-hygiene` @ `388a37f` (rev nach Review), gestapelt; 1256/0, Parity 108/108; NICHT gemergt) |
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
 ## Dependency notes (Wave 2)
